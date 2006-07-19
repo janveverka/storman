@@ -32,7 +32,7 @@ sub _init
   map { $self->{$_} = $h{$_}; } keys %h;
   $self->ReadConfig();
   $self->{Host} = hostname();
-  $ENV{STAGE_SVCCLASS} = $self->{CastorPool} || 't0input';
+  $ENV{STAGE_SVCCLASS} = $self->{DestinationPool} || 't0export';
 
   if ( defined($self->{Logger}) ) { $self->{Logger}->Name($self->{Name}); }
 
@@ -117,12 +117,14 @@ sub Log
 }
 
 sub got_child_stdout {
-  my ($self,$stdout) = @_[ OBJECT, ARG0 ];
+  my ($self, $heap, $stdout) = @_[ OBJECT, HEAP, ARG0 ];
+  push @{$heap->{stdout}}, $stdout;
 # $self->Quiet("STDOUT: $stdout\n");
 }
 
 sub got_child_stderr {
-  my ($self,$stderr) = @_[ OBJECT, ARG0 ];
+  my ($self, $heap, $stderr) = @_[ OBJECT, HEAP, ARG0 ];
+  push @{$heap->{stderr}}, $stderr;
   $stderr =~ tr[ -~][]cd;
   Print "STDERR: $stderr\n";
 }
@@ -158,7 +160,6 @@ sub PrepareConfigFile
                 'LocalPull' => 0,
 	      );
 
-$DB::single=1;
   if ( !defined($h->{RepackMode}) ||
        !defined($modes{$h->{RepackMode}}) )
   {
@@ -172,7 +173,14 @@ $DB::single=1;
   print  CONF "OpenFileURL = ",$h->{Target},"\n";
   foreach ( @{$h->{Files}} )
   {
-    print  CONF "IndexFile = $_\n";
+    if ( ( $self->{Host} ne $h->{Host} ) && defined($h->{IndexProtocol}) )
+    {
+      print  CONF "IndexFile = ",$h->{IndexProtocol},$h->{Host},":$_\n";
+    }
+    else
+    {
+      print  CONF "IndexFile = $_\n";
+    }
   }
   print  CONF "CloseFileURL = $h->{Target}\n";
   close CONF;
@@ -194,6 +202,12 @@ sub server_input {
     $priority = $input->{priority};
     $priority = 99 unless defined($priority);
 
+    my %h = ( MonaLisa  => 1,
+              Cluster   => 'JulyPrototype',
+              Farm      => 'Repack',
+              IdleTime	=> time - $heap->{WorkRequested}
+	    );
+    $self->Log( \%h );
     $self->Quiet("Got $command($work,$priority)...\n");
 
     my $c = $work->{work} . ' ' . $self->PrepareConfigFile($work);
@@ -263,6 +277,7 @@ sub get_work
   $self->Debug("Tasks remaining: ",$self->{MaxTasks},"\n");
   if ( $self->{MaxTasks}-- > 0 )
   {
+    $heap->{WorkRequested} = time;
     my %text = ( 'command'      => 'SendWork',
                  'client'       => $self->{Name},
                 );
@@ -291,8 +306,12 @@ sub job_done
     $h{command} = 'JobDone';
     $h{client}  = $self->{Name};
     $h{work}    = $heap->{Work}->{$h{pid}};
+    $h{stdout}  = $heap->{stdout};
+    $h{stderr}  = $heap->{stderr};
     $heap->{server}->put( \%h );
     delete $heap->{Work}->{$h{pid}};
+    delete $heap->{stdout};
+    delete $heap->{stderr};
   }
   else
   {

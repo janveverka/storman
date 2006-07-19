@@ -9,6 +9,7 @@ use T0::FileWatcher;
 use T0::Logger::Sender;
 
 our (@ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION);
+my $debug_me=1;
 
 $Data::Dumper::Terse++;
 use Carp;
@@ -54,13 +55,20 @@ sub _init
 		   client_disconnected => 'client_disconnected',
 		   	  client_error => 'client_error',
 		   	  client_input => 'client_input',
+			rotate_logfile => 'rotate_logfile',
+		      set_rotate_alarm => 'set_rotate_alarm',
 		 ],
 	],
     Args => [ $self ],
   );
 
+  if ( defined($self->{Logfile}) )
+  {
+    open STDOUT, ">>$self->{Logfile}" or die "open: $self->{Logfile}: $!\n";
+    open(STDERR,">&STDOUT") or croak "Cannot dup STDOUT: $!\n";
+  }
 # Turn off STDOUT bufferring...
-  $| = 1;
+  select(STDOUT); $|=1;
   return $self;
 }
 
@@ -109,6 +117,10 @@ sub started
               );
   $kernel->state( 'FileChanged', $self );
   $self->{Watcher} = T0::FileWatcher->new( %param );
+
+  $kernel->state( 'rotate_logfile',   $self );
+  $kernel->state( 'set_rotate_alarm', $self );
+  $kernel->yield( 'set_rotate_alarm' );
 }
 
 sub FileChanged
@@ -305,6 +317,29 @@ sub client_input
       if ( $@ ) { Carp $@,"\n"; }
     }
   }
+}
+
+sub set_rotate_alarm
+{
+  my $kernel = $_[ KERNEL ];
+  my @n = localtime;
+  my $wakeme = time + 86400 - $n[0] - 60*$n[1] - 3600*$n[2];
+  print "Set alarm for ", scalar localtime $wakeme, "\n";
+  $kernel->alarm_set( rotate_logfile => $wakeme );
+}
+
+sub rotate_logfile
+{
+  my ( $self, $kernel ) = @_[ OBJECT, KERNEL ];
+  return unless defined($self->{Logfile});
+  my $now = T0::Util::timestamp;
+  close STDOUT;
+  rename $self->{Logfile}, $self->{Logfile} . '.' . $now || 
+    Croak "Cannot rename $self->{Logfile}: $!\n";
+  open STDOUT, ">>$self->{Logfile}" or Croak "open $self->{Logfile}: $!\n";
+# open(STDERR,">&STDOUT") or Croak "Cannot dup STDOUT: $!\n";
+  select(STDOUT); $|=1;
+  $kernel->yield('set_rotate_alarm');
 }
 
 sub OnInputDefault

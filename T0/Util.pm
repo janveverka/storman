@@ -159,4 +159,21 @@ sub ReadConfig
   }
 }
 
+sub timestamp
+{
+  my ($year,$month,$day,$hour,$minute,$seconds) = @_;
+
+  my @n = localtime;
+
+  defined($year)    or $year    = $n[5] + 1900;
+  defined($month)   or $month   = $n[4] + 1;
+  defined($day)     or $day     = $n[3];
+  defined($hour)    or $hour    = $n[2];
+  defined($minute)  or $minute  = $n[1];
+  defined($seconds) or $seconds = $n[0];
+
+  sprintf("%04d%02d%02d%02d%02d%02d",
+                  $year,$month,$day,$hour,$minute,$seconds);
+}
+
 1;

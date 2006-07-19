@@ -9,6 +9,7 @@ use T0::Util;
 use T0::FileWatcher;
 
 our (@ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION);
+my $debug_me=1;
 
 use Carp;
 $VERSION = 1.00;
@@ -60,9 +61,9 @@ sub _init
 	         SegmentIsStale => 'SegmentIsStale',
 	      SegmentIsComplete => 'SegmentIsComplete',
         SegmentHasBeenProcessed => 'SegmentHasBeenProcessed',
-	        SetDatasetTimer => 'SetDatasetTimer',
+	        SetPayloadTimer => 'SetPayloadTimer',
 	         PayloadIsStale => 'PayloadIsStale',
-	      DatasetIsComplete => 'DatasetIsComplete',
+	      PayloadIsComplete => 'PayloadIsComplete',
         DatasetHasBeenProcessed => 'DatasetHasBeenProcessed',
 		 ],
 	],
@@ -106,7 +107,7 @@ sub AUTOLOAD {
   return $self->{$attr};
 }
 
-sub DatasetIsComplete
+sub PayloadIsComplete
 {
   my ( $self, $kernel, $heap ) = @_[ OBJECT, KERNEL, HEAP ];
   my ($h,$g,$l,$lid,$file,@conf,$time,$did);
@@ -117,12 +118,12 @@ sub DatasetIsComplete
   $self->Quiet("Dataset $did is complete\n");
 }
 
-sub SetDatasetTimer
+sub SetPayloadTimer
 {
   my ( $self, $kernel, $heap, $id ) = @_[ OBJECT, KERNEL, HEAP, ARG0 ];
   $self->{_queue}{$id}{Start} = time;
   my $delay = $kernel->delay_set('PayloadIsStale',$self->{DatasetTimeout},$id);
-  $self->Verbose("SetDatasetTimer: Delay ID: $delay Payload ID: $id\n");
+  $self->Verbose("SetPayloadTimer: Delay ID: $delay Payload ID: $id\n");
   $self->{dataset}{DelayID}{$id} = $delay;
 }
 
@@ -136,7 +137,6 @@ sub PayloadIsStale
   my $age = time - $x->{Start};
   $self->Quiet("Payload $id is stale (age: $age seconds)\n");
   $self->CleanupPayload($id);
-# $self->DeleteDataset($id);
 }
 
 sub CleanupPayload
@@ -149,7 +149,7 @@ sub CleanupPayload
   {
     if ( ! defined($lid) || ! defined($self->{lumi}{$lid}) )
     {
-      $DB::single=1;
+      $DB::single=$debug_me;
     }
     my $count = $self->{lumi}{$lid}{Datasets}{$did};
     $self->Quiet("Payload $id: Lumi $lid: Dataset $did: Count $count\n");
@@ -159,6 +159,11 @@ sub CleanupPayload
     {
       $self->Quiet("Payload $id: Lumi $lid: Datasets left: $i\n");
     }
+    else
+    {
+      $self->Quiet("LumiID $lid is complete, delete it!\n");
+      $self->DeleteSegment($lid);
+    }
   }
   delete $self->{_queue}{$id};
 }
@@ -167,17 +172,10 @@ sub DatasetHasBeenProcessed
 {
   my ( $self, $kernel, $heap, $did ) = @_[ OBJECT, KERNEL, HEAP, ARG0 ];
 # my $h = $self->{lumi}{$did};
-Croak "DatasetHasBeenProcessed: Not yet written...\n";
+Carp "DatasetHasBeenProcessed: Not yet written...\n";
   my ($type,$file);
   $self->Quiet("Lumi dataset $did has been processed\n");
-  $self->DeleteDataset($did);
-}
-
-sub DeleteDataset
-{
-  my ($self,$did) = @_;
-  my ($h,$type,$file);
-Croak "DeleteDataset: Not yet written...\n";
+  $self->CleanupPayload($did);
 }
 
 sub SegmentIsComplete
@@ -221,15 +219,17 @@ sub SegmentIsComplete
       foreach ( @x ) { push @{$x{Files}}, @{$self->{lumi}{$_}{Files}{idx}}; }
       $x{Dataset} = $did;
       $x{Target}  = $self->{TargetProtocol} . $self->{SelectTarget}($self) .
-			'/Export.' . $did . '.' . join('_',@x) . '.raw';
-      $x{Size} = $self->{dataset}{ID}->{$did}{Size};
-      $priority = 99; # $self->Priority(\%x); # Priority depends on dataset...
-      $x{work} = $ENV{T0ROOT} . "/src/Repack/run_repack.sh";
-      $x{RepackMode} = $self->{RepackMode};
+			"/Export.$did." . join('_',@x) . '.' . uuid . '.raw';
+      $x{Size}	= $self->{dataset}{ID}->{$did}{Size};
+      $priority	= 99; # $self->Priority(\%x); # Priority depends on dataset...
+      $x{work}	= $ENV{T0ROOT} . "/src/RepackManager/run_repack.sh";
+      $x{RepackMode}	= $self->{RepackMode};
+      $x{Host}		= $self->{Host};
+      $x{IndexProtocol}	= $self->{IndexProtocol};
       $id = $self->{Queue}->enqueue( $priority, \%x );
       $self->{_queue}{$id} = \%x;
       delete $self->{dataset}{ID}->{$did};
-      $kernel->yield( 'SetDatasetTimer', $id );
+      $kernel->yield( 'SetPayloadTimer', $id );
     }
   }
 }
@@ -278,19 +278,21 @@ sub SegmentHasBeenProcessed
 sub DeleteSegment
 {
   my ($self,$lid) = @_;
-  my ($h,$type,$file);
+  my ($h,$type,$file,$rm);
   foreach $type ( keys %{$self->{lumi}{$lid}{Files}} )
   {
     $self->Verbose("LumiID=$lid: Cleaning files of type $type\n");
     foreach $file ( @{$self->{lumi}{$lid}{Files}{$type}} )
     {
       $self->Verbose("LumiID=$lid:   Delete $file\n");
-      open RFRM, "rfrm $file 2>&1 |" or Croak "rfrm $file: $!\n";
-      while ( <RFRM> )
+      if ( $file =~ m%/castor/% ) { $rm = 'stager_rm -M'; }
+      else                        { $rm = 'rfrm'; }
+      open RM, "$rm $file 2>&1 |" or Croak "$rm $file: $!\n";
+      while ( <RM> )
       {
-        $self->Debug("RFRM $file: $_");
+        $self->Debug("RM $file: $_");
       }
-      close RFRM or $self->Debug("close RFRM $file: $!\n");
+      close RM or $self->Debug("close RM $file: $!\n");
     }
   }
   delete $self->{lumi}{$lid};
@@ -329,7 +331,7 @@ sub Clients
 
 sub GatherStatistics
 {
-Croak "GatherStatistics: Not written yet...\n";
+Carp "GatherStatistics: Not written yet...\n";
   my $self = shift;
   my $i = shift or return;
   push @{$self->{stats}}, $i;
@@ -359,9 +361,9 @@ sub _started
   $kernel->state( 'SegmentIsStale',		$self );
   $kernel->state( 'SegmentIsComplete',		$self );
   $kernel->state( 'SegmentHasBeenProcessed',	$self );
-  $kernel->state( 'SetDatasetTimer',		$self );
+  $kernel->state( 'SetPayloadTimer',		$self );
   $kernel->state( 'PayloadIsStale',		$self );
-  $kernel->state( 'DatasetIsComplete',		$self );
+  $kernel->state( 'PayloadIsComplete',		$self );
   $kernel->state( 'DatasetHasBeenProcessed',	$self );
 
   %param = ( File     => $self->{Config},
@@ -517,7 +519,7 @@ sub send_work
     ($priority, $id, $work) = $self->{Queue}->dequeue_next();
     if ( ! $id )
     {
-      $self->Quiet("Idling ",$heap->{idle}++," times\n");
+      $self->Debug("Idling ",$heap->{idle}++," times\n");
       $kernel->delay_set('send_work',7);
       return;
     }
@@ -567,28 +569,35 @@ sub client_input
 
   if ( $command =~ m%JobDone% )
   {
-$DB::single=1;
     my $work     = $input->{work};
     my $status   = $input->{status};
     my $priority = $input->{work}{priority};
     my $id       = $input->{work}{id};
     $self->Quiet("JobDone: work=$work, priority=$priority, id=$id, status=$status\n");
-    $self->CleanupPayload($id);
-#
-##   Check rate statistics from the first client onwards...
+
+#   Check rate statistics from the first client onwards...
 #    if ( !$self->{client_count}++ ) { $kernel->yield( 'set_rate' ); }
-#    $self->GatherStatistics($size);
-#    if ( $input->{target} )
-#    {
-#      my %h = (	MonaLisa	=> 1,
-#		Cluster		=> 'JulyPrototype',
-#		Farm		=> 'Repack',
-#		MBWritten	=> $size/1024/1024,
-#	      );
-#      $self->Log( \%h );
-#      my %g = ( FileReady => $input->{target}, Size => $size );
-#      $self->Log( \%g );
-#    }
+
+    $self->GatherStatistics($work);
+    if ( $work->{work}{Target} )
+    {
+      my %h = (	MonaLisa	=> 1,
+		Cluster		=> 'JulyPrototype',
+		Farm		=> 'Repack',
+		QueueLength	=> scalar keys %{$self->{_queue}},
+		NRepackers	=> scalar keys %{$self->{clients}},
+		Duration	=> time - $self->{_queue}{$id}{Start},
+	      );
+      $self->Log( \%h );
+      my %g = ( ExportReady => $work->{work}{Target} );
+      foreach ( @{$input->{stderr}} )
+      {
+        if ( m%checksum\s+(\d+)% ) { $g{Checksum} = $1; }
+        if ( m%wrote\s+(\d+)%    ) { $g{Size} = $1; }
+      }
+      $self->Log( \%g );
+    }
+    $self->CleanupPayload($id);
   }
 
   if ( $command =~ m%Quit% )

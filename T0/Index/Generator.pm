@@ -27,8 +27,8 @@ sub _init
   map { $self->{$_} = $h{$_}; } keys %h;
   $self->ReadConfig($self->{Config});
 
-  chdir ($self->{OutputDir}) or Croak "chdir: ",$self->{OutputDir},": $!\n";
-  $self->{OutputDir} = cwd();
+  chdir ($self->{IndexDir}) or Croak "chdir: ",$self->{IndexDir},": $!\n";
+  $self->{IndexDir} = cwd();
   $self->{Host} = hostname();
   return $self;
 }
@@ -50,7 +50,7 @@ sub Options
   map { $self->{$_} = $h{$_}; } keys %h;
 }
 
-our @attrs = ( qw/ Protocol OutputDir Name Host Verbose Quiet Debug
+our @attrs = ( qw/ RawFileProtocol IndexDir Name Host Verbose Quiet Debug
                 EventSizeMin EventSizeMax EventSizeStep EventSizeTable / );
 our %ok_field;
 for my $attr ( @attrs ) { $ok_field{$attr}++; }
@@ -72,8 +72,8 @@ sub ReadConfig
   my $file = $self->{Config} or return;
   T0::Util::ReadConfig( $self );
 
-  $self->{OutputDir} = '.' unless defined($self->{OutputDir});
-  $self->{Protocol}  = ''  unless defined($self->{Protocol});
+  $self->{IndexDir} = '.' unless defined($self->{IndexDir});
+  $self->{RawFileProtocol}  = ''  unless defined($self->{RawFileProtocol});
 }
 
 sub Generate
@@ -85,7 +85,7 @@ sub Generate
   $file = $h{file};
 
   $self->Quiet("Generate index for: $file\n");
-  $protocol = $self->{Protocol} or '';
+  $protocol = $self->{RawFileProtocol} or '';
   if ( $protocol && $protocol !~ m%:$% ) { $protocol .= ':'; }
   if ( !($fsize = $h{size}) )
   {
@@ -110,7 +110,7 @@ sub Generate
   s%raw%idx%gi;
   s%dat%idx%gi;
   if ( ! m%idx$% ) { $_ .= '.idx'; }
-  $index = $self->{OutputDir} . '/' . $_;
+  $index = $self->{IndexDir} . '/' . $_;
   $self->Verbose("  Index file: $index\n");
 
   $offset = 0;
