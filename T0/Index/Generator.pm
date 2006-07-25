@@ -27,6 +27,10 @@ sub _init
   map { $self->{$_} = $h{$_}; } keys %h;
   $self->ReadConfig($self->{Config});
 
+  $self->{SvcClass} = $self->{SvcClass}		||
+		      $StorageManager::Worker{SvcClass}	||
+		      't0input';
+
   chdir ($self->{IndexDir}) or Croak "chdir: ",$self->{IndexDir},": $!\n";
   $self->{IndexDir} = cwd();
   $self->{Host} = hostname();
@@ -51,7 +55,8 @@ sub Options
 }
 
 our @attrs = ( qw/ RawFileProtocol IndexDir Name Host Verbose Quiet Debug
-                EventSizeMin EventSizeMax EventSizeStep EventSizeTable / );
+                EventSizeMin EventSizeMax EventSizeStep EventSizeTable
+		InputSvcClass OutputSvcClass / );
 our %ok_field;
 for my $attr ( @attrs ) { $ok_field{$attr}++; }
 
@@ -115,6 +120,10 @@ sub Generate
 
   $offset = 0;
   open INDEX, "> $index" or Croak "open: $index: $!\n";
+  if ( $protocol eq 'rfio:' && $file =~ m%^/castor% )
+  {
+    $protocol = "rfio:///?svcClass=" . $self->{SvcClass} . "&path=";
+  }
   print INDEX "FileURL = $protocol$file\n";
 
   while ( $fsize > $self->{EventSizeMax} )

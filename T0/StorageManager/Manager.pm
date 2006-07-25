@@ -197,6 +197,7 @@ sub set_rate
 		Target	 => $r,
 		Percent	 => $x,
 		Readings => $i,
+		NWorkers => scalar keys %{$self->{clients}},
 	  );
   $self->Log( \%h );
   $s = $self->{Worker}->{Interval};
@@ -213,6 +214,8 @@ sub set_rate
     $se = ($se+3*$self->{Worker}->{Interval})/4;
   }
   $se = int($se*100)/100;
+
+  if ( $re/$r > 1.1 && $se < 1 ) { $se = 1; } # don't get stuck at zero!
   Print "Old interval: $s, new interval $se\n";
   $self->{Worker}->{Interval} = $se;
 }
@@ -260,7 +263,6 @@ sub build_queue
 
   my @q;
   $self->Debug("build_queue...\n");
-$DB::single=1;
   open LIST, $self->{SourceFiles} or
 	Croak "open: ",$self->{SourceFiles},": $!\n";
   chomp ( @q  = grep {!/^#/} <LIST> );
@@ -319,11 +321,6 @@ sub file_changed
   $self->Quiet("Configuration file \"$self->{Config}\" has changed.\n");
   $self->ReadConfig();
   $kernel->yield( 'send_setup' );
-}
-
-sub open
-{
-$DB::single=1;
 }
 
 sub ReadConfig
@@ -446,7 +443,7 @@ sub send_work
     
     $target = $self->{SelectTarget}($self);
 
-    my ($lumi,$sminst,$smtot,$uuid);
+    my ($lumi,$sminst,$smtot,$uuid,$base);
     $lumi   = $self->{LumiID}      ||  0;
     $sminst = $self->{SMInst}++    ||  0;
     $smtot  = $self->{SMInstances} || 10;
@@ -457,6 +454,22 @@ sub send_work
       $self->{LumiID} = ++$lumi;
     }
     $uuid = uuid();
+
+    if ( $self->{FilesPerDir} )
+    {
+      if ( ! defined($self->{file_count}) or
+	     $self->{file_count}++ >= $self->{FilesPerDir} )
+      {
+        $self->{file_count} = 1;
+        $self->{base}++;
+        $self->{base_dir} = sprintf("%07i",$self->{base});
+        my $d = $target . '/' . $self->{base_dir};
+        open NSMKDIR, "nsmkdir -p $d |" or warn "nsmkdir: $d: $!\n";
+        while ( <NSMKDIR> ) { $self->Debug($_); }
+        close NSMKDIR or warn "close nsmkdir: $d: $!\n";
+      }
+      $target .= '/' . $self->{base_dir};
+    }
     $target = $target . "/RAW.$lumi.$sminst.$smtot.$uuid.raw";
 
     my $x = $size;
@@ -547,7 +560,7 @@ sub client_input
 		MBWritten	=> $size/1024/1024,
 	      );
       $self->Log( \%h );
-      my %g = ( FileReady => $input->{target}, Size => $size );
+      my %g = ( InputReady => $input->{target}, Size => $size );
       $self->Log( \%g );
     }
   }

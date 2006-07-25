@@ -32,7 +32,6 @@ sub _init
   map { $self->{$_} = $h{$_}; } keys %h;
   $self->ReadConfig();
   $self->{Host} = hostname();
-  $ENV{STAGE_SVCCLASS} = $self->{DestinationPool} || 't0export';
 
   if ( defined($self->{Logger}) ) { $self->{Logger}->Name($self->{Name}); }
 
@@ -170,7 +169,12 @@ sub PrepareConfigFile
   Print "Creating \"$conf\"\n";
   open CONF, ">$conf" or die "open: $conf: $!\n";
   print CONF "SelectStream = ",$h->{Dataset},"\n";
-  print  CONF "OpenFileURL = ",$h->{Target},"\n";
+  my $protocol = $h->{Protocol};
+  if ( $protocol eq 'rfio:' && $h->{Target} =~ m%^/castor% )
+  {
+    $protocol = "rfio:///?svcClass=" . $self->{SvcClass} . "&path=";
+  }
+  print  CONF "OpenFileURL = $protocol$h->{Target}\n";
   foreach ( @{$h->{Files}} )
   {
     if ( ( $self->{Host} ne $h->{Host} ) && defined($h->{IndexProtocol}) )
@@ -182,7 +186,7 @@ sub PrepareConfigFile
       print  CONF "IndexFile = $_\n";
     }
   }
-  print  CONF "CloseFileURL = $h->{Target}\n";
+  print  CONF "CloseFileURL = $protocol$h->{Target}\n";
   close CONF;
   return $conf;
 }

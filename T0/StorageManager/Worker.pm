@@ -32,7 +32,7 @@ sub _init
   map { $self->{$_} = $h{$_}; } keys %h;
   $self->ReadConfig();
   $self->{Host} = hostname();
-  $ENV{STAGE_SVCCLASS} = $self->{CastorPool} || 't0input';
+  $ENV{STAGE_SVCCLASS} = $self->{SvcClass} || 't0input';
 
   if ( defined($self->{Logger}) ) { $self->{Logger}->Name($self->{Name}); }
 

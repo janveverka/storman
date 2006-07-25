@@ -35,6 +35,12 @@ sub _init
   $self->ReadConfig();
   check_host( $self->{Host} ); 
 
+  foreach ( qw / DeleteIndexFiles DeleteRawFiles
+		 SegmentTimeout DatasetTimeout / )
+  {
+    $self->{$_} = 0 unless defined $self->{$_};
+  }
+
   Croak "Undefined operation mode\n" unless defined $self->{RepackMode};
 
   POE::Component::Server::TCP->new
@@ -57,6 +63,7 @@ sub _init
 		     send_start => 'send_start',
 		   file_changed => 'file_changed',
 		      broadcast	=> 'broadcast',
+		     check_rate	=> 'check_rate',
 	        SetSegmentTimer => 'SetSegmentTimer',
 	         SegmentIsStale => 'SegmentIsStale',
 	      SegmentIsComplete => 'SegmentIsComplete',
@@ -122,6 +129,7 @@ sub SetPayloadTimer
 {
   my ( $self, $kernel, $heap, $id ) = @_[ OBJECT, KERNEL, HEAP, ARG0 ];
   $self->{_queue}{$id}{Start} = time;
+  return unless $self->{DatasetTimeout};
   my $delay = $kernel->delay_set('PayloadIsStale',$self->{DatasetTimeout},$id);
   $self->Verbose("SetPayloadTimer: Delay ID: $delay Payload ID: $id\n");
   $self->{dataset}{DelayID}{$id} = $delay;
@@ -218,7 +226,8 @@ sub SegmentIsComplete
       $x{Segments} = \@x;
       foreach ( @x ) { push @{$x{Files}}, @{$self->{lumi}{$_}{Files}{idx}}; }
       $x{Dataset} = $did;
-      $x{Target}  = $self->{TargetProtocol} . $self->{SelectTarget}($self) .
+      $x{Protocol}  = $self->{TargetProtocol};
+      $x{Target}  = $self->{SelectTarget}($self) .
 			"/Export.$did." . join('_',@x) . '.' . uuid . '.raw';
       $x{Size}	= $self->{dataset}{ID}->{$did}{Size};
       $priority	= 99; # $self->Priority(\%x); # Priority depends on dataset...
@@ -238,6 +247,7 @@ sub SetSegmentTimer
 {
   my ( $self, $kernel, $heap, $lid ) = @_[ OBJECT, KERNEL, HEAP, ARG0 ];
   return if exists $self->{lumi}{$lid}{DelayID};
+  return unless $self->{SegmentTimeout};
   my $delay = $kernel->delay_set('SegmentIsStale',$self->{SegmentTimeout},$lid);
   $self->Verbose("Delay ID: $delay LumiID: $lid\n");
   $self->{lumi}{$lid}{DelayID} = $delay;
@@ -279,8 +289,19 @@ sub DeleteSegment
 {
   my ($self,$lid) = @_;
   my ($h,$type,$file,$rm);
+  if ( !$self->{CleanInputBuffer} )
+  {
+    delete $self->{lumi}{$lid}{Files}{RAW};
+  }
+
   foreach $type ( keys %{$self->{lumi}{$lid}{Files}} )
   {
+    if ( ( $type =~ m%idx%i && $self->{DeleteIndexFiles} ) ||
+         ( $type =~ m%raw%i && $self->{DeleteRawFiles} ) )
+    {
+      $self->Verbose("Not deleting \"$type\" files for segment $lid\n");
+      next;
+    }
     $self->Verbose("LumiID=$lid: Cleaning files of type $type\n");
     foreach $file ( @{$self->{lumi}{$lid}{Files}{$type}} )
     {
@@ -329,9 +350,33 @@ sub Clients
   return keys %{$self->{clients}};
 }
 
+sub check_rate
+{
+  my ( $self, $kernel, $heap, $session ) = @_[  OBJECT, KERNEL, HEAP, SESSION ];
+  $self->{StatisticsInterval} = 60 unless defined($self->{StatisticsInterval});
+  $kernel->delay_set( 'check_rate', $self->{StatisticsInterval} );
+
+  my ($i,$sum,$s,%h);
+  $s = $self->{StatisticsInterval};
+  $i = $sum = 0;
+  while ( $_ = shift @{$self->{stats}} )
+  {
+    $sum+= $_;
+    $i++;
+  }
+  $sum = int($sum*100/1024/1024)/100;
+  $self->Debug("$sum MB in $s seconds, $i readings\n");
+  %h = (     MonaLisa => 1,
+             Cluster  => 'JulyPrototype',
+             Farm     => 'Repack',
+             Rate     => $sum/$s,
+             Readings => $i,
+       );
+  $self->Log( \%h );
+}
+
 sub GatherStatistics
 {
-Carp "GatherStatistics: Not written yet...\n";
   my $self = shift;
   my $i = shift or return;
   push @{$self->{stats}}, $i;
@@ -576,9 +621,8 @@ sub client_input
     $self->Quiet("JobDone: work=$work, priority=$priority, id=$id, status=$status\n");
 
 #   Check rate statistics from the first client onwards...
-#    if ( !$self->{client_count}++ ) { $kernel->yield( 'set_rate' ); }
+    if ( !$self->{client_count}++ ) { $kernel->yield( 'check_rate' ); }
 
-    $self->GatherStatistics($work);
     if ( $work->{work}{Target} )
     {
       my %h = (	MonaLisa	=> 1,
@@ -586,16 +630,21 @@ sub client_input
 		Farm		=> 'Repack',
 		QueueLength	=> scalar keys %{$self->{_queue}},
 		NRepackers	=> scalar keys %{$self->{clients}},
-		Duration	=> time - $self->{_queue}{$id}{Start},
 	      );
+      if ( exists($self->{_queue}{$id}{Start}) )
+      {
+        $h{Duration} = time - $self->{_queue}{$id}{Start};
+      }
       $self->Log( \%h );
       my %g = ( ExportReady => $work->{work}{Target} );
+      my $size;
       foreach ( @{$input->{stderr}} )
       {
         if ( m%checksum\s+(\d+)% ) { $g{Checksum} = $1; }
-        if ( m%wrote\s+(\d+)%    ) { $g{Size} = $1; }
+        if ( m%wrote\s+(\d+)%    ) { $g{Size} = $size = $1; }
       }
       $self->Log( \%g );
+      $self->GatherStatistics($size) if defined($size);
     }
     $self->CleanupPayload($id);
   }
