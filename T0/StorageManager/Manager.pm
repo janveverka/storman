@@ -215,7 +215,7 @@ sub set_rate
   }
   $se = int($se*100)/100;
 
-  if ( $re/$r > 1.1 && $se < 1 ) { $se = 1; } # don't get stuck at zero!
+  if ( $r/$re > 1.1 && $se < 1 ) { $se = 1; } # don't get stuck at zero!
   Print "Old interval: $s, new interval $se\n";
   $self->{Worker}->{Interval} = $se;
 }
