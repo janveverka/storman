@@ -153,8 +153,7 @@ sub set_rate
 
   $kernel->delay( 'set_rate', $self->{StatisticsInterval} );
   $r = $self->{TargetRate};
-  return unless defined($r);
-  Print "Checking rate wrt $r MB/s\n";
+  Print "Checking rate wrt $r MB/s\n" if defined($r);
   
   $sum = $i = 0;
   while ( $_ = shift @{$self->{stats}} )
@@ -184,11 +183,16 @@ sub set_rate
   $re = $sum/$s;
 
   my ($x,$stable,$repcnt);
-  $x = ($r>$re) ? $r/$re : $re/$r;
-  $x = int(10000*($x-1))/100;
+  if ( defined($r) )
+  {
+    $x = ($r>$re) ? $r/$re : $re/$r;
+    $x = int(10000*($x-1))/100;
+  }
+  else { $x = $r = 0; }
   $repcnt = int(100*$re)/100;
   $stable = 0;
-  if ( $x < $self->{RateTolerance} ) { $stable = 1; }
+  if ( defined($self->{RateTolerance}) && $x < $self->{RateTolerance} )
+  { $stable = 1; }
   Print "Rate: $repcnt ($x% off wrt $r, $i readings)",($stable ? " STABLE":''),"\n";
   my %h = (	MonaLisa => 1,
 		Cluster	 => $T0::System{Name},
@@ -200,6 +204,9 @@ sub set_rate
 		NWorkers => scalar keys %{$self->{clients}},
 	  );
   $self->Log( \%h );
+
+# Now check the rate against the desired rate, if one was set!
+  return unless defined($r);
   $s = $self->{Worker}->{Interval};
   $se = $s * $re/$r;
   $smax = $self->{RateStep} || 10; # maximum hike in rate...
@@ -216,6 +223,16 @@ sub set_rate
   $se = int($se*100)/100;
 
   if ( $r/$re > 1.1 && $se < 1 ) { $se = 1; } # don't get stuck at zero!
+  if ( defined($self->{IntervalMin}) && $se < $self->{IntervalMin} )
+  {
+    $self->Verbose("Interval pinned at lower boundary\n");
+    $se = $self->{IntervalMin};
+  }
+  if ( defined($self->{IntervalMax}) && $se > $self->{IntervalMax} )
+  {
+    $self->Verbose("Interval pinned at upper boundary\n");
+    $se = $self->{IntervalMax};
+  }
   Print "Old interval: $s, new interval $se\n";
   $self->{Worker}->{Interval} = $se;
 }
@@ -464,9 +481,9 @@ sub send_work
         $self->{base}++;
         $self->{base_dir} = sprintf("%07i",$self->{base});
         my $d = $target . '/' . $self->{base_dir};
-        open RFMKDIR, "rfmkdir -p $d |" or warn "rfmkdir: $d: $!\n";
-        while ( <RFMKDIR> ) { $self->Debug($_); }
-        close RFMKDIR or warn "close rfmkdir: $d: $!\n";
+        open NSMKDIR, "nsmkdir -p $d |" or warn "nsmkdir: $d: $!\n";
+        while ( <NSMKDIR> ) { $self->Debug($_); }
+        close NSMKDIR or warn "close nsmkdir: $d: $!\n";
       }
       $target .= '/' . $self->{base_dir};
     }
