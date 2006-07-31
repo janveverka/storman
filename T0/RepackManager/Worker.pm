@@ -207,7 +207,7 @@ sub server_input {
     $priority = 99 unless defined($priority);
 
     my %h = ( MonaLisa  => 1,
-              Cluster   => 'JulyPrototype',
+	      Cluster	=> $T0::System{Name},
               Farm      => 'Repack',
               IdleTime	=> time - $heap->{WorkRequested}
 	    );

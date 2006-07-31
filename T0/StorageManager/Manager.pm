@@ -191,7 +191,7 @@ sub set_rate
   if ( $x < $self->{RateTolerance} ) { $stable = 1; }
   Print "Rate: $repcnt ($x% off wrt $r, $i readings)",($stable ? " STABLE":''),"\n";
   my %h = (	MonaLisa => 1,
-		Cluster	 => 'JulyPrototype',
+		Cluster	 => $T0::System{Name},
 		Farm	 => 'StorageManager',
 		Rate	 => $re,
 		Target	 => $r,
@@ -555,7 +555,7 @@ sub client_input
     if ( $input->{target} )
     {
       my %h = (	MonaLisa	=> 1,
-		Cluster		=> 'JulyPrototype',
+		Cluster		=> $T0::System{Name},
 		Farm		=> 'StorageManager',
 		MBWritten	=> $size/1024/1024,
 	      );

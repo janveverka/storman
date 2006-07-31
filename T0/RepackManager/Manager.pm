@@ -367,7 +367,7 @@ sub check_rate
   $sum = int($sum*100/1024/1024)/100;
   $self->Debug("$sum MB in $s seconds, $i readings\n");
   %h = (     MonaLisa => 1,
-             Cluster  => 'JulyPrototype',
+	     Cluster  => $T0::System{Name},
              Farm     => 'Repack',
              Rate     => $sum/$s,
              Readings => $i,
@@ -626,7 +626,7 @@ sub client_input
     if ( $work->{work}{Target} )
     {
       my %h = (	MonaLisa	=> 1,
-		Cluster		=> 'JulyPrototype',
+		Cluster		=> $T0::System{Name},
 		Farm		=> 'Repack',
 		QueueLength	=> scalar keys %{$self->{_queue}},
 		NRepackers	=> scalar keys %{$self->{clients}},
