@@ -121,9 +121,13 @@ sub Generate
   $offset = 0;
   open INDEX, "> $index" or Croak "open: $index: $!\n";
   if ( $protocol eq 'rfio:' && $file =~ m%^/castor% )
-  {
-    $protocol = "rfio:///?svcClass=" . $self->{SvcClass} . "&path=";
-  }
+    {
+      $protocol = "rfio:///?svcClass=" . $self->{SvcClass} . "&path=";
+    }
+  else
+    {
+      $protocol = "rfio:";
+    }
   print INDEX "FileURL = $protocol$file\n";
 
   while ( $fsize > $self->{EventSizeMax} )

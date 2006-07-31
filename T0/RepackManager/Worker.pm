@@ -171,9 +171,14 @@ sub PrepareConfigFile
   print CONF "SelectStream = ",$h->{Dataset},"\n";
   my $protocol = $h->{Protocol};
   if ( $protocol eq 'rfio:' && $h->{Target} =~ m%^/castor% )
-  {
-    $protocol = "rfio:///?svcClass=" . $self->{SvcClass} . "&path=";
-  }
+    {
+      $protocol = "rfio:///?svcClass=" . $self->{SvcClass} . "&path=";
+    }
+  else
+    {
+      $protocol = "rfio:";
+    }
+
   print  CONF "OpenFileURL = $protocol$h->{Target}\n";
   foreach ( @{$h->{Files}} )
   {
