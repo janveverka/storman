@@ -481,9 +481,9 @@ sub send_work
         $self->{base}++;
         $self->{base_dir} = sprintf("%07i",$self->{base});
         my $d = $target . '/' . $self->{base_dir};
-        open NSMKDIR, "nsmkdir -p $d |" or warn "nsmkdir: $d: $!\n";
-        while ( <NSMKDIR> ) { $self->Debug($_); }
-        close NSMKDIR or warn "close nsmkdir: $d: $!\n";
+        open RFMKDIR, "rfmkdir -p $d |" or warn "rfmkdir: $d: $!\n";
+        while ( <RFMKDIR> ) { $self->Debug($_); }
+        close RFMKDIR or warn "close rfmkdir: $d: $!\n";
       }
       $target .= '/' . $self->{base_dir};
     }
