@@ -227,8 +227,11 @@ sub SegmentIsComplete
       foreach ( @x ) { push @{$x{Files}}, @{$self->{lumi}{$_}{Files}{idx}}; }
       $x{Dataset} = $did;
       $x{Protocol}  = $self->{TargetProtocol};
-      $x{Target}  = $self->{SelectTarget}($self) .
-			"/Export.$did." . join('_',@x) . '.' . uuid . '.raw';
+      $x{Target}  = $self->{SelectTarget}($self);
+      if ( $x{Target} ne '/dev/null' )
+      {
+        $x{Target}  .= "/Export.$did." . join('_',@x) . '.' . uuid . '.raw';
+      }
       $x{Size}	= $self->{dataset}{ID}->{$did}{Size};
       $priority	= 99; # $self->Priority(\%x); # Priority depends on dataset...
       $x{work}	= $ENV{T0ROOT} . "/src/RepackManager/run_repack.sh";
