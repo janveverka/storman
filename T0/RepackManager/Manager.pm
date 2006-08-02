@@ -169,7 +169,7 @@ sub CleanupPayload
     }
     else
     {
-      $self->Quiet("LumiID $lid is complete, delete it!\n");
+      $self->Quiet("LumiID $lid is complete, can delete it!\n");
       $self->DeleteSegment($lid);
     }
   }
@@ -292,15 +292,11 @@ sub DeleteSegment
 {
   my ($self,$lid) = @_;
   my ($h,$type,$file,$rm);
-  if ( !$self->{CleanInputBuffer} )
-  {
-    delete $self->{lumi}{$lid}{Files}{RAW};
-  }
 
   foreach $type ( keys %{$self->{lumi}{$lid}{Files}} )
   {
-    if ( ( $type =~ m%idx%i && $self->{DeleteIndexFiles} ) ||
-         ( $type =~ m%raw%i && $self->{DeleteRawFiles} ) )
+    if ( ( $type =~ m%idx%i && !$self->{DeleteIndexFiles} ) ||
+         ( $type =~ m%raw%i && !$self->{DeleteRawFiles} ) )
     {
       $self->Verbose("Not deleting \"$type\" files for segment $lid\n");
       next;
@@ -579,7 +575,16 @@ sub send_work
 	    'priority'	=> $priority,
 	    'id'	=> $id,
            );
-  $heap->{client}->put( \%text );
+  eval
+  {
+    $heap->{client}->put( \%text );
+  };
+  if ( $@ )
+  {
+    Print "$client: Error sending work: $@\n";
+    delete $heap->{client};
+    $self->RemoveClient($client);
+  }
 }
 
 sub _client_input { reroute_event( (caller(0))[3], @_ ); }
