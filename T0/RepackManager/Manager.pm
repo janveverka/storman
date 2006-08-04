@@ -193,8 +193,6 @@ sub SegmentIsComplete
   $self->Quiet("Lumi segment $lid is complete\n");
 
 # Now to extract the dataset pieces, and see what can be processed!
-# For now, fake it with a timer...
-# $kernel->delay_set( 'SegmentHasBeenProcessed', 5, $lid );
   foreach $file ( @{$self->{lumi}{$lid}{Files}{idx}} )
   {
     open IDX, "<$file" or Croak "open $file: $!\n";
@@ -275,7 +273,16 @@ sub SegmentHasBeenProcessed
   my ( $self, $kernel, $heap, $lid ) = @_[ OBJECT, KERNEL, HEAP, ARG0 ];
   my $h = $self->{lumi}{$lid};
   my ($type,$file);
-  $self->Quiet("Lumi segment $lid has been processed\n");
+
+Croak "Do I ever get here...?\n";
+  my $latency = time - $self->{lumi}{$lid}{Start};
+  $self->Quiet("Lumi segment $lid has been processed, latency $latency\n");
+  my %t = ( MonaLisa	=> 1,
+	    Cluster	=> $T0::System{Name},
+	    Farm	=> 'Repack',
+	    LumiLatency	=> $latency,
+	  );
+  $self->Log( \%t );
   $self->DeleteSegment($lid);
   my @a = sort { $a <=> $b } keys %{$self->{lumi}};
   if ( scalar @a )
@@ -292,6 +299,15 @@ sub DeleteSegment
 {
   my ($self,$lid) = @_;
   my ($h,$type,$file,$rm);
+
+  my $latency = time - $self->{lumi}{$lid}{Start};
+  $self->Quiet("Lumi segment $lid, latency $latency\n");
+  my %t = ( MonaLisa	=> 1,
+	    Cluster	=> $T0::System{Name},
+	    Farm	=> 'Repack',
+	    LumiLatency	=> $latency,
+	  );
+  $self->Log( \%t );
 
   foreach $type ( keys %{$self->{lumi}{$lid}{Files}} )
   {
@@ -553,7 +569,13 @@ sub send_work
 	        'interval'	=> $self->{Worker}->{Interval},
               );
       map { $text{$_} = $work->{$_} } keys %$work;
-      $heap->{client}->put( \%text );
+      eval { $heap->{client}->put( \%text ); };
+      if ( $@ )
+      {
+        Print "$client: Error sending work: $@\n";
+        delete $heap->{client};
+        $self->RemoveClient($client);
+      }
       return;
     }
     $heap->{idle} = 0;
@@ -575,10 +597,7 @@ sub send_work
 	    'priority'	=> $priority,
 	    'id'	=> $id,
            );
-  eval
-  {
-    $heap->{client}->put( \%text );
-  };
+  eval { $heap->{client}->put( \%text ); };
   if ( $@ )
   {
     Print "$client: Error sending work: $@\n";

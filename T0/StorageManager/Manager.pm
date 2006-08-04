@@ -206,7 +206,7 @@ sub set_rate
   $self->Log( \%h );
 
 # Now check the rate against the desired rate, if one was set!
-  return unless defined($r);
+  return unless $r;
   $s = $self->{Worker}->{Interval};
   $se = $s * $re/$r;
   $smax = $self->{RateStep} || 10; # maximum hike in rate...
@@ -495,7 +495,7 @@ sub send_work
     {
       Croak "$x bytes is smaller than the smallest file! (",$s[-1],")\n";
     }
-    while ( $x > 0 )
+    while ( $x > 0 && $x > $s[-1] )
     {
       foreach ( @s )
       {
@@ -507,6 +507,7 @@ sub send_work
         }
       }
     }
+    $size -= $x;
     $work = "cat " . join(' ',@files) . " | " .
 		 $self->{CopySource} . " - $target";
     $priority = 1;
