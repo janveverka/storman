@@ -292,7 +292,7 @@ sub build_queue
     if ( ! exists($q{$_}) )
     {
       $self->Quiet("Tell clients about \"$_\"...\n");
-      $kernel->yield('broadcast', [ $self->{CopySource} . " $_ .", 0 ] );
+      $kernel->yield('broadcast', [ "rfcp $_ .", 0 ] );
       $q{$_}++;
     }
   }
@@ -419,7 +419,7 @@ sub send_start
   foreach ( @queue )
   {
     $self->Quiet("$client: Queue $_\n");
-    $q->enqueue(0,$self->{CopySource} . " $_ .");
+    $q->enqueue(0, "rfcp $_ .");
   }
   %text = ( 'command' => 'Start',);
   $heap->{client}->put( \%text );
@@ -508,8 +508,7 @@ sub send_work
       }
     }
     $size -= $x;
-    $work = "cat " . join(' ',@files) . " | " .
-		 $self->{CopySource} . " - $target";
+    $work = "cat " . join(' ',@files) . " | rfcp - $target";
     $priority = 1;
   }
   $self->Quiet("Send: work=$work, priority=$priority to $client\n");

@@ -110,7 +110,6 @@ sub RecoIsPending
 {
   my ( $self, $kernel, $heap, $work ) = @_[ OBJECT, KERNEL, HEAP, ARG0 ];
 
-$DB::single=$debug_me;
   my ($priority, $id);
   $priority = 99;
   $work->{work} = $ENV{T0ROOT} . "/src/PromptReconstruction/run_reco.sh";
@@ -404,7 +403,7 @@ $DB::single=$debug_me;
     {
       %text = ( 'command'	=> 'Sleep',
                 'client'	=> $client,
-		'wait'		=> 10,
+		'wait'		=> $self->{Backoff} || 10,
 	      );
       $heap->{client}->put( \%text );
       return;
@@ -429,6 +428,7 @@ sub client_input
 
   $command = $input->{command};
   $client = $input->{client};
+$DB::single=$debug_me;
 
   if ( $command =~ m%HelloFrom% )
   {

@@ -527,7 +527,7 @@ sub send_setup
   my %text = ( 'command' => 'Setup',
                'setup'   => \%Repack::Worker,
              );
-  $kernel->yield('broadcast', [ \%text, 0 ] );
+  $heap->{client}->put( \%text );
 }
 
 sub send_start
@@ -537,12 +537,6 @@ sub send_start
   $client = $heap->{client_name};
   $self->Quiet("Send: Start to $client\n");
 
-#  my $q = $self->Queue($client);
-#  foreach ( @queue )
-#  {
-#    $self->Quiet("$client: Queue $_\n");
-#    $q->enqueue(0,$self->{CopySource} . " $_ .");
-#  }
   %text = ( 'command' => 'Start',);
   $heap->{client}->put( \%text );
 }
@@ -612,10 +606,7 @@ sub client_input
   my ( $self, $kernel, $heap, $session, $input ) =
 		@_[ OBJECT, KERNEL, HEAP, SESSION, ARG0 ];
   my ( $command, $client );
-#
-#  $self->{call_count} = 0 unless defined($self->{call_count});
-#  $kernel->call( $session->ID, 'started' ) unless $self->{call_count}++;
-#
+
   $command = $input->{command};
   $client = $input->{client};
 

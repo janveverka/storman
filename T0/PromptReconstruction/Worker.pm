@@ -155,8 +155,8 @@ sub got_sigchld
 sub PrepareConfigFile
 {
   my ($self,$h) = @_;
-Carp "PrepareConfigFile: Not written yet...\n";
-return;
+# "PrepareConfigFile: Not written yet...\n";
+return $h->{File};
 
   my %modes = ( 'Classic' => 0,
 		'LocalPush' => 0,
@@ -213,6 +213,7 @@ $DB::single=$debug_me;
 
   if ( $command =~ m%DoThis% )
   {
+    $self->{MaxTasks}--;
     $work     = $input->{work};
     $priority = $input->{priority};
     $priority = 99 unless defined($priority);
@@ -290,13 +291,17 @@ sub get_work
   }
 
   $self->Debug("Tasks remaining: ",$self->{MaxTasks},"\n");
-  if ( $self->{MaxTasks}-- > 0 )
+  if ( $self->{MaxTasks} > 0 )
   {
     $heap->{WorkRequested} = time;
     my %text = ( 'command'      => 'SendWork',
                  'client'       => $self->{Name},
                 );
     $heap->{server}->put( \%text );
+  }
+  else
+  {
+    die "This is not a good way to go...\n";
   }
 }
 

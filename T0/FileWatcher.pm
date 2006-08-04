@@ -30,6 +30,7 @@ sub _init
   {
     map { $self->{$_} = $FileWatcher::Params{$_}; } keys %FileWatcher::Params;
   }
+  $self->{Interval} = 10 unless defined $self->{Interval};
 
   POE::Session->create
   (

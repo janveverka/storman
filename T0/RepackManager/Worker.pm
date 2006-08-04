@@ -240,7 +240,6 @@ sub server_input {
     $setup = $input->{setup};
     $self->{Debug} && dump_ref($setup);
     map { $self->{$_} = $setup->{$_} } keys %$setup;
-    $kernel->yield('get_work');
     return;
   }
 
