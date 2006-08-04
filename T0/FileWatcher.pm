@@ -94,10 +94,19 @@ sub AddClient
 {
   my $self = shift;
   my $h = @_ ? { @_ } : $self;
-  $self->Verbose(": Adding client=",$h->{Client},
+  if ( $h->{Client} )
+  {
+    $self->Verbose(": Adding client=",$h->{Client},
 			 " event=",$h->{Event},
 			 " file=",$self->{File},"\n");
-  $self->{clients}->{$h->{Client}} = $h->{Event};
+    $self->{clients}->{$h->{Client}} = $h->{Event};
+  }
+  else
+  {
+    $self->Verbose(": Adding function=",$h->{Function},
+                         " file=",$self->{File},"\n");
+    push @{$self->{functions}},$h->{Function};
+  }
 }
 
 sub RemoveClient
@@ -140,6 +149,10 @@ sub CheckFile
       $self->Verbose($self->{File}," changed: call $_",
 					'->{', $self->{clients}->{$_}, "}\n");
       $kernel->post( $_, $self->{clients}->{$_}, $self->{File} );
+    }
+    foreach ( @{$self->{functions}} )
+    {
+      $_->($self->{File});
     }
   }
   $kernel->delay( 'CheckFile', $self->{Interval} );

@@ -521,9 +521,9 @@ sub client_disconnected
 sub send_setup
 {
   my ( $self, $kernel, $heap ) = @_[ OBJECT, KERNEL, HEAP ];
-  my $client;
+  my $client = $heap->{client_name};
 
-  $self->Quiet("Send: Setup to all clients\n");
+  $self->Quiet("Send: Setup to $client\n");
   my %text = ( 'command' => 'Setup',
                'setup'   => \%Repack::Worker,
              );

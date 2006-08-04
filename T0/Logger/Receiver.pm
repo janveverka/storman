@@ -215,7 +215,7 @@ sub Subscribe
 	Receiver => {	Port	=> $port,
 			Host	=> $host,
 		    },
-	RetryInterval	=> $h->{RetryInterval} || 2,
+	RetryInterval	=> $h->{RetryInterval} || 0,
 	QueueEntries	=> $h->{QueueEntries}  || 0,
 	Name		=> $client,
 	);
