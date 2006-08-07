@@ -7,6 +7,7 @@ use T0::Util;
 our (@ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION);
 
 use Carp;
+use Cwd;
 $VERSION = 1.00;
 @ISA = qw/ Exporter /;
 
@@ -26,6 +27,12 @@ sub _init
   $self->{Name} = "$self";
   my %h = @_;
   map { $self->{$_} = $h{$_}; } keys %h;
+
+  if ( $self->{File} !~ m%^/% )
+  {
+    $self->{File} = cwd . '/' . $self->{File};
+  }
+
   if ( defined(%FileWatcher::Params) )
   {
     map { $self->{$_} = $FileWatcher::Params{$_}; } keys %FileWatcher::Params;
@@ -101,11 +108,23 @@ sub AddClient
 			 " file=",$self->{File},"\n");
     $self->{clients}->{$h->{Client}} = $h->{Event};
   }
-  else
+  elsif ( $h->{Function} )
   {
     $self->Verbose(": Adding function=",$h->{Function},
                          " file=",$self->{File},"\n");
     push @{$self->{functions}},$h->{Function};
+  }
+  elsif ( $h->{Object} )
+  {
+$DB::single=1;
+    $self->Verbose(": Adding object=",$h->{Object},
+                         " file=",$self->{File},"\n");
+    push @{$self->{objects}},$h->{Object};
+  }
+  else
+  {
+    $self->Quiet(": Don't know what to do with $h\n");
+    die $h;
   }
 }
 
@@ -154,6 +173,11 @@ sub CheckFile
     {
       $_->($self->{File});
     }
+$DB::single=1;
+    foreach ( @{$self->{objects}} )
+    {
+      $self->Object($_);
+    }
   }
   $kernel->delay( 'CheckFile', $self->{Interval} );
 }
@@ -165,6 +189,15 @@ sub Quit
   $kernel->delay( 'CheckFile' );
   undef $self->{Interval};
   $kernel->yield( '_stop' );
+}
+
+sub Object
+{
+$DB::single=1;
+  my ($self,$object) = @_;
+  $object->ReadConfig($self->{File});
+  $self->Interval($object->ConfigRefresh);
+  $self->File    ($object->Config);
 }
 
 1;

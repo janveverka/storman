@@ -80,7 +80,7 @@ sub Options
   map { $self->{$_} = $h{$_}; } keys %h;
 }
 
-our @attrs = ( qw/ Name Host / );
+our @attrs = ( qw/ Name Host ConfigRefresh Config / );
 our %ok_field;
 for my $attr ( @attrs ) { $ok_field{$attr}++; }
 

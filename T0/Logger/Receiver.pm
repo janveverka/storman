@@ -89,7 +89,7 @@ sub Options
   map { $self->{$_} = $h{$_}; } keys %h;
 }
 
-our @attrs = ( qw/ Host Port Name / );
+our @attrs = ( qw/ Host Port Name ConfigRefresh Config / );
 our %ok_field;
 for my $attr ( @attrs ) { $ok_field{$attr}++; }
 

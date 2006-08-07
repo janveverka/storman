@@ -25,6 +25,10 @@ sub _init
   ( $self->{Name} = __PACKAGE__ ) =~ s%T0::%%;
   my %h = @_;
   map { $self->{$_} = $h{$_}; } keys %h;
+  if ( $self->{Config} !~ m%^/% )
+  {
+    $self->{Config} = cwd . '/' . $self->{Config};
+  }
   $self->ReadConfig($self->{Config});
 
   $self->{SvcClass} = $self->{SvcClass}		||
@@ -56,7 +60,7 @@ sub Options
 
 our @attrs = ( qw/ RawFileProtocol IndexDir Name Host Verbose Quiet Debug
                 EventSizeMin EventSizeMax EventSizeStep EventSizeTable
-		InputSvcClass OutputSvcClass / );
+		InputSvcClass OutputSvcClass ConfigRefresh Config / );
 our %ok_field;
 for my $attr ( @attrs ) { $ok_field{$attr}++; }
 

@@ -157,6 +157,8 @@ sub ReadConfig
     map { $this->{$hash}->{$_} = $this->{Partners}->{$hash}->{$_} }
 			  keys %{$this->{Partners}->{$hash}};
   }
+
+  $this->{ConfigRefresh} = 10 unless $this->{ConfigRefresh};
 }
 
 sub timestamp
