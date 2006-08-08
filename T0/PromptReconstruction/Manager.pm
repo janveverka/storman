@@ -112,7 +112,7 @@ sub RecoIsPending
 
   my ($priority, $id);
   $priority = 99;
-  $work->{work} = $ENV{T0ROOT} . "/src/PromptReconstruction/run_reco.sh";
+  $work->{work} = $self->{Application};
   $id = $self->{Queue}->enqueue($priority,$work);
   $self->Quiet("Reco $id is queued for ",$work->{File},"\n");
 }
