@@ -40,7 +40,7 @@ sub _init
   {
     $self->{$_} = 0 unless defined $self->{$_};
   }
-
+  Croak "undefined Application\n" unless defined $self->{Application};
   Croak "Undefined operation mode\n" unless defined $self->{RepackMode};
 
   POE::Component::Server::TCP->new
