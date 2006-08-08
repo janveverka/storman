@@ -196,7 +196,7 @@ sub Queue
   my $self = shift;
   my $client = shift;
   if ( defined($client) ) { return $self->{clients}->{$client}; }
-  return values %{$self->{clients}};
+  return undef;
 }
 
 sub Clients

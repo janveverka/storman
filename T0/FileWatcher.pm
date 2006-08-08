@@ -116,7 +116,6 @@ sub AddClient
   }
   elsif ( $h->{Object} )
   {
-$DB::single=1;
     $self->Verbose(": Adding object=",$h->{Object},
                          " file=",$self->{File},"\n");
     push @{$self->{objects}},$h->{Object};
@@ -173,7 +172,6 @@ sub CheckFile
     {
       $_->($self->{File});
     }
-$DB::single=1;
     foreach ( @{$self->{objects}} )
     {
       $self->Object($_);
@@ -193,7 +191,6 @@ sub Quit
 
 sub Object
 {
-$DB::single=1;
   my ($self,$object) = @_;
   $object->ReadConfig($self->{File});
   $self->Interval($object->ConfigRefresh);

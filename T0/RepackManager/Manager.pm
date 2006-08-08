@@ -99,7 +99,7 @@ sub Options
   map { $self->{$_} = $h{$_}; } keys %h;
 }
 
-our @attrs = ( qw/ Name Host Port / );
+our @attrs = ( qw/ Name Host Port ConfigRefresh Config / );
 our %ok_field;
 for my $attr ( @attrs ) { $ok_field{$attr}++; }
 
@@ -354,7 +354,7 @@ sub Queue
   my $self = shift;
   my $client = shift;
   if ( defined($client) ) { return $self->{clients}->{$client}; }
-  return values %{$self->{clients}};
+  return undef;
 }
 
 sub Clients

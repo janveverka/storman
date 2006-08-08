@@ -117,7 +117,7 @@ sub Queue
   my $self = shift;
   my $client = shift;
   if ( defined($client) ) { return $self->{clients}->{$client}; }
-  return values %{$self->{clients}};
+  return undef;
 }
 
 sub Workers
@@ -374,16 +374,20 @@ sub handle_unfinished
 {
   my ( $self, $kernel, $heap, $session, $client ) =
 			@_[ OBJECT, KERNEL, HEAP, SESSION, ARG0 ];
-  $self->Verbose($session->ID,": $client: handle_unfinished\n");
+  $self->Quiet($session->ID,": $client: handle_unfinished\n");
+  return unless $client;
   my $q = $self->Queue($client);
   return unless $q;
-  my ($p,$i,$w) = $q->dequeue_next();
-  while ( $i )
+  eval
   {
-    $self->Quiet("Pending Task: Client=$client, work=$w, priority=$p\n");
-    ($p,$i,$w) = $q->dequeue_next();
+    my ($p,$i,$w) = $q->dequeue_next();
+    while ( $i )
+    {
+      $self->Quiet("Pending Task: Client=$client, work=$w, priority=$p\n");
+      ($p,$i,$w) = $q->dequeue_next();
+    };
   };
-    
+
   delete $heap->{client};
 }
 
