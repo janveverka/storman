@@ -318,6 +318,11 @@ sub ReadConfig
     $self->{Watcher}->Interval($self->{ConfigRefresh});
     $self->{Watcher}->Options(\%FileWatcher::Params);
   }
+
+  if ( $self->{Application} !~ m%^/% )
+  {
+    $self->{Application} = $ENV{T0ROOT} . '/' . $self->{Application};
+  }
 }
 
 sub _client_error { reroute_event( (caller(0))[3], @_ ); }

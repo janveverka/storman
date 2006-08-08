@@ -232,7 +232,7 @@ sub SegmentIsComplete
       }
       $x{Size}	= $self->{dataset}{ID}->{$did}{Size};
       $priority	= 99; # $self->Priority(\%x); # Priority depends on dataset...
-      $x{work}	= $ENV{T0ROOT} . "/src/RepackManager/run_repack.sh";
+      $x{work}  = $self->{Application};
       $x{RepackMode}	= $self->{RepackMode};
       $x{Host}		= $self->{Host};
       $x{IndexProtocol}	= $self->{IndexProtocol};
@@ -479,6 +479,11 @@ sub ReadConfig
   {
     $self->{Watcher}->Interval($self->{ConfigRefresh});
     $self->{Watcher}->Options(\%FileWatcher::Params);
+  }
+
+  if ( $self->{Application} !~ m%^/% )
+  {
+    $self->{Application} = $ENV{T0ROOT} . '/' . $self->{Application};
   }
 }
 
