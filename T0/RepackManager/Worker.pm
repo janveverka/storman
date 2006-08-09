@@ -164,7 +164,7 @@ sub PrepareConfigFile
   {
     Croak "RepackMode not valid. Use one of \"",join('", "',keys %modes),"\"\n";
   }
-  my $conf = "/tmp/repack.export." . $h->{Dataset} . '.' .
+  my $conf = "./repack.export." . $h->{Dataset} . '.' .
 	  join('_',@{$h->{Segments}}) . '.conf';
   Print "Creating \"$conf\"\n";
   open CONF, ">$conf" or die "open: $conf: $!\n";

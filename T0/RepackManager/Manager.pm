@@ -182,7 +182,7 @@ sub DatasetHasBeenProcessed
 # my $h = $self->{lumi}{$did};
 Carp "DatasetHasBeenProcessed: Not yet written...\n";
   my ($type,$file);
-  $self->Quiet("Lumi dataset $did has been processed\n");
+  $self->Quiet("Payload $did has been processed\n");
   $self->CleanupPayload($did);
 }
 
