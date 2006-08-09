@@ -5,8 +5,6 @@ use POE;
 use POE::Filter::Reference;
 use POE::Component::Server::TCP;
 use POE::Queue::Array;
-#sub POE::Kernel::ASSERT_DEFAULT () { 1 }
-#sub POE::Kernel::TRACE_DEFAULT  () { 1 }
 use T0::Util;
 use T0::FileWatcher;
 
@@ -235,6 +233,12 @@ sub set_rate
   }
   Print "Old interval: $s, new interval $se\n";
   $self->{Worker}->{Interval} = $se;
+  my %g = (	MonaLisa => 1,
+		Cluster	 => $T0::System{Name},
+		Farm	 => 'StorageManager',
+		Interval => $s,
+	  );
+  $self->Log( \%g );
 }
 
 sub _started
