@@ -236,7 +236,7 @@ sub set_rate
   my %g = (	MonaLisa => 1,
 		Cluster	 => $T0::System{Name},
 		Farm	 => 'StorageManager',
-		Interval => $s,
+		Interval => $se,
 	  );
   $self->Log( \%g );
 }
