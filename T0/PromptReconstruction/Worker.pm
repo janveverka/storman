@@ -5,6 +5,8 @@ use POE::Filter::Reference;
 use POE::Component::Client::TCP;
 use POE::Wheel::Run;
 use Sys::Hostname;
+use File::Basename;
+use Cwd;
 use T0::Util;
 
 our (@ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION);
@@ -105,8 +107,11 @@ sub ReadConfig
 
   $self->{Partners} = { Manager => 'PromptReco::Manager' };
   T0::Util::ReadConfig( $self, , 'PromptReco::Worker' );
-
-# $self->{Interval} = $self->{Interval} || 10;
+  defined($self->{CfgTemplate}) or Croak "\"CfgTemplate\" not defined...\n";
+  if ( $self->{CfgTemplate} !~ m%.tmpl$% )
+  {
+    Croak "\"CfgTemplate\" has no \".tmpl\" suffix...\n";
+  }
 }
 
 sub Log
@@ -117,16 +122,29 @@ sub Log
 }
 
 sub got_child_stdout {
-  my ($self, $heap, $stdout) = @_[ OBJECT, HEAP, ARG0 ];
-  push @{$heap->{stdout}}, $stdout;
-# $self->Quiet("STDOUT: $stdout\n");
+  my ($heap, $stdout) = @_[ HEAP, ARG0 ];
+  my %h;
+  print LOGOUT $stdout,"\n";;
+  $heap->{self}->Verbose("STDOUT: $stdout\n");
+  if ( $stdout =~ m%Run:\s+(\d+)\s+Event:\s+(\d+)% )
+  {
+    push @{$heap->{stdout}}, $stdout;
+    %h = (  MonaLisa => 1,
+	    Cluster  => $T0::System{Name},
+            Farm     => 'PRWorkers',
+            Run      => $1,
+	    "Event_$1"    => $2,
+	 );
+#    $heap->{self}->Log( \%h );
+  }
 }
 
 sub got_child_stderr {
-  my ($self, $heap, $stderr) = @_[ OBJECT, HEAP, ARG0 ];
+  my ( $heap, $stderr) = @_[ HEAP, ARG0 ];
   push @{$heap->{stderr}}, $stderr;
   $stderr =~ tr[ -~][]cd;
-  Print "STDERR: $stderr\n";
+  print LOGOUT "STDERR: ",$stderr;
+  $heap->{self}->Quiet("STDERR: $stderr\n");
 }
 
 sub got_child_close {
@@ -144,10 +162,11 @@ sub got_sigchld
 			@_[ OBJECT, HEAP, KERNEL, ARG1, ARG2 ];
   my $pid = $heap->{program}->PID;
 # $self->Debug("sig_chld handler: PID=$child_pid, RC=$status Prog=$work\n");
-  $kernel->yield( 'job_done', [ pid => $pid, status => $status ] );
   if ( $child_pid == $pid ) {
+    $kernel->yield( 'job_done', [ pid => $pid, status => $status ] );
     delete $heap->{program};
     delete $heap->{stdio};
+    close LOGOUT or Croak "closing logfile: $!\n";
   }
   return 0;
 }
@@ -155,43 +174,50 @@ sub got_sigchld
 sub PrepareConfigFile
 {
   my ($self,$h) = @_;
-# "PrepareConfigFile: Not written yet...\n";
-return $h->{File};
+  my ($ifile,$ofile,$conf);
 
-  my %modes = ( 'Classic' => 0,
-		'LocalPush' => 0,
-                'LocalPull' => 0,
-	      );
+  my %protocols = ( 'Classic'	=> 'rfio:',
+		    'LocalPush'	=> 'file:',
+       		    'LocalPull'	=> 'file:',
+		  );
 
-  my $conf = "/tmp/repack.export." . $h->{Dataset} . '.' .
-	  join('_',@{$h->{Segments}}) . '.conf';
-  Print "Creating \"$conf\"\n";
-  open CONF, ">$conf" or die "open: $conf: $!\n";
-  print CONF "SelectStream = ",$h->{Dataset},"\n";
-  my $protocol = $h->{Protocol};
-  if ( $protocol eq 'rfio:' && $h->{Target} =~ m%^/castor% )
-    {
-      $protocol = "rfio:///?svcClass=" . $self->{SvcClass} . "&path=";
-    }
-  else
-    {
-      $protocol = "rfio:";
-    }
-
-  print  CONF "OpenFileURL = $protocol$h->{Target}\n";
-  foreach ( @{$h->{Files}} )
+  if ( $self->{Mode} eq 'LocalPull' )
   {
-    if ( ( $self->{Host} ne $h->{Host} ) && defined($h->{IndexProtocol}) )
-    {
-      print  CONF "IndexFile = ",$h->{IndexProtocol},$h->{Host},":$_\n";
-    }
-    else
-    {
-      print  CONF "IndexFile = $_\n";
-    }
+    open RFCP, "rfcp $h->{File} . |" or Croak "rfcp: $h->{File}: $!\n";
+    while ( <RFCP> ) { $self->Verbose($_); }
+    close RFCP or Croak "close rfcp: $h->{File}: $!\n";
+    $h->{File} = basename $h->{File};
   }
-  print  CONF "CloseFileURL = $protocol$h->{Target}\n";
+  if ( $self->{Mode} eq 'LocalPush' )
+  {
+    $h->{File} = basename $h->{File};
+  }
+  if ( $self->{Mode} ne 'Classic' )
+  {
+    -f $h->{File} or Croak "$h->{File} does not exist but mode is Local*\n";
+  }
+
+  $ifile = $protocols{$self->{Mode}} . $h->{File};
+  $ofile = basename $h->{File};
+  $ofile =~ s%root%RECO.root%;
+  $ofile = SelectTarget($self) . '/' . $ofile;
+  $h->{RecoFile} = $ofile;
+
+  $conf = $self->{CfgTemplate};
+  $conf =~ s%^.*/%%;
+  $conf =~ s%.tmpl$%%;
+  Print "Creating \"$conf\"\n";
+  open CONF, ">$conf" or Croak "open: $conf: $!\n";
+  open TMPL, "<$self->{CfgTemplate}" or Croak "open: $self->{CfgTemplate}: $!\n";
+  while ( <TMPL> )
+  {
+    s%T0_INPUT_FILE%$ifile%;
+    s%T0_OUTPUT_FILE%$ofile%;
+    s%T0_MAX_EVENTS%$self->{MaxEvents}%;
+    print CONF;
+  }
   close CONF;
+  close TMPL;
   return $conf;
 }
 
@@ -204,7 +230,6 @@ sub server_input {
   $client   = $input->{client};
 
   $self->Verbose("from server: $command\n");
-$DB::single=$debug_me;
   if ( $command =~ m%Sleep% )
   {
     $kernel->delay_set( 'get_work', $input->{wait} );
@@ -226,6 +251,9 @@ $DB::single=$debug_me;
     $self->Log( \%h );
     $self->Quiet("Got $command($work,$priority)...\n");
 
+    $work->{pwd} = cwd;
+    mkdir $work->{id} or Croak "mkdir: $work->{id}: $!\n";
+    chdir $work->{id} or Croak "chdir: $work->{id}: $!\n";
     my $c = $work->{work} . ' ' . $self->PrepareConfigFile($work);
     $heap->{program} = POE::Wheel::Run->new
       ( Program	     => $c,
@@ -235,6 +263,18 @@ $DB::single=$debug_me;
         StderrEvent  => "got_child_stderr",
         CloseEvent   => "got_child_close",
       );
+    $heap->{log} = 'log.PR.' . basename $work->{File};
+    $heap->{log} =~ s%.root%%;
+    $heap->{log} .= '.out.gz';
+
+    $heap->{self} = $self;
+    open LOGOUT, "| gzip - > $heap->{log}" or Croak "open: $heap->{log}: $!\n";
+    chdir $work->{pwd};
+
+    $work->{dir}  = $work->{pwd} . '/' . $work->{id};
+    $work->{log}  = $heap->{log};
+    $work->{host} = $self->{Host};
+
     $kernel->sig( CHLD => "got_sigchld" );
     $heap->{Work}->{$heap->{program}->PID} = $input;
 
@@ -247,7 +287,6 @@ $DB::single=$debug_me;
     $setup = $input->{setup};
     $self->{Debug} && dump_ref($setup);
     map { $self->{$_} = $setup->{$_} } keys %$setup;
-    $kernel->yield('get_work');
     return;
   }
 
@@ -301,7 +340,7 @@ sub get_work
   }
   else
   {
-    die "This is not a good way to go...\n";
+    Croak "This is not a good way to go...\n";
   }
 }
 
@@ -316,7 +355,20 @@ sub job_done
   my ( $self, $heap, $kernel, $arg0 ) = @_[ OBJECT, HEAP, KERNEL, ARG0 ];
   my %h = @{ $arg0 };
 
-  $h{priority} = $heap->{Work}->{$h{pid}}->{priority};
+  map { $h{$_} = $heap->{Work}->{$h{pid}}->{work}->{$_}; }
+		keys %{$heap->{Work}->{$h{pid}}->{work}};
+  $h{RecoSize} = (stat($h{dir} . '/' . $h{RecoFile}))[7];
+
+# Kludges for now...
+  unlink $h{dir} . '/' . $h{File};
+  if ( defined($self->{LogDir}) )
+  {
+    my $cmd = 'rfcp ' . $h{dir} . '/' . $h{log} . ' ' . $self->{LogDir};
+    Print $cmd;
+    open RFCP, "$cmd |" or die "$cmd: $!\n";
+    while ( <RFCP> ) { $self->Verbose($_); }
+    close RFCP;
+  }
 
   $self->Quiet("Send: JobDone: work=$h{pid}, status=$h{status}, priority=$h{priority}\n");
   $h{priority} && $self->Log("JobDone: status=$h{status} priority=$h{priority}");

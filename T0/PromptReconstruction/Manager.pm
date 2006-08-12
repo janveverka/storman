@@ -121,6 +121,7 @@ sub RecoIsPending
 sub SetRecoTimer
 {
   my ( $self, $kernel, $heap, $id ) = @_[ OBJECT, KERNEL, HEAP, ARG0 ];
+  return unless $id;
   $self->{_queue}{$id}{Start} = time;
   return unless $self->{RecoTimeout};
   my $delay = $kernel->delay_set('RecoIsStale',$self->{RecoTimeout},$id);
@@ -144,6 +145,9 @@ sub CleanupReco
 {
   my ($self,$id) = @_;
   my ($x,$lid,$did);
+
+  $self->Quiet("RecoID $id is being deleted!\n");
+
   $x = $self->{_queue}{$id};
   $did = $x->{Reco};
   foreach $lid ( @{$x->{Reco}} )
@@ -214,20 +218,22 @@ sub check_rate
   $self->{StatisticsInterval} = 60 unless defined($self->{StatisticsInterval});
   $kernel->delay_set( 'check_rate', $self->{StatisticsInterval} );
 
-  my ($i,$sum,$s,%h);
+  my ($i,$size,$nev,$s,%h);
   $s = $self->{StatisticsInterval};
-  $i = $sum = 0;
+  $i = $size = $nev = 0;
   while ( $_ = shift @{$self->{stats}} )
   {
-    $sum+= $_;
+    $size += $_->{size};
+    $nev  += $_->{nev};
     $i++;
   }
-  $sum = int($sum*100/1024/1024)/100;
-  $self->Debug("$sum MB in $s seconds, $i readings\n");
+  $size = int($size*100/1024/1024)/100;
+  $self->Debug("$size MB, $nev events in $s seconds, $i readings\n");
   %h = (     MonaLisa => 1,
 	     Cluster  => $T0::System{Name},
              Farm     => 'PromptReco',
-             Rate     => $sum/$s,
+             Events   => $nev,
+	     RecoSize => $size,
              Readings => $i,
        );
   $self->Log( \%h );
@@ -235,9 +241,14 @@ sub check_rate
 
 sub GatherStatistics
 {
-  my $self = shift;
-  my $i = shift or return;
-# push @{$self->{stats}}, $i;
+  my ($self,$input) = @_;
+  my ($rss,$vsize,$nev,%h);
+  foreach ( @{$input->{stdout}} )
+  {
+    if ( m%Run:\s+(\d+)\s+Event:\s+(\d+)% ) { $h{run} = $1; $h{nev} = $2; }
+  }
+  $h{size} = $input->{RecoSize};
+  push @{$self->{stats}}, \%h;
 }
 
 sub Log
@@ -352,21 +363,19 @@ sub client_disconnected
 sub send_setup
 {
   my ( $self, $kernel, $heap ) = @_[ OBJECT, KERNEL, HEAP ];
-  my $client;
+  my $client = $heap->{client_name};
 
-$DB::single=$debug_me;
-  $self->Quiet("Send: Setup to all clients\n");
+  $self->Quiet("Send: Setup to $client\n");
   my %text = ( 'command' => 'Setup',
                'setup'   => \%PromptReco::Worker,
              );
-  $kernel->yield('broadcast', [ \%text, 0 ] );
+  $heap->{client}->put( \%text );
 }
 
 sub send_start
 {
   my ( $self, $kernel, $heap ) = @_[ OBJECT, KERNEL, HEAP ];
   my ($client,%text);
-$DB::single=$debug_me;
   $client = $heap->{client_name};
   $self->Quiet("Send: Start to $client\n");
 
@@ -380,7 +389,6 @@ sub send_work
   my ($client,%text,$size,$target);
   my ($q, $priority, $id, $work);
 
-$DB::single=$debug_me;
   $client = $heap->{client_name};
 
 # If there's any client-specific stuff in the queue, send that. Otherwise,
@@ -416,13 +424,14 @@ $DB::single=$debug_me;
     }
   }
   $self->Quiet("Send: work=$work, priority=$priority to $client\n");
+  $work->{id} = $id;
   %text = ( 'command'	=> 'DoThis',
             'client'	=> $client,
 	    'work'	=> $work,
 	    'priority'	=> $priority,
-	    'id'	=> $id,
 	  );
   $heap->{client}->put( \%text );
+  $kernel->yield( 'SetRecoTimer', $id );
 }
 
 sub _client_input { reroute_event( (caller(0))[3], @_ ); }
@@ -434,7 +443,6 @@ sub client_input
 
   $command = $input->{command};
   $client = $input->{client};
-$DB::single=$debug_me;
 
   if ( $command =~ m%HelloFrom% )
   {
@@ -461,13 +469,13 @@ $DB::single=$debug_me;
     my $work     = $input->{work};
     my $status   = $input->{status};
     my $priority = $input->{work}{priority};
-    my $id       = $input->{work}{id};
+    my $id       = $input->{id};
     $self->Quiet("JobDone: work=$work, priority=$priority, id=$id, status=$status\n");
 
 #   Check rate statistics from the first client onwards...
     if ( !$self->{client_count}++ ) { $kernel->yield( 'check_rate' ); }
 
-    if ( $work->{work}{Target} )
+    if ( $input->{RecoFile} )
     {
       my %h = (	MonaLisa	=> 1,
 		Cluster		=> $T0::System{Name},
@@ -480,15 +488,20 @@ $DB::single=$debug_me;
         $h{Duration} = time - $self->{_queue}{$id}{Start};
       }
       $self->Log( \%h );
-      my %g = ( RecoReady => $work->{work}{Target} );
-      my $size;
-      foreach ( @{$input->{stderr}} )
+      my %g = ( RecoReady => $input->{host} . ':' .
+			     $input->{dir}  . '/' .
+			     $input->{RecoFile},
+      		RecoSize  => $input->{RecoSize} );
+      foreach ( @{$input->{stdout}} )
       {
-        if ( m%checksum\s+(\d+)% ) { $g{Checksum} = $1; }
-        if ( m%wrote\s+(\d+)%    ) { $g{Size} = $size = $1; }
+        if ( m%VSIZE=([0-9.]+)MB\s+and\s+RSS=([0-9.]+)MB% )
+        {
+          $g{vsize} = $1 if ( $1 > $g{vsize} );
+          $g{rss}   = $2 if ( $2 > $g{rss} );
+        }
       }
       $self->Log( \%g );
-      $self->GatherStatistics($size) if defined($size);
+      $self->GatherStatistics($input);
     }
     $self->CleanupReco($id);
   }
