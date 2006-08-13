@@ -143,8 +143,8 @@ sub got_child_stderr {
   my ( $heap, $stderr) = @_[ HEAP, ARG0 ];
   push @{$heap->{stderr}}, $stderr;
   $stderr =~ tr[ -~][]cd;
-  print LOGOUT "STDERR: ",$stderr;
-  $heap->{self}->Quiet("STDERR: $stderr\n");
+  print LOGOUT "STDERR: ",$stderr,"\n";
+  $heap->{self}->Verbose("STDERR: $stderr\n");
 }
 
 sub got_child_close {
@@ -269,6 +269,7 @@ sub server_input {
 
     $heap->{self} = $self;
     open LOGOUT, "| gzip - > $heap->{log}" or Croak "open: $heap->{log}: $!\n";
+    select LOGOUT; $|=1;
     chdir $work->{pwd};
 
     $work->{dir}  = $work->{pwd} . '/' . $work->{id};
@@ -364,6 +365,18 @@ sub job_done
   if ( defined($self->{LogDir}) )
   {
     my $cmd = 'rfcp ' . $h{dir} . '/' . $h{log} . ' ' . $self->{LogDir};
+    Print $cmd;
+    open RFCP, "$cmd |" or die "$cmd: $!\n";
+    while ( <RFCP> ) { $self->Verbose($_); }
+    close RFCP;
+  }
+  if ( defined($self->{RecoDir}) )
+  {
+    my $cmd = 'rfcp ' . $h{dir} . '/' . $h{RecoFile} . ' ' . $self->{RecoDir};
+    if ( defined($self->{SvcClass}) )
+    {
+      $cmd = 'STAGE_SVCCLASS=' . $self->{SvcClass} . ' ' . $cmd;
+    }
     Print $cmd;
     open RFCP, "$cmd |" or die "$cmd: $!\n";
     while ( <RFCP> ) { $self->Verbose($_); }

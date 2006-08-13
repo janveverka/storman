@@ -212,6 +212,7 @@ sub Clients
   return keys %{$self->{clients}};
 }
 
+my %Stats;
 sub check_rate
 {
   my ( $self, $kernel, $heap, $session ) = @_[  OBJECT, KERNEL, HEAP, SESSION ];
@@ -228,13 +229,20 @@ sub check_rate
     $i++;
   }
   $size = int($size*100/1024/1024)/100;
+
+  $Stats{TotalEvents} += $nev;
+  $Stats{TotalVolume} += $size;
+
+  Print "TotalEvents = $Stats{TotalEvents}, TotalVolume = $Stats{TotalVolume}\n";
   $self->Debug("$size MB, $nev events in $s seconds, $i readings\n");
-  %h = (     MonaLisa => 1,
-	     Cluster  => $T0::System{Name},
-             Farm     => 'PromptReco',
-             Events   => $nev,
-	     RecoSize => $size,
-             Readings => $i,
+  %h = (     MonaLisa	 => 1,
+	     Cluster	 => $T0::System{Name},
+             Farm	 => 'PromptReco',
+             Events	 => $nev,
+	     RecoVolume  => $size,
+             Readings	 => $i,
+	     TotalEvents => $Stats{TotalEvents},
+	     TotalVolume => $Stats{TotalVolume},
        );
   $self->Log( \%h );
 }
