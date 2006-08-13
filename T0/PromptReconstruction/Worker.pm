@@ -145,6 +145,10 @@ sub got_child_stderr {
   $stderr =~ tr[ -~][]cd;
   print LOGOUT "STDERR: ",$stderr,"\n";
   $heap->{self}->Verbose("STDERR: $stderr\n");
+  if ( $stderr =~ m%Run:\s+(\d+)\s+Event:\s+(\d+)% )
+  {
+    push @{$heap->{stderr}}, $stderr;
+  }
 }
 
 sub got_child_close {

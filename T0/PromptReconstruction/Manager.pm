@@ -251,7 +251,7 @@ sub GatherStatistics
 {
   my ($self,$input) = @_;
   my ($rss,$vsize,$nev,%h);
-  foreach ( @{$input->{stdout}} )
+  foreach ( @{$input->{stderr}} )
   {
     if ( m%Run:\s+(\d+)\s+Event:\s+(\d+)% ) { $h{run} = $1; $h{nev} = $2; }
   }
@@ -488,7 +488,7 @@ sub client_input
       my %h = (	MonaLisa	=> 1,
 		Cluster		=> $T0::System{Name},
 		Farm		=> 'PromptReco',
-		QueueLength	=> scalar keys %{$self->{_queue}},
+		QueueLength	=> $self->{Queue}->get_item_count(),
 		NReco		=> scalar keys %{$self->{clients}},
 	      );
       if ( exists($self->{_queue}{$id}{Start}) )
