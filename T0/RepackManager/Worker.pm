@@ -164,8 +164,10 @@ sub PrepareConfigFile
   {
     Croak "RepackMode not valid. Use one of \"",join('", "',keys %modes),"\"\n";
   }
+#  my $conf = "./repack.export." . $h->{Dataset} . '.' .
+#	  join('_',@{$h->{Segments}}) . '.conf';
   my $conf = "./repack.export." . $h->{Dataset} . '.' .
-	  join('_',@{$h->{Segments}}) . '.conf';
+	  $h->{Segments}->[0] . '_' . $h->{Segments}->[-1] . '.conf';
   Print "Creating \"$conf\"\n";
   open CONF, ">$conf" or die "open: $conf: $!\n";
   print CONF "SelectStream = ",$h->{Dataset},"\n";
