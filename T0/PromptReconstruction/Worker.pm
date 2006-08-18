@@ -125,7 +125,7 @@ sub got_child_stdout {
   my ($heap, $stdout) = @_[ HEAP, ARG0 ];
   my %h;
   print LOGOUT $stdout,"\n";;
-  $heap->{self}->Verbose("STDOUT: $stdout\n");
+  #$heap->{self}->Verbose("STDOUT: $stdout\n");
   if ( $stdout =~ m%Run:\s+(\d+)\s+Event:\s+(\d+)% )
   {
     push @{$heap->{stdout}}, $stdout;
@@ -144,7 +144,7 @@ sub got_child_stderr {
   push @{$heap->{stderr}}, $stderr;
   $stderr =~ tr[ -~][]cd;
   print LOGOUT "STDERR: ",$stderr,"\n";
-  $heap->{self}->Verbose("STDERR: $stderr\n");
+  #$heap->{self}->Verbose("STDERR: $stderr\n");
   if ( $stderr =~ m%Run:\s+(\d+)\s+Event:\s+(\d+)% )
   {
     push @{$heap->{stderr}}, $stderr;
@@ -187,9 +187,17 @@ sub PrepareConfigFile
 
   if ( $self->{Mode} eq 'LocalPull' )
   {
-    open RFCP, "rfcp $h->{File} . |" or Croak "rfcp: $h->{File}: $!\n";
+    if ( ! open RFCP, "rfcp $h->{File} . |" )
+      {
+	$self->Verbose("ERROR: can't rfcp $h->{File} !\n");
+	return undef;
+      }
     while ( <RFCP> ) { $self->Verbose($_); }
-    close RFCP or Croak "close rfcp: $h->{File}: $!\n";
+    if ( ! close RFCP )
+      {
+	$self->Verbose("ERROR: can't rfcp $h->{File} !\n");
+	return undef;
+      }
     $h->{File} = basename $h->{File};
   }
   if ( $self->{Mode} eq 'LocalPush' )
@@ -206,6 +214,8 @@ sub PrepareConfigFile
   $ofile =~ s%root%RECO.root%;
   $ofile = SelectTarget($self) . '/' . $ofile;
   $h->{RecoFile} = $ofile;
+
+  $self->Verbose("Input file : $ifile\n");
 
   $conf = $self->{CfgTemplate};
   $conf =~ s%^.*/%%;
@@ -258,7 +268,16 @@ sub server_input {
     $work->{pwd} = cwd;
     mkdir $work->{id} or Croak "mkdir: $work->{id}: $!\n";
     chdir $work->{id} or Croak "chdir: $work->{id}: $!\n";
-    my $c = $work->{work} . ' ' . $self->PrepareConfigFile($work);
+
+    my $c = $self->PrepareConfigFile($work);
+    unless (defined($c))
+      {
+	$self->Verbose("ERROR: skip this workload !\n");
+	$kernel->yield( 'job_done', [ pid => -1, status => -1 ] );
+	return;
+      }
+    $c = $work->{work} . ' ' . $c;
+
     $heap->{program} = POE::Wheel::Run->new
       ( Program	     => $c,
         StdioFilter  => POE::Filter::Line->new(),
@@ -272,8 +291,10 @@ sub server_input {
     $heap->{log} .= '.out.gz';
 
     $heap->{self} = $self;
+
     open LOGOUT, "| gzip - > $heap->{log}" or Croak "open: $heap->{log}: $!\n";
-    select LOGOUT; $|=1;
+#    select LOGOUT; $|=1;
+
     chdir $work->{pwd};
 
     $work->{dir}  = $work->{pwd} . '/' . $work->{id};
@@ -362,11 +383,21 @@ sub job_done
 
   map { $h{$_} = $heap->{Work}->{$h{pid}}->{work}->{$_}; }
 		keys %{$heap->{Work}->{$h{pid}}->{work}};
-  $h{RecoSize} = (stat($h{dir} . '/' . $h{RecoFile}))[7];
+
+  if ( defined($h{dir}) && defined($h{RecoFile}) && -f $h{dir} . '/' . $h{RecoFile} )
+    {
+      $h{RecoSize} = (stat($h{dir} . '/' . $h{RecoFile}))[7];
+    }
+  else
+    {
+      $h{RecoSize} = 0;
+    }
 
 # Kludges for now...
-  unlink $h{dir} . '/' . $h{File};
-  if ( defined($self->{LogDir}) )
+
+  if ( defined($h{dir}) && defined($h{File}) && -f $h{dir} . '/' . $h{File} ) { unlink $h{dir} . '/' . $h{File} };
+
+  if ( defined($h{dir}) && defined($h{log}) && defined($self->{LogDir}) && -f $h{dir} . '/' . $h{log} )
   {
     my $cmd = 'rfcp ' . $h{dir} . '/' . $h{log} . ' ' . $self->{LogDir};
     Print $cmd;
@@ -374,7 +405,8 @@ sub job_done
     while ( <RFCP> ) { $self->Verbose($_); }
     close RFCP;
   }
-  if ( defined($self->{RecoDir}) )
+
+  if ( defined($h{dir}) && defined($h{RecoFile}) && defined($self->{RecoDir}) && -f $h{dir} . '/' . $h{RecoFile} )
   {
     my $cmd = 'rfcp ' . $h{dir} . '/' . $h{RecoFile} . ' ' . $self->{RecoDir};
     if ( defined($self->{SvcClass}) )
