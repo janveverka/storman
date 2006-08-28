@@ -21,13 +21,13 @@ sub Quiet   { T0::Util::Quiet(   (shift)->{Quiet},   @_ ); }
 #   1 for injected
 my %fileList;
 
-
 sub _init
 {
   my $self = shift;
 
   my %h = @_;
   map { $self->{$_} = $h{$_} } keys %h;
+  $self->ReadConfig();
 
   $self->ScanDirectory($self->{Directory});
 
@@ -42,6 +42,16 @@ sub new
   my $self = {  };
   bless($self, $class);
   $self->_init(@_);
+}
+
+sub ReadConfig
+{
+  no strict 'refs';
+  my $self = shift;
+  my $file = $self->{Config};
+  return unless $file;  
+
+  T0::Util::ReadConfig( $self );
 }
 
 sub Next
