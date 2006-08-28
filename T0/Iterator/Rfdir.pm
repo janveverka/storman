@@ -44,6 +44,20 @@ sub new
   $self->_init(@_);
 }
 
+our @attrs = ( qw/ Config ConfigRefresh Directory MinAge Rate / );
+our %ok_field;
+for my $attr ( @attrs ) { $ok_field{$attr}++; }
+
+sub AUTOLOAD {
+  my $self = shift;
+  my $attr = our $AUTOLOAD;
+  $attr =~ s/.*:://;
+  return unless $attr =~ /[^A-Z]/;  # skip DESTROY and all-cap methods
+  Croak "AUTOLOAD: Invalid attribute method: ->$attr()" unless $ok_field{$attr};
+  $self->{$attr} = shift if @_;
+  return $self->{$attr};
+}
+
 sub ReadConfig
 {
   no strict 'refs';
@@ -113,7 +127,11 @@ sub ScanDirectory
 	      my $filename = $currentDir . '/' . $file;
 
 	      # check that fileDate is earlier than cutoffDate
-	      my $flag = Date_Cmp( ParseDate($date), DateCalc("now","- 1 minute") );
+	      my $flag = -1;
+              if ( defined($self->{MinAge}) )
+              {
+                $flag = Date_Cmp( ParseDate($date), DateCalc("now","- " . $self->{MinAge} . " minutes") );
+              }
 	      if ( $flag < 0 )
 		{
 		  $fileList{$filename} = 0;
