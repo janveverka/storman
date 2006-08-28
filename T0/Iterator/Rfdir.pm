@@ -89,6 +89,7 @@ sub ScanDirectory
 
       my $protection = $temp[0];
       my $size = $temp[4];
+      my $date = "$temp[5] $temp[6] $temp[7]";
       my $file = $temp[8];
 
       if ( $protection =~ /^dr/ && ! ( $file =~ /^\./ ) )
@@ -101,28 +102,11 @@ sub ScanDirectory
 	    {
 	      my $filename = $currentDir . '/' . $file;
 
-	      my @stats = qx {rfstat $filename};
-
-	      foreach my $stat ( @stats )
+	      # check that fileDate is earlier than cutoffDate
+	      my $flag = Date_Cmp( ParseDate($date), DateCalc("now","- 1 minute") );
+	      if ( $flag < 0 )
 		{
-		  if ( $stat =~ /^Last modify/)
-		    {
-		      chomp($stat);
-
-		      my ($dummy,$fileDateString) = split (" : ",$stat);
-
-		      my $fileDate = ParseDate($fileDateString);
-		      my $cutoffDate = DateCalc("now","- 300 seconds");
-
-		      # check that fileDate is earlier than cutoffDate
-		      my $flag = Date_Cmp($fileDate,$cutoffDate);
-		      if ( $flag < 0 )
-			{
-			  $fileList{$filename} = 0;
-			}
-
-		      last;
-		    }
+		  $fileList{$filename} = 0;
 		}
 	    }
 	}
