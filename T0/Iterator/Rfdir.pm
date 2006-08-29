@@ -16,9 +16,9 @@ sub Debug   { T0::Util::Debug(   (shift)->{Debug},   @_ ); }
 sub Quiet   { T0::Util::Quiet(   (shift)->{Quiet},   @_ ); }
 
 
-# files are keys, entries are
-#   0 for exist
-#   1 for injected
+# files are keys, entries are arrays with
+#   [ 0 , size ] for existing file
+#   [ 1 , size ] for injected file
 my %fileList;
 
 sub _init
@@ -77,9 +77,10 @@ sub Next
   for ( keys(%fileList) )
     {
       my $filename = $_;
-      if ( 0 == $fileList{$filename} )
+      if ( 0 == $fileList{$filename}[0] )
 	{
-	  $fileList{$filename} = 1;
+	  $fileList{$filename}[0] = 1;
+	  return ($filename,$fileList{$filename}[1]) if wantarray();
 	  return $filename;
 	}
     }
@@ -91,7 +92,7 @@ sub Next
   #   sleep for a while to not overload the storage system
   #   then rerun ScanDirectory to search for new files
   #   and call myself again
-  #sleep 3600
+  #sleep 3600;
   #$self->ScanDirectory($self->{Directory});
   #return $self->Next();
 }
@@ -122,10 +123,10 @@ sub ScanDirectory
 	}
       elsif ( $protection =~ /^-r/ )
 	{
-	  if ( not defined($fileList{$file}) )
-	    {
-	      my $filename = $currentDir . '/' . $file;
+	  my $filename = $currentDir . '/' . $file;
 
+	  if ( not defined($fileList{$filename}) )
+	    {
 	      # check that fileDate is earlier than cutoffDate
 	      my $flag = -1;
               if ( defined($self->{MinAge}) )
@@ -134,7 +135,7 @@ sub ScanDirectory
               }
 	      if ( $flag < 0 )
 		{
-		  $fileList{$filename} = 0;
+		  $fileList{$filename} = [ 0 , $size ];
 		}
 	    }
 	}
