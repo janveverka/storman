@@ -283,10 +283,10 @@ sub client_input
       }
     }
 #      my $cluster = $input->{Cluster};
-#      my $farm    = $input->{Farm};
-#      foreach ( qw / MonaLisa Cluster Farm / ) { delete $input->{$_}; }
-#      $apm->sendParameters( $cluster, $farm, %$input );
-#      $input->{Cluster} = $cluster; $input->{Farm} = $farm;
+#      my $node    = $input->{Node};
+#      foreach ( qw / MonaLisa Cluster Node / ) { delete $input->{$_}; }
+#      $apm->sendParameters( $cluster, $node, %$input );
+#      $input->{Cluster} = $cluster; $input->{Node} = $node;
 #      $input->{MonaLisa}++;
 #    }
 

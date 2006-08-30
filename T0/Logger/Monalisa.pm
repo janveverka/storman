@@ -89,8 +89,8 @@ sub Send
   delete $h->{MonaLisa} if defined $h->{MonaLisa};
 
   no strict 'refs';
-  our ( $Cluster, $Farm );
-  foreach ( qw / Cluster Farm / )
+  our ( $Cluster, $Node );
+  foreach ( qw / Cluster Node / )
   {
     ${$_} = delete $h->{$_} or do
     {
@@ -99,13 +99,13 @@ sub Send
       $$_ = 'T0::Unknown' . $_;
     };
   }
-  print "$Cluster, $Farm, ",%$h,"\n";
-  $self->{apm}->sendParameters( $Cluster, $Farm, %$h );
+  print "$Cluster, $Node, ",%$h,"\n";
+  $self->{apm}->sendParameters( $Cluster, $Node, %$h );
 }
 
 #my $o = T0::Logger::Monalisa->new;
-#$o->Send( Cluster => 'acluster', Farm => 'afarm', value => 1 );
-#my $h = { Cluster => 'bcluster', Farm => 'cfarm', value => 3 };
+#$o->Send( Cluster => 'acluster', Node => 'anode', value => 1 );
+#my $h = { Cluster => 'bcluster', Node => 'cnode', value => 3 };
 #$o->Send( $h );
 
 1;
