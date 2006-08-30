@@ -131,7 +131,7 @@ sub got_child_stdout {
     push @{$heap->{stdout}}, $stdout;
     %h = (  MonaLisa => 1,
 	    Cluster  => $T0::System{Name},
-            Farm     => 'PRWorkers',
+            Node     => 'PRWorkers',
             Run      => $1,
 	    "Event_$1"    => $2,
 	 );
@@ -259,7 +259,7 @@ sub server_input {
 
     my %h = ( MonaLisa  => 1,
 	      Cluster	=> $T0::System{Name},
-              Farm      => 'PromptReco',
+              Node      => 'PromptReco',
               IdleTime	=> time - $heap->{WorkRequested}
 	    );
     $self->Log( \%h );

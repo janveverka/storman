@@ -279,7 +279,7 @@ Croak "Do I ever get here...?\n";
   $self->Quiet("Lumi segment $lid has been processed, latency $latency\n");
   my %t = ( MonaLisa	=> 1,
 	    Cluster	=> $T0::System{Name},
-	    Farm	=> 'Repack',
+	    Node	=> 'Repack',
 	    LumiLatency	=> $latency,
 	  );
   $self->Log( \%t );
@@ -304,7 +304,7 @@ sub DeleteSegment
   $self->Quiet("Lumi segment $lid, latency $latency\n");
   my %t = ( MonaLisa	=> 1,
 	    Cluster	=> $T0::System{Name},
-	    Farm	=> 'Repack',
+	    Node	=> 'Repack',
 	    LumiLatency	=> $latency,
 	  );
   $self->Log( \%t );
@@ -383,7 +383,7 @@ sub check_rate
   $self->Debug("$sum MB in $s seconds, $i readings\n");
   %h = (     MonaLisa => 1,
 	     Cluster  => $T0::System{Name},
-             Farm     => 'Repack',
+             Node     => 'Repack',
              Rate     => $sum/$s,
              Readings => $i,
        );
@@ -650,7 +650,7 @@ sub client_input
     {
       my %h = (	MonaLisa	=> 1,
 		Cluster		=> $T0::System{Name},
-		Farm		=> 'Repack',
+		Node		=> 'Repack',
 		QueueLength	=> scalar keys %{$self->{_queue}},
 		NRepackers	=> scalar keys %{$self->{clients}},
 	      );

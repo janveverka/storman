@@ -215,7 +215,7 @@ sub server_input {
 
     my %h = ( MonaLisa  => 1,
 	      Cluster	=> $T0::System{Name},
-              Farm      => 'Repack',
+              Node      => 'Repack',
               IdleTime	=> time - $heap->{WorkRequested}
 	    );
     $self->Log( \%h );

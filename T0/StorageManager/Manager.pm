@@ -194,7 +194,7 @@ sub set_rate
   Print "Rate: $repcnt ($x% off wrt $r, $i readings)",($stable ? " STABLE":''),"\n";
   my %h = (	MonaLisa => 1,
 		Cluster	 => $T0::System{Name},
-		Farm	 => 'StorageManager',
+		Node	 => 'StorageManager',
 		Rate	 => $re,
 		Target	 => $r,
 		Percent	 => $x,
@@ -235,7 +235,7 @@ sub set_rate
   $self->{Worker}->{Interval} = $se;
   my %g = (	MonaLisa => 1,
 		Cluster	 => $T0::System{Name},
-		Farm	 => 'StorageManager',
+		Node	 => 'StorageManager',
 		Interval => $se,
 	  );
   $self->Log( \%g );
@@ -581,7 +581,7 @@ sub client_input
     {
       my %h = (	MonaLisa	=> 1,
 		Cluster		=> $T0::System{Name},
-		Farm		=> 'StorageManager',
+		Node		=> 'StorageManager',
 		MBWritten	=> $size/1024/1024,
 	      );
       $self->Log( \%h );

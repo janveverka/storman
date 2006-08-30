@@ -237,7 +237,7 @@ sub check_rate
   $self->Debug("$size MB, $nev events in $s seconds, $i readings\n");
   %h = (     MonaLisa	 => 1,
 	     Cluster	 => $T0::System{Name},
-             Farm	 => 'PromptReco',
+             Node	 => 'PromptReco',
              Events	 => $nev,
 	     RecoVolume  => $size,
              Readings	 => $i,
@@ -487,7 +487,7 @@ sub client_input
     {
       my %h = (	MonaLisa	=> 1,
 		Cluster		=> $T0::System{Name},
-		Farm		=> 'PromptReco',
+		Node		=> 'PromptReco',
 		QueueLength	=> $self->{Queue}->get_item_count(),
 		NReco		=> scalar keys %{$self->{clients}},
 	      );
