@@ -103,9 +103,4 @@ sub Send
   $self->{apm}->sendParameters( $Cluster, $Node, %$h );
 }
 
-#my $o = T0::Logger::Monalisa->new;
-#$o->Send( Cluster => 'acluster', Node => 'anode', value => 1 );
-#my $h = { Cluster => 'bcluster', Node => 'cnode', value => 3 };
-#$o->Send( $h );
-
 1;

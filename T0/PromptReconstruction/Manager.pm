@@ -235,16 +235,16 @@ sub check_rate
 
   Print "TotalEvents = $Stats{TotalEvents}, TotalVolume = $Stats{TotalVolume}\n";
   $self->Debug("$size MB, $nev events in $s seconds, $i readings\n");
-  %h = (     MonaLisa	 => 1,
-	     Cluster	 => $T0::System{Name},
-             Node	 => 'PromptReco',
-             Events	 => $nev,
-	     RecoVolume  => $size,
-             Readings	 => $i,
-	     TotalEvents => $Stats{TotalEvents},
-	     TotalVolume => $Stats{TotalVolume},
-       );
-  $self->Log( \%h );
+#  %h = (     MonaLisa	 => 1,
+#	     Cluster	 => $T0::System{Name},
+#             Node	 => 'PromptReco',
+#             Events	 => $nev,
+#	     RecoVolume  => $size,
+#             Readings	 => $i,
+#	     TotalEvents => $Stats{TotalEvents},
+#	     TotalVolume => $Stats{TotalVolume},
+#       );
+#  $self->Log( \%h );
 }
 
 sub GatherStatistics
@@ -485,17 +485,17 @@ sub client_input
 
     if ( $input->{RecoFile} )
     {
-      my %h = (	MonaLisa	=> 1,
-		Cluster		=> $T0::System{Name},
-		Node		=> 'PromptReco',
-		QueueLength	=> $self->{Queue}->get_item_count(),
-		NReco		=> scalar keys %{$self->{clients}},
-	      );
-      if ( exists($self->{_queue}{$id}{Start}) )
-      {
-        $h{Duration} = time - $self->{_queue}{$id}{Start};
-      }
-      $self->Log( \%h );
+#      my %h = (	MonaLisa	=> 1,
+#		Cluster		=> $T0::System{Name},
+#		Node		=> 'PromptReco',
+#		QueueLength	=> $self->{Queue}->get_item_count(),
+#		NReco		=> scalar keys %{$self->{clients}},
+#	      );
+#      if ( exists($self->{_queue}{$id}{Start}) )
+#      {
+#        $h{Duration} = time - $self->{_queue}{$id}{Start};
+#      }
+#      $self->Log( \%h );
       my %g = ( RecoReady => $input->{host} . ':' .
 			     $input->{dir}  . '/' .
 			     $input->{RecoFile},

@@ -123,19 +123,23 @@ sub Log
 
 sub got_child_stdout {
   my ($heap, $stdout) = @_[ HEAP, ARG0 ];
-  my %h;
   print LOGOUT $stdout,"\n";;
-  #$heap->{self}->Verbose("STDOUT: $stdout\n");
-  if ( $stdout =~ m%Run:\s+(\d+)\s+Event:\s+(\d+)% )
+  if ( $stdout =~ m%TimeModule>\s+(\d+)\s+(\d+)% )
   {
+    my $run = $2;
+    my $evt = $1;
+    my $work = $heap->{Work}->{$heap->{program}->PID}->{work};
+    next if $heap->{events}{$run}{$evt}++;
     push @{$heap->{stdout}}, $stdout;
-    %h = (  MonaLisa => 1,
-	    Cluster  => $T0::System{Name},
-            Node     => 'PRWorkers',
-            Run      => $1,
-	    "Event_$1"    => $2,
-	 );
-#    $heap->{self}->Log( \%h );
+    my $nevt = ++$work->{NEvents};
+    if ( $nevt == 1 || $nevt == 2 || $nevt == 5 or ($nevt%20) == 0 )
+    {
+      my $file = $work->{id} .'/' . $work->{RecoFile};
+      my $size = (stat($file))[7];
+      $heap->{self}->{Dashboard}->Send( 'NEvents', $work->{NEvents},
+					'RecoSize', $size );
+      $heap->{self}->Verbose('NEvents ', $work->{NEvents},' RecoSize ', $size,"\n");
+    }
   }
 }
 
@@ -269,11 +273,16 @@ sub server_input {
     mkdir $work->{id} or Croak "mkdir: $work->{id}: $!\n";
     chdir $work->{id} or Croak "chdir: $work->{id}: $!\n";
 
+# Does this work...?
+$DB::single=$debug_me;
+    $self->{Dashboard}->Step($work->{id});
+    $self->{Dashboard}->Start;
+
     my $c = $self->PrepareConfigFile($work);
     unless (defined($c))
       {
 	$self->Verbose("ERROR: skip this workload !\n");
-	$kernel->yield( 'job_done', [ pid => -1, status => -1 ] );
+	$kernel->yield( 'job_done', [ pid => -1, status => -1 , reason => 'Preparation failed (copying input file?)' ] );
 	return;
       }
     $c = $work->{work} . ' ' . $c;
@@ -393,8 +402,10 @@ sub job_done
       $h{RecoSize} = 0;
     }
 
-# Kludges for now...
+$DB::single=$debug_me;
+  $self->{Dashboard}->Stop($h{status},$h{reason});
 
+# Kludges for now...
   if ( defined($h{dir}) && defined($h{File}) && -f $h{dir} . '/' . $h{File} ) { unlink $h{dir} . '/' . $h{File} };
 
   if ( defined($h{dir}) && defined($h{log}) && defined($self->{LogDir}) && -f $h{dir} . '/' . $h{log} )
@@ -433,6 +444,7 @@ sub job_done
     delete $heap->{Work}->{$h{pid}};
     delete $heap->{stdout};
     delete $heap->{stderr};
+    delete $heap->{events};
   }
   else
   {
