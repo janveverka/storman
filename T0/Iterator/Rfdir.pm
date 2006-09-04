@@ -1,6 +1,7 @@
 use strict;
 package T0::Iterator::Rfdir;
 use Date::Manip;
+use DB_File;
 
 our (@ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION);
 
@@ -16,10 +17,23 @@ sub Debug   { T0::Util::Debug(   (shift)->{Debug},   @_ ); }
 sub Quiet   { T0::Util::Quiet(   (shift)->{Quiet},   @_ ); }
 
 
-# files are keys, entries are arrays with
-#   [ 0 , size ] for existing file
-#   [ 1 , size ] for injected file
-my %fileList;
+# files are keys, entries are
+#
+#   for fileStatusList :
+#     0 for file ready to be inserted
+#     1 for already injected file
+#
+#   for fileSizeList :
+#     size of file
+#
+my %fileStatusList;
+my %fileSizeList;
+
+#
+# make fileStatusList persistent
+#
+my $file = 'fileStatusList.db';
+my $database = tie(%fileStatusList, 'DB_File', $file) || die "can't open $file: $!";
 
 sub _init
 {
@@ -28,6 +42,18 @@ sub _init
   my %h = @_;
   map { $self->{$_} = $h{$_} } keys %h;
   $self->ReadConfig();
+
+  # clear fileStatusList database
+  # remove everything if not persistent
+  # remove not yet injected files even if persistent
+  while ( my ($filename, $status) = each %fileStatusList )
+    {
+      if ( not defined $self->{Persistent} or ( 1 != $self->{Persistent} ) or ( 0 == $status ) )
+	{
+	  delete($fileStatusList{$filename});
+	}
+    }
+  $database->sync();
 
   $self->ScanDirectory($self->{Directory});
 
@@ -44,7 +70,7 @@ sub new
   $self->_init(@_);
 }
 
-our @attrs = ( qw/ Config ConfigRefresh Directory MinAge Rate / );
+our @attrs = ( qw/ Config ConfigRefresh Directory MinAge SleepTime Persistent Rate / );
 our %ok_field;
 for my $attr ( @attrs ) { $ok_field{$attr}++; }
 
@@ -74,27 +100,31 @@ sub Next
 
   # loop over files
   # return first uninjected
-  for ( keys(%fileList) )
+  while ( my ($filename, $status) = each %fileStatusList )
     {
-      my $filename = $_;
-      if ( 0 == $fileList{$filename}[0] )
+      if ( 0 == $status )
 	{
-	  $fileList{$filename}[0] = 1;
-	  return ($filename,$fileList{$filename}[1]) if wantarray();
+	  $fileStatusList{$filename} = 1;
+	  $database->sync();
+	  return ($filename,$fileSizeList{$filename}) if wantarray();
 	  return $filename;
 	}
     }
 
-  # reached end of loop, means all files are injected, exit
-  return;
-
-  # as an alternative :
-  #   sleep for a while to not overload the storage system
-  #   then rerun ScanDirectory to search for new files
-  #   and call myself again
-  #sleep 3600;
-  #$self->ScanDirectory($self->{Directory});
-  #return $self->Next();
+  # check if SleepTime is configured
+  # exit if it isn't, otherwise sleep for the
+  # given time and then search for new files
+  if ( defined($self->{SleepTime}) and ( $self->{SleepTime} >= 0 ) )
+    {
+      sleep 60 * $self->{SleepTime};
+      $self->ScanDirectory($self->{Directory});
+      return $self->Next();
+    }
+  else
+    {
+      untie(%fileStatusList);
+      return;
+    }
 }
 
 sub ScanDirectory
@@ -114,7 +144,7 @@ sub ScanDirectory
 
       my $protection = $temp[0];
       my $size = $temp[4];
-      my $date = "$temp[5] $temp[6] $temp[7]";
+      my $date = $temp[5] . " " . $temp[6] . " " . $temp[7];
       my $file = $temp[8];
 
       if ( $protection =~ /^dr/ && ! ( $file =~ /^\./ ) )
@@ -125,17 +155,18 @@ sub ScanDirectory
 	{
 	  my $filename = $currentDir . '/' . $file;
 
-	  if ( not defined($fileList{$filename}) )
+	  if ( not defined($fileStatusList{$filename}) )
 	    {
 	      # check that fileDate is earlier than cutoffDate
 	      my $flag = -1;
               if ( defined($self->{MinAge}) )
-              {
-                $flag = Date_Cmp( ParseDate($date), DateCalc("now","- " . $self->{MinAge} . " minutes") );
-              }
+		{
+		  $flag = Date_Cmp( ParseDate($date), DateCalc("now","- " . $self->{MinAge} . " minutes") );
+		}
 	      if ( $flag < 0 )
 		{
-		  $fileList{$filename} = [ 0 , $size ];
+		  $fileStatusList{$filename} = 0;
+		  $fileSizeList{$filename} = $size;
 		}
 	    }
 	}
