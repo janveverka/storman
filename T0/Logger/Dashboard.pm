@@ -110,7 +110,7 @@ sub Start
   my $self = shift;
   $self->Send(
 		"StepStart",	$self->Exe,
-#		"NEvents",	0,
+ 		@_,
 	      );
 }
 
@@ -123,9 +123,9 @@ sub Stop
   $exitreason = 'successful completion' unless $exitcode;
   $self->Send(
 		"StepStop",	$self->Exe,
-#		"NEvents",	0,
 		"ExitCode",	$exitcode,
 		"ExitReason",	$exitreason,
+ 		@_,
 	      );
 }
 

@@ -276,7 +276,7 @@ sub server_input {
 # Does this work...?
 $DB::single=$debug_me;
     $self->{Dashboard}->Step($work->{id});
-    $self->{Dashboard}->Start;
+    $self->{Dashboard}->Start('Nevents',0,'RecoSize',0);
 
     my $c = $self->PrepareConfigFile($work);
     unless (defined($c))
@@ -403,7 +403,9 @@ sub job_done
     }
 
 $DB::single=$debug_me;
-  $self->{Dashboard}->Stop($h{status},$h{reason});
+  $self->{Dashboard}->Stop($h{status},	$h{reason},
+			   'NEvents',	$h{NEvents},
+			   'RecoSize',	$h{RecoSize});
 
 # Kludges for now...
   if ( defined($h{dir}) && defined($h{File}) && -f $h{dir} . '/' . $h{File} ) { unlink $h{dir} . '/' . $h{File} };
