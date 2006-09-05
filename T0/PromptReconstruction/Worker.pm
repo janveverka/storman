@@ -124,21 +124,23 @@ sub Log
 sub got_child_stdout {
   my ($heap, $stdout) = @_[ HEAP, ARG0 ];
   print LOGOUT $stdout,"\n";;
-  if ( $stdout =~ m%TimeModule>\s+(\d+)\s+(\d+)% )
+
+  while ( $stdout =~ m/ =================> Treating event run:\s+(\d+)\s+(event:)\s+(\d+)/g )
   {
-    my $run = $2;
-    my $evt = $1;
+    my $run = $1;
+    my $evt = $3;
     my $work = $heap->{Work}->{$heap->{program}->PID}->{work};
     next if $heap->{events}{$run}{$evt}++;
     push @{$heap->{stdout}}, $stdout;
     my $nevt = ++$work->{NEvents};
-    if ( $nevt == 1 || $nevt == 2 || $nevt == 5 or ($nevt%20) == 0 )
+    my $freq = $heap->{self}->{ReportFrequency} || 50;
+    if ( $nevt == 1 || $nevt == 2 || $nevt == 5 or ($nevt%$freq) == 0 )
     {
       my $file = $work->{id} .'/' . $work->{RecoFile};
       my $size = (stat($file))[7];
       $heap->{self}->{Dashboard}->Send( 'NEvents', $work->{NEvents},
 					'RecoSize', $size );
-      $heap->{self}->Verbose('NEvents ', $work->{NEvents},' RecoSize ', $size,"\n");
+      $heap->{self}->Quiet('NEvents ',$work->{NEvents},' RecoSize ',$size,"\n");
     }
   }
 }
@@ -273,8 +275,6 @@ sub server_input {
     mkdir $work->{id} or Croak "mkdir: $work->{id}: $!\n";
     chdir $work->{id} or Croak "chdir: $work->{id}: $!\n";
 
-# Does this work...?
-$DB::single=$debug_me;
     $self->{Dashboard}->Step($work->{id});
     $self->{Dashboard}->Start('Nevents',0,'RecoSize',0);
 
@@ -402,7 +402,6 @@ sub job_done
       $h{RecoSize} = 0;
     }
 
-$DB::single=$debug_me;
   $self->{Dashboard}->Stop($h{status},	$h{reason},
 			   'NEvents',	$h{NEvents},
 			   'RecoSize',	$h{RecoSize});
