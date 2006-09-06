@@ -200,7 +200,7 @@ sub server_input {
   if ( $command =~ m%Start% )
   {
     $self->Quiet("Got $command...\n");
-    $kernel->yield('get_work');
+#   $kernel->yield('get_work');
     return;
   }
 

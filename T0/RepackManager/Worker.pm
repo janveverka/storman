@@ -242,13 +242,14 @@ sub server_input {
     $setup = $input->{setup};
     $self->{Debug} && dump_ref($setup);
     map { $self->{$_} = $setup->{$_} } keys %$setup;
+    $kernel->yield('get_work');
     return;
   }
 
   if ( $command =~ m%Start% )
   {
     $self->Quiet("Got $command...\n");
-    $kernel->yield('get_work');
+#   $kernel->yield('get_work');
     return;
   }
 

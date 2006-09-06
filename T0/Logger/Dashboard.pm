@@ -112,6 +112,9 @@ sub Start
 		"StepStart",	$self->Exe,
  		@_,
 	      );
+  $self->Quiet('Dashboard: Cluster=',$self->Cluster,
+			 ' Node=',$self->Node,
+			 " StepStart\n");
 }
 
 sub Stop
@@ -127,6 +130,9 @@ sub Stop
 		"ExitReason",	$exitreason,
  		@_,
 	      );
+  $self->Quiet('Dashboard: Cluster=',$self->Cluster,
+			 ' Node=',$self->Node,
+			 " StepStop\n");
 }
 
 sub Step
@@ -139,6 +145,9 @@ sub Step
     $self->Node($self->{Step});
 
     $self->{apm}->addJobToMonitor($$, cwd, $self->Cluster, $self->Node);
+    $self->Quiet('Dashboard: Cluster=',$self->Cluster,
+			   ' Node=',$self->Node,
+			   " Step defined\n");
   }
   return $self->{Step} if defined($self->{Step});
   Croak "Step not defined for $self\n";

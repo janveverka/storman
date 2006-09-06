@@ -461,6 +461,10 @@ sub file_changed
   my ( $self, $kernel, $file ) = @_[ OBJECT, KERNEL, ARG0 ];
   $self->Quiet("Configuration file \"$self->{Config}\" has changed.\n");
   $self->ReadConfig();
+  my %text = ( 'command' => 'Setup',
+               'setup'   => \%Repack::Worker,
+             );
+  $kernel->yield('broadcast', [ \%text, 0 ] );
 }
 
 sub ReadConfig

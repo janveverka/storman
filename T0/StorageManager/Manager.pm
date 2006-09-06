@@ -341,7 +341,10 @@ sub file_changed
   my ( $self, $kernel, $file ) = @_[ OBJECT, KERNEL, ARG0 ];
   $self->Quiet("Configuration file \"$self->{Config}\" has changed.\n");
   $self->ReadConfig();
-  $kernel->yield( 'send_setup' );
+  my %text = ( 'command' => 'Setup',
+               'setup'   => \%StorageManager::Worker,
+             );
+  $kernel->yield('broadcast', [ \%text, 0 ] );
 }
 
 sub ReadConfig
@@ -413,7 +416,7 @@ sub send_setup
   my %text = ( 'command' => 'Setup',
                'setup'   => \%StorageManager::Worker,
              );
-  $kernel->yield('broadcast', [ \%text, 0 ] );
+  $heap->{client}->put( \%text );
 }
 
 sub send_start

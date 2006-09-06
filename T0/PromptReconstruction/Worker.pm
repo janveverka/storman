@@ -276,7 +276,7 @@ sub server_input {
     chdir $work->{id} or Croak "chdir: $work->{id}: $!\n";
 
     $self->{Dashboard}->Step($work->{id});
-    $self->{Dashboard}->Start('Nevents',0,'RecoSize',0);
+    $self->{Dashboard}->Start('NEvents',0,'RecoSize',0);
 
     my $c = $self->PrepareConfigFile($work);
     unless (defined($c))
@@ -322,13 +322,14 @@ sub server_input {
     $setup = $input->{setup};
     $self->{Debug} && dump_ref($setup);
     map { $self->{$_} = $setup->{$_} } keys %$setup;
+    $kernel->yield('get_work');
     return;
   }
 
   if ( $command =~ m%Start% )
   {
     $self->Quiet("Got $command...\n");
-    $kernel->yield('get_work');
+#   $kernel->yield('get_work');
     return;
   }
 
