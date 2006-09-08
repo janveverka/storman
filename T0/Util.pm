@@ -9,7 +9,7 @@ use Carp;
 $VERSION = 1.00;
 @ISA = qw/ Exporter /;
 @EXPORT = qw/ Print dump_ref profile_flat profile_table bin_table uuid
-	      reroute_event check_host SelectTarget /;
+	      reroute_event check_host SelectTarget MapTarget /;
 
 my ($debug,$quiet,$verbose,$i,@queue);
 
@@ -138,6 +138,27 @@ sub SelectTarget
   }
 
   croak "Don't know what target to take for TargetMode = \"$mode\"...\n";
+}
+
+sub MapTarget
+{
+  my ($file,$target,$h,$channels);
+  $h = shift;
+  $channels = shift;
+  $file = $h->{File};
+  $target = $h->{Target};
+
+# This relies on a naming convention, /path/(CSA06-(\d+)-os-)$channel/$file,
+# and substitutes 'CHANNEL' in the target dir accordingly.
+# The '/$file' is optional.
+  $_ = $file;
+  s%^.*/CSA06-(\d+)-os-%%;
+  s%/[^/]*$%%;
+
+  exists $channels->{$_} or Croak "\"$_\" is not a known channel\n";
+
+  $target =~ s%CHANNEL%$_%;
+  return $target;
 }
 
 sub ReadConfig

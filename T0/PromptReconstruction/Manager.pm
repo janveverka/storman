@@ -114,6 +114,20 @@ sub RecoIsPending
   my ($priority, $id);
   $priority = 99;
   $work->{work} = $self->{Application};
+
+# HACK for duplicated output data detection. Paths are hardwired!
+  my $cmd = $work->{File};
+  $cmd =~ s%^.*-([^-]*/[^/]*)$%$1%;
+  $cmd = 'rfstat /castor/cern.ch/cms/T0Prototype/Reco/092/' . $cmd;
+  open RFSTAT, "$cmd 2>&1 |" or die "$cmd: $!\n";
+  my $exists = 1;
+  while ( <RFSTAT> )
+  {
+    if ( m%No such file or directory% ) { $exists = 0; }
+  }
+  close RFSTAT;
+  return if $exists;
+
   $id = $self->{Queue}->enqueue($priority,$work);
   $self->Quiet("Reco $id is queued for ",$work->{File},"\n");
 }
@@ -409,7 +423,7 @@ sub send_work
 # If there's any client-specific stuff in the queue, send that. Otherwise,
 # tell the client to wait
   $q = $self->Queue($client);
-  ($priority, $id, $work) = $q->dequeue_next();
+  ($priority, $id, $work) = $q->dequeue_next(); # if $q;
   if ( $id )
   {
     $self->Verbose("Queued work: $work\n");

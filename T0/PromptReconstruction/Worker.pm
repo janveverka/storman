@@ -122,6 +122,8 @@ sub ReadConfig
   {
     Croak "\"CfgTemplate\" has no \".tmpl\" suffix...\n";
   }
+
+  map { $self->{Channels}->{$_} = 1; } @{$T0::System{Channels}}
 }
 
 sub server_error { Print $hdr," Server error\n"; }
@@ -242,27 +244,29 @@ sub PrepareConfigFile
        		    'LocalPull'	=> 'file:',
 		  );
   $ofile = basename $h->{File};
-  $ofile =~ s%root%RECO.root%;
+  $ofile =~ s%root$%%;
+  $ofile .= $self->{DataType} . '.root';
   $ofile = SelectTarget($self) . '/' . $ofile;
   $h->{RecoFile} = $ofile;
 
-# This is a hack while I fix the persistent queueing in the Manager
-  if ( defined($self->{RecoDir}) )
+  if ( defined($self->{DataDirs}) )
   {
+    my %g = (
+		'TargetDirs' => $self->{DataDirs},
+		'TargetMode' => 'RoundRobin'
+	    );
+    my $dir = SelectTarget( \%g );
+#   This is a hack while I fix the persistent queueing in the Manager
     my $exists = 1;
-    my $f = $self->{RecoDir} . '/' . $ofile;
+    my $f = $dir . '/' . $ofile;
     open RFSTAT, "rfstat $f 2>&1 |" or Croak "rfstat $f: $!\n";
     while ( <RFSTAT> )
-    {
-      if ( m%No such file or directory% ) { $exists = 0; }
-    }
+    { if ( m%No such file or directory% ) { $exists = 0; } }
     close RFSTAT; # or Croak "close: rfstat $f: $!\n";
-    if ( $exists )
-    {
-      return undef;
-    }
+    if ( $exists ) { return undef; }
   }
 
+  $ifile = $h->{File};
   if ( $self->{Mode} eq 'LocalPull' )
   {
     if ( ! open RFCP, "rfcp $h->{File} . |" )
@@ -276,18 +280,18 @@ sub PrepareConfigFile
 	$self->Verbose("ERROR: can't rfcp $h->{File} !\n");
 	return undef;
       }
-    $h->{File} = basename $h->{File};
+    $ifile = basename $ifile;
   }
   if ( $self->{Mode} eq 'LocalPush' )
   {
-    $h->{File} = basename $h->{File};
+    $ifile = basename $ifile;
   }
   if ( $self->{Mode} ne 'Classic' )
   {
-    -f $h->{File} or Croak "$h->{File} does not exist but mode is Local*\n";
+    -f $ifile or Croak "$ifile does not exist but mode is Local*\n";
   }
 
-  $ifile = $protocols{$self->{Mode}} . $h->{File};
+  $ifile = $protocols{$self->{Mode}} . $ifile;
   $self->Verbose("Input file : $ifile\n");
 
   $conf = $self->{CfgTemplate};
@@ -349,13 +353,12 @@ sub server_input {
 
     my $c = $self->PrepareConfigFile($work);
     unless (defined($c))
-      {
-	$self->Verbose("ERROR: skip this workload !\n");
-	$kernel->yield( 'job_done', [ pid => -1, status => -1 , reason => 'Preparation failed (copying input file?)' ] );
-	return;
-      }
+    {
+      $self->Verbose("ERROR: skip this workload !\n");
+      $kernel->yield( 'job_done', [ pid => -1, status => -1 , reason => 'Preparation failed (copying input file?)' ] );
+      return;
+    }
     $c = $work->{work} . ' ' . $c;
-
     $heap->{program} = POE::Wheel::Run->new
       ( Program	     => $c,
         StdioFilter  => POE::Filter::Line->new(),
@@ -438,13 +441,13 @@ sub get_work
   my ( $self, $heap, $kernel ) = @_[ OBJECT, HEAP, KERNEL ];
 
   $self->Verbose("Queued threads: ",$self->{QueuedThreads},"\n");
-  $kernel->delay_set( 'get_work', 3 ) if $self->{MaxTasks};
+  $kernel->delay_set( 'get_work', 7 ) if $self->{MaxTasks};
   return if ( $self->{State} ne 'Running' );
   return if ( $self->{QueuedThreads} >= $self->{MaxThreads} );
   $self->{QueuedThreads}++;
 
   $self->Verbose("Fetching a task: ",$self->{QueuedThreads},"\n");
-  $self->Quiet("Tasks remaining: ",$self->{MaxTasks},"\n");
+  $self->Verbose("Tasks remaining: ",$self->{MaxTasks},"\n");
   if ( $self->{MaxTasks} > 0 )
   {
     $heap->{WorkRequested} = time;
@@ -474,13 +477,10 @@ sub job_done
 		keys %{$heap->{Work}->{$h{pid}}->{work}};
 
   if ( defined($h{dir}) && defined($h{RecoFile}) && -f $h{dir} . '/' . $h{RecoFile} )
-    {
-      $h{RecoSize} = (stat($h{dir} . '/' . $h{RecoFile}))[7];
-    }
-  else
-    {
-      $h{RecoSize} = 0;
-    }
+  {
+    $h{RecoSize} = (stat($h{dir} . '/' . $h{RecoFile}))[7];
+  }
+  else { $h{RecoSize} = 0; }
 
   $self->{Dashboard}->Stop($h{status},	$h{reason},
 			   'NEvents',	$h{NEvents},
@@ -489,26 +489,44 @@ sub job_done
 # Kludges for now...
   if ( defined($h{dir}) && defined($h{File}) && -f $h{dir} . '/' . $h{File} ) { unlink $h{dir} . '/' . $h{File} };
 
-  if ( defined($h{dir}) && defined($h{log}) && defined($self->{LogDir}) && -f $h{dir} . '/' . $h{log} )
+  if ( defined($self->{LogDirs}) )
   {
-    my $cmd = 'rfcp ' . $h{dir} . '/' . $h{log} . ' ' . $self->{LogDir};
-    Print $cmd;
-    open RFCP, "$cmd |" or die "$cmd: $!\n";
-    while ( <RFCP> ) { $self->Verbose($_); }
-    close RFCP;
+    my %g = ( 'TargetDirs' => $self->{LogDirs},
+	      'TargetMode' => 'RoundRobin' );
+    my $dir = SelectTarget( \%g );
+    %g = ( 'File'	=> $h{File},
+           'Target'	=> $dir );
+    $dir = MapTarget( \%g, $self->{Channels} );
+    if ( defined($h{dir}) && defined($h{log}) && -f $h{dir} . '/' . $h{log} )
+    {
+      my $cmd = 'rfcp ' . $h{dir} . '/' . $h{log} . ' ' . $dir;
+      Print $cmd,"\n";
+      open RFCP, "$cmd |" or die "$cmd: $!\n";
+      while ( <RFCP> ) { $self->Verbose($_); }
+      close RFCP;
+    }
   }
 
-  if ( defined($h{dir}) && defined($h{RecoFile}) && defined($self->{RecoDir}) && -f $h{dir} . '/' . $h{RecoFile} )
+  if ( defined($self->{DataDirs}) )
   {
-    my $cmd = 'rfcp ' . $h{dir} . '/' . $h{RecoFile} . ' ' . $self->{RecoDir};
-    if ( defined($self->{SvcClass}) )
+    my %g = ( 'TargetDirs' => $self->{DataDirs},
+	      'TargetMode' => 'RoundRobin' );
+    my $dir = SelectTarget( \%g );
+    %g = ( 'File'	=> $h{File},
+	   'Target'	=> $dir );
+    $dir = MapTarget( \%g, $self->{Channels} );
+    if ( defined($h{dir}) && defined($h{RecoFile}) && -f $h{dir} . '/' . $h{RecoFile} )
     {
-      $cmd = 'STAGE_SVCCLASS=' . $self->{SvcClass} . ' ' . $cmd;
+      my $cmd = 'rfcp ' . $h{dir} . '/' . $h{RecoFile} . ' ' . $dir;
+      Print $cmd,"\n";
+      if ( defined($self->{SvcClass}) )
+      {
+        $cmd = 'STAGE_SVCCLASS=' . $self->{SvcClass} . ' ' . $cmd;
+      }
+      open RFCP, "$cmd |" or die "$cmd: $!\n";
+      while ( <RFCP> ) { $self->Verbose($_); }
+      close RFCP;
     }
-    Print $cmd;
-    open RFCP, "$cmd |" or die "$cmd: $!\n";
-    while ( <RFCP> ) { $self->Verbose($_); }
-    close RFCP;
   }
 
   $self->Quiet("Send: JobDone: work=$h{pid}, status=$h{status}, priority=$h{priority}\n");
