@@ -30,7 +30,12 @@ sub _init
 {
   my $self = shift;
 
-  $self->{Name} = $PromptReconstruction::Name . '-' . $$;
+  $self->{Name}		 = $PromptReconstruction::Name . '-' . $$;
+  $self->{State}	 = 'Created';
+  $self->{QueuedThreads} = 0;
+  $self->{ActiveThreads} = 0;
+  $self->{MaxThreads}	 = 1;
+
   my %h = @_;
   map { $self->{$_} = $h{$_}; } keys %h;
   $self->ReadConfig();
@@ -43,6 +48,10 @@ sub _init
     RemoteAddress  => $self->{Manager}->{Host},
     Alias          => $self->{Name},
     Filter         => "POE::Filter::Reference",
+    ConnectTimeout => 5,
+    ServerError    => \&server_error,
+    ConnectError   => \&_connection_error_handler,
+    Disconnected   => \&_connection_error_handler,
     Connected      => \&_connected,
     ServerInput    => \&_server_input,
     InlineStates   => {
@@ -54,10 +63,11 @@ sub _init
     Args => [ $self ],
     ObjectStates   => [
 	$self =>	[
-				server_input => 'server_input',
-				connected => 'connected',
-      				job_done => 'job_done',
-      				get_work => 'get_work',
+				server_input	=> 'server_input',
+				connected	=> 'connected',
+		       connection_error_handler => 'connection_error_handler',
+      				job_done	=> 'job_done',
+      				get_work	=> 'get_work',
 			]
 	],
   );
@@ -112,6 +122,48 @@ sub ReadConfig
   {
     Croak "\"CfgTemplate\" has no \".tmpl\" suffix...\n";
   }
+}
+
+sub server_error { Print $hdr," Server error\n"; }
+
+sub _connection_error_handler { reroute_event( (caller(0))[3], @_ ); }
+sub connection_error_handler
+{
+  my ( $self, $kernel ) = @_[ OBJECT, KERNEL ];
+
+# return if $self->{OnError}(@_);
+
+  my $retry = $self->{RetryInterval};
+  defined($retry) && $retry>0 || return;
+
+  if ( !$self->{Retries}++ )
+  {
+    Print $hdr," Connection retry every $retry seconds\n";
+  }
+  $kernel->delay( reconnect => $retry );
+}
+
+sub FlushQueue
+{
+  my $self = shift;
+  my $heap = shift;
+  while ( $_ = shift @{$self->{Queue}} )
+  {
+    $self->Debug("Draining queue: ",$_,"\n");
+    $heap->{server}->put($_);
+  }
+}
+
+sub send
+{
+  my ( $self, $heap, $ref ) = @_;
+  if ( !ref($ref) ) { $ref = \$ref; }
+  if ( $heap->{connected} && $heap->{server} )
+  {
+    $self->FlushQueue($heap);
+    $heap->{server}->put( $ref );
+  }
+  else { push @{$self->{Queue}}, $ref; }
 }
 
 sub Log
@@ -171,7 +223,6 @@ sub got_sigchld
   my ( $self, $heap, $kernel, $child_pid, $status ) =
 			@_[ OBJECT, HEAP, KERNEL, ARG1, ARG2 ];
   my $pid = $heap->{program}->PID;
-# $self->Debug("sig_chld handler: PID=$child_pid, RC=$status Prog=$work\n");
   if ( $child_pid == $pid ) {
     $kernel->yield( 'job_done', [ pid => $pid, status => $status ] );
     delete $heap->{program};
@@ -190,6 +241,27 @@ sub PrepareConfigFile
 		    'LocalPush'	=> 'file:',
        		    'LocalPull'	=> 'file:',
 		  );
+  $ofile = basename $h->{File};
+  $ofile =~ s%root%RECO.root%;
+  $ofile = SelectTarget($self) . '/' . $ofile;
+  $h->{RecoFile} = $ofile;
+
+# This is a hack while I fix the persistent queueing in the Manager
+  if ( defined($self->{RecoDir}) )
+  {
+    my $exists = 1;
+    my $f = $self->{RecoDir} . '/' . $ofile;
+    open RFSTAT, "rfstat $f 2>&1 |" or Croak "rfstat $f: $!\n";
+    while ( <RFSTAT> )
+    {
+      if ( m%No such file or directory% ) { $exists = 0; }
+    }
+    close RFSTAT; # or Croak "close: rfstat $f: $!\n";
+    if ( $exists )
+    {
+      return undef;
+    }
+  }
 
   if ( $self->{Mode} eq 'LocalPull' )
   {
@@ -216,11 +288,6 @@ sub PrepareConfigFile
   }
 
   $ifile = $protocols{$self->{Mode}} . $h->{File};
-  $ofile = basename $h->{File};
-  $ofile =~ s%root%RECO.root%;
-  $ofile = SelectTarget($self) . '/' . $ofile;
-  $h->{RecoFile} = $ofile;
-
   $self->Verbose("Input file : $ifile\n");
 
   $conf = $self->{CfgTemplate};
@@ -252,13 +319,15 @@ sub server_input {
   $self->Verbose("from server: $command\n");
   if ( $command =~ m%Sleep% )
   {
-    $kernel->delay_set( 'get_work', $input->{wait} );
+    $self->{QueuedThreads}-- if $self->{QueuedThreads};
+    $self->Debug("Sleep: Queued threads: ",$self->{QueuedThreads},"\n");
     return;
   }
 
   if ( $command =~ m%DoThis% )
   {
     $self->{MaxTasks}--;
+    $self->{ActiveThreads}++;
     $work     = $input->{work};
     $priority = $input->{priority};
     $priority = 99 unless defined($priority);
@@ -322,20 +391,28 @@ sub server_input {
     $setup = $input->{setup};
     $self->{Debug} && dump_ref($setup);
     map { $self->{$_} = $setup->{$_} } keys %$setup;
-    $kernel->yield('get_work');
     return;
   }
 
   if ( $command =~ m%Start% )
   {
     $self->Quiet("Got $command...\n");
-#   $kernel->yield('get_work');
+    $kernel->yield('get_work') if ( $self->{State} eq 'Created' );
+    $self->{State} = 'Running';
+    return;
+  }
+
+  if ( $command =~ m%Stop% )
+  {
+    $self->Quiet("Got $command...\n");
+    $self->{State} = 'Stop';
     return;
   }
 
   if ( $command =~ m%Quit% )
   {
     $self->Quiet("Got $command...\n");
+    $self->{State} = 'Quit';
     $kernel->yield('shutdown');
     return;
   }
@@ -352,27 +429,29 @@ sub connected
   my %text = (  'command'       => 'HelloFrom',
                 'client'        => $self->{Name},
              );
-  $heap->{server}->put( \%text );
+  $self->send( $heap, \%text );
+  $self->{QueuedThreads} = $self->{ActiveThreads};
 }
 
 sub get_work
 {
   my ( $self, $heap, $kernel ) = @_[ OBJECT, HEAP, KERNEL ];
 
-  if ( ! defined($heap->{server}) )
-  {
-    $self->Verbose("No server! Wait a while...\n");
-    $kernel->delay_set( 'get_work', 3 );
-  }
+  $self->Verbose("Queued threads: ",$self->{QueuedThreads},"\n");
+  $kernel->delay_set( 'get_work', 3 ) if $self->{MaxTasks};
+  return if ( $self->{State} ne 'Running' );
+  return if ( $self->{QueuedThreads} >= $self->{MaxThreads} );
+  $self->{QueuedThreads}++;
 
-  $self->Debug("Tasks remaining: ",$self->{MaxTasks},"\n");
+  $self->Verbose("Fetching a task: ",$self->{QueuedThreads},"\n");
+  $self->Quiet("Tasks remaining: ",$self->{MaxTasks},"\n");
   if ( $self->{MaxTasks} > 0 )
   {
     $heap->{WorkRequested} = time;
     my %text = ( 'command'      => 'SendWork',
                  'client'       => $self->{Name},
                 );
-    $heap->{server}->put( \%text );
+    $self->send( $heap, \%text );
   }
   else
   {
@@ -435,34 +514,24 @@ sub job_done
   $self->Quiet("Send: JobDone: work=$h{pid}, status=$h{status}, priority=$h{priority}\n");
   $h{priority} && $self->Log("JobDone: status=$h{status} priority=$h{priority}");
   $h{priority} && $self->Log(\%h);
-  if ( defined($heap->{server}) )
-  {
-    $h{command} = 'JobDone';
-    $h{client}  = $self->{Name};
-    $h{work}    = $heap->{Work}->{$h{pid}};
-    $h{stdout}  = $heap->{stdout};
-    $h{stderr}  = $heap->{stderr};
-    $heap->{server}->put( \%h );
-    delete $heap->{Work}->{$h{pid}};
-    delete $heap->{stdout};
-    delete $heap->{stderr};
-    delete $heap->{events};
-  }
-  else
-  {
-    Print "Woah, server left me! Couldn't send ",join(', ',%h),"\n";
-  }
+
+  $h{command} = 'JobDone';
+  $h{client}  = $self->{Name};
+  $h{work}    = $heap->{Work}->{$h{pid}};
+  $h{stdout}  = $heap->{stdout};
+  $h{stderr}  = $heap->{stderr};
+  $self->send( $heap, \%h );
+  delete $heap->{Work}->{$h{pid}};
+  delete $heap->{stdout};
+  delete $heap->{stderr};
+  delete $heap->{events};
 
   my $w = scalar(keys %{$heap->{Work}});
   $self->Verbose("JobDone: tasks left=",$self->{MaxTasks}," queued=$w\n");
 
-# priority-zero tasks don't count against my total!
-  if ( !$h{priority} ) { $self->{MaxTasks}++; }
-
-  if ( $self->{MaxTasks} > 0 )
-  {
-    $kernel->yield( 'get_work' );
-  }
+  $self->Verbose("Active threads decremented: ",$self->{QueuedThreads},"\n");
+  $self->{QueuedThreads}--;
+  $self->{ActiveThreads}--;
 
   if ( $self->{MaxTasks} <= 0 && ! $w )
   {

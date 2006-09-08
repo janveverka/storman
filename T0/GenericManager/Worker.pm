@@ -43,6 +43,9 @@ sub _init
     RemoteAddress  => $self->{Manager}->{Host},
     Alias          => $self->{Name},
     Filter         => "POE::Filter::Reference",
+    ServerError    => \&server_error,
+    ConnectError   => \&_connection_error_handler,
+    Disconnected   => \&_connection_error_handler,
     Connected      => \&_connected,
     ServerInput    => \&_server_input,
     InlineStates   => {
@@ -115,6 +118,25 @@ sub Log
   my $self = shift;
   my $logger = $self->{Logger}; 
   defined $logger && $logger->Send(@_);
+}
+
+sub server_error { Print $hdr," Server error\n"; }
+
+sub _connection_error_handler { reroute_event( (caller(0))[3], @_ ); }
+sub connection_error_handler
+{
+  my ( $self, $kernel ) = @_[ OBJECT, KERNEL ];
+
+  return if $self->{OnError}(@_);
+
+  my $retry = $self->{RetryInterval};
+  defined($retry) && $retry>0 || return;
+
+  if ( !$self->{Retries}++ )
+  {
+    Print $hdr," Connection retry every $retry seconds\n";
+  }
+  $kernel->delay( reconnect => $retry );
 }
 
 sub got_child_stdout {

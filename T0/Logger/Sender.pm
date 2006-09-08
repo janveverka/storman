@@ -52,7 +52,6 @@ sub _init
     Disconnected   => \&_connection_error_handler,
     Connected      => \&_connected,
     ServerInput    => \&_server_input,
-#    Started	   => \&started,
     ObjectStates   => [
 	$self => [
 			    server_input => 'server_input',
@@ -142,7 +141,6 @@ sub Send
   { push @{$self->{Queue}}, \@_; }
 }
 
-sub error        { Print $hdr," error\n"; }
 sub server_error { Print $hdr," Server error\n"; }
 
 sub _connection_error_handler { reroute_event( (caller(0))[3], @_ ); }

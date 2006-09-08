@@ -176,8 +176,7 @@ sub CleanupReco
 sub RecoHasBeenProcessed
 {
   my ( $self, $kernel, $heap, $did ) = @_[ OBJECT, KERNEL, HEAP, ARG0 ];
-# my $h = $self->{lumi}{$did};
-Carp "RecoHasBeenProcessed: Not yet written...\n";
+Print "RecoHasBeenProcessed: Not yet written...\n";
   my ($type,$file);
   $self->CleanupReco($did);
 }
@@ -200,8 +199,12 @@ sub Queue
 {
   my $self = shift;
   my $client = shift;
-  if ( defined($client) ) { return $self->{clients}->{$client}; }
-  return undef;
+  return undef unless defined($client);
+  if ( ! defined($self->{clients}->{$client}) )
+  {
+    $self->AddClient($client);
+  }
+  return $self->{clients}->{$client};
 }
 
 sub Clients
@@ -360,7 +363,7 @@ sub client_error
 
 sub handle_unfinished
 {
-  Carp "handle_unfinished: Not written yet...\n";
+  Print "handle_unfinished: Not written yet...\n";
 }
 
 sub _client_disconnected { reroute_event( (caller(0))[3], @_ ); }
@@ -455,6 +458,7 @@ sub client_input
 
   $command = $input->{command};
   $client = $input->{client};
+  $self->Debug("Got $command from $client\n");
 
   if ( $command =~ m%HelloFrom% )
   {
