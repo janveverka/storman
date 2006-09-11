@@ -1,5 +1,7 @@
 use strict;
+use warnings;
 package T0::Iterator::Rfdir;
+use POE qw( Wheel::Run Filter::Line );
 use Date::Manip;
 use DB_File;
 
@@ -17,6 +19,10 @@ sub Debug   { T0::Util::Debug(   (shift)->{Debug},   @_ ); }
 sub Quiet   { T0::Util::Quiet(   (shift)->{Quiet},   @_ ); }
 
 
+select STDERR; $| = 1;	# make unbuffered
+select STDOUT; $| = 1;	# make unbuffered
+
+
 # files are keys, entries are
 #
 #   for fileStatusList :
@@ -30,34 +36,72 @@ my %fileStatusList;
 my %fileSizeList;
 
 #
-# make fileStatusList persistent
+# database to make fileStatusList persistent
 #
-my $file = 'fileStatusList.db';
-my $database = tie(%fileStatusList, 'DB_File', $file) || die "can't open $file: $!";
+my $database = undef;
+
 
 sub _init
 {
   my $self = shift;
 
+  my $heap = $_[HEAP];
+
   my %h = @_;
   map { $self->{$_} = $h{$_} } keys %h;
   $self->ReadConfig();
 
-  # clear fileStatusList database
-  # remove everything if not persistent
-  # remove not yet injected files even if persistent
-  while ( my ($filename, $status) = each %fileStatusList )
-    {
-      if ( not defined $self->{Persistent} or ( 1 != $self->{Persistent} ) or ( 0 == $status ) )
-	{
-	  delete($fileStatusList{$filename});
-	}
-    }
-  $database->sync();
+  POE::Session->create(
+		       inline_states => {
+					 _start => \&start_tasks,
+					 start_tasks => \&start_tasks,
+					 got_task_stdout	=> \&got_task_stdout,
+					 got_task_stderr	=> \&got_task_stderr,
+					 got_task_close	=> \&got_task_close,
+					 got_sigchld	=> \&got_sigchld,
+					},
+		       args => [ $self->{Directory}, $self->{MinAge}, $self->{SleepTime} ],
+		      );
 
-  $self->ScanDirectory($self->{Directory});
+  # if persistent, tie file to hash and clear hash of not injected files
+  if ( defined $self->{Persistent} )
+    {
+      $database = tie(%fileStatusList, 'DB_File', $self->{Persistent}) || die "can't open $self->{Persistent}: $!";
+
+      while ( my ($filename, $status) = each %fileStatusList )
+	{
+	  if ( 0 == $status )
+	    {
+	      delete($fileStatusList{$filename});
+	    }
+	}
+
+      $database->sync();
+    }
 
   return $self;
+}
+
+sub start_tasks
+{
+  my ( $kernel, $heap, $topDirectory, $minAge, $sleepTime ) = @_[ KERNEL, HEAP, ARG0, ARG1, ARG2 ];
+
+  my $task = POE::Wheel::Run->new(
+				  Program => [ "rfdir", $topDirectory ],
+				  StdoutFilter => POE::Filter::Line->new(),
+				  StdoutEvent  => "got_task_stdout",
+				  StderrEvent  => "got_task_stderr",
+				  CloseEvent   => "got_task_close",
+				 );
+
+  $heap->{MinAge} = $minAge;
+
+  $heap->{task}->{ $task->ID } = $task;
+  $heap->{directory}->{ $task->ID } = $topDirectory;
+  $heap->{sleepTime}->{ $task->ID } = $sleepTime;
+  $kernel->sig( CHLD => "got_sigchld" );
+
+  $kernel->yield( 'test_delay' );
 }
 
 sub new
@@ -105,72 +149,99 @@ sub Next
       if ( 0 == $status )
 	{
 	  $fileStatusList{$filename} = 1;
-	  $database->sync();
+	  if ( defined $database ) { $database->sync(); }
 	  return ($filename,$fileSizeList{$filename}) if wantarray();
 	  return $filename;
 	}
     }
 
-  # check if SleepTime is configured
-  # exit if it isn't, otherwise sleep for the
-  # given time and then search for new files
-  if ( defined($self->{SleepTime}) and ( $self->{SleepTime} >= 0 ) )
-    {
-      sleep 60 * $self->{SleepTime};
-      $self->ScanDirectory($self->{Directory});
-      return $self->Next();
-    }
-  else
-    {
-      untie(%fileStatusList);
-      return;
-    }
+  return undef;
 }
 
-sub ScanDirectory
-{
-  my $self = shift;
+sub got_task_stdout {
+  my ( $kernel, $heap, $stdout, $task_id ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
 
-  my ($currentDir) = @_;
+  my $currentDirectory = $heap->{directory}->{ $task_id };
 
-  my @lines = qx {rfdir $currentDir};
+  chomp($stdout);
 
-  foreach my $line ( @lines )
+  # parse line
+  my @temp = split (" ", $stdout);
+
+  my $protection = $temp[0];
+  my $size = $temp[4];
+  my $date = $temp[5] . " " . $temp[6] . " " . $temp[7];
+  my $file = $temp[8];
+
+  my $filename = $currentDirectory . '/' . $file;
+
+  if ( $protection =~ /^dr/ && ! ( $file =~ /^\./ ) )
     {
-      chomp($line);
-
-      # parse line
-      my @temp = split (" ", $line);
-
-      my $protection = $temp[0];
-      my $size = $temp[4];
-      my $date = $temp[5] . " " . $temp[6] . " " . $temp[7];
-      my $file = $temp[8];
-
-      if ( $protection =~ /^dr/ && ! ( $file =~ /^\./ ) )
+      my $task = POE::Wheel::Run->new(
+				      Program => [ "rfdir", $filename ],
+				      StdoutFilter => POE::Filter::Line->new(),
+				      StdoutEvent  => "got_task_stdout",
+				      StderrEvent  => "got_task_stderr",
+				      CloseEvent   => "got_task_close",
+				     );
+      $heap->{task}->{ $task->ID } = $task;
+      $heap->{directory}->{ $task->ID } = $filename;
+      $kernel->sig( CHLD => "got_sigchld" );
+    }
+  elsif ( $protection =~ /^-r/ )
+    {
+      if ( not defined($fileStatusList{$filename}) )
 	{
-	  $self->ScanDirectory($currentDir . '/' . $file);
-	}
-      elsif ( $protection =~ /^-r/ )
-	{
-	  my $filename = $currentDir . '/' . $file;
-
-	  if ( not defined($fileStatusList{$filename}) )
+	  # check that fileDate is earlier than cutoffDate (only if MinAge is defined)
+	  my $flag = -1;
+	  if ( defined($heap->{MinAge}) )
 	    {
-	      # check that fileDate is earlier than cutoffDate
-	      my $flag = -1;
-              if ( defined($self->{MinAge}) )
-		{
-		  $flag = Date_Cmp( ParseDate($date), DateCalc("now","- " . $self->{MinAge} . " minutes") );
-		}
-	      if ( $flag < 0 )
-		{
-		  $fileStatusList{$filename} = 0;
-		  $fileSizeList{$filename} = $size;
-		}
+	      $flag = Date_Cmp( ParseDate($date), DateCalc("now","- " . $heap->{MinAge} . " minutes") );
+	    }
+	  if ( $flag < 0 )
+	    {
+	      $fileStatusList{$filename} = 0;
+	      $fileSizeList{$filename} = $size;
 	    }
 	}
     }
 }
+
+sub got_task_stderr {
+    my $stderr = $_[ARG0];
+    print "RFDIR STDERR: $stderr\n";
+}
+
+sub got_task_close {
+  my ( $kernel, $heap, $task_id ) = @_[ KERNEL, HEAP, ARG0 ];
+
+  #
+  # check if this task runs in the top directory
+  # sleepTime is only defined for this task, no other
+  #
+  # it's the users responsibility to choose a sensible sleep time !!!
+  #
+  my $sleepTime;
+  if ( exists $heap->{sleepTime}->{ $task_id } )
+    {
+      $sleepTime = $heap->{sleepTime}->{ $task_id };
+
+      if ( defined $sleepTime and $sleepTime > 0 )
+	{
+	  # start directory scan from the top again later
+	  $kernel->delay( 'start_tasks', $sleepTime * 60, ( $heap->{directory}->{$task_id} , $heap->{MinAge} , $sleepTime ) );
+	}
+
+      delete $heap->{sleepTime}->{ $task_id };
+    }
+
+  delete $heap->{task}->{$task_id};
+  delete $heap->{directory}->{$task_id};
+}
+
+sub got_sigchld {
+  return 0;
+}
+
 
 1;
