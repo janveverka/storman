@@ -19,10 +19,6 @@ sub Debug   { T0::Util::Debug(   (shift)->{Debug},   @_ ); }
 sub Quiet   { T0::Util::Quiet(   (shift)->{Quiet},   @_ ); }
 
 
-select STDERR; $| = 1;	# make unbuffered
-select STDOUT; $| = 1;	# make unbuffered
-
-
 # files are keys, entries are
 #
 #   for fileStatusList :
@@ -133,7 +129,7 @@ sub ReadConfig
   no strict 'refs';
   my $self = shift;
   my $file = $self->{Config};
-  return unless $file;  
+  return unless $file;
 
   T0::Util::ReadConfig( $self );
 }
