@@ -1,5 +1,5 @@
 use strict;
-package T0::PromptReconstruction::Manager;
+package T0::Component::Manager;
 use Sys::Hostname;
 use POE;
 use POE::Filter::Reference;
@@ -14,7 +14,7 @@ my $debug_me=1;
 use Carp;
 $VERSION = 1.00;
 @ISA = qw/ Exporter /;
-$PromptReconstruction::Name = 'PromptReco::Manager';
+$Component::Name = 'Component::Manager';
 
 our (@queue,%q);
 
@@ -29,7 +29,7 @@ sub _init
 {
   my $self = shift;
 
-  $self->{Name} = $PromptReconstruction::Name;
+  $self->{Name} = $Component::Name;
   my %h = @_;
   map { $self->{$_} = $h{$_}; } keys %h;
   $self->ReadConfig();
@@ -241,7 +241,7 @@ sub check_rate
   $self->Debug("$size MB, $nev events in $s seconds, $i readings\n");
 #  %h = (     MonaLisa	 => 1,
 #	     Cluster	 => $T0::System{Name},
-#             Node	 => 'PromptReco',
+#             Node	 => $self->{Node},
 #             Events	 => $nev,
 #	     RecoVolume  => $size,
 #             Readings	 => $i,
@@ -334,7 +334,7 @@ sub file_changed
   $self->Quiet("Configuration file \"$self->{Config}\" has changed.\n");
   $self->ReadConfig();
   my %text = ( 'command' => 'Setup',
-               'setup'   => \%PromptReco::Worker,
+               'setup'   => \%Component::Worker,
              );
   $kernel->yield('broadcast', [ \%text, 0 ] );
 }
@@ -395,7 +395,7 @@ sub send_setup
 
   $self->Quiet("Send: Setup to $client\n");
   my %text = ( 'command' => 'Setup',
-               'setup'   => \%PromptReco::Worker,
+               'setup'   => \%Component::Worker,
              );
   $heap->{client}->put( \%text );
 }
@@ -452,11 +452,14 @@ sub send_work
                 'client'	=> $client,
 		'wait'		=> $self->{Backoff} || 10,
 	      );
-      $self->Quiet("Send: ",$work->{File}," to $client\n");
       $heap->{client}->put( \%text );
       return;
     }
   }
+
+# If there was client-specific work, or no work at all, then we don't get
+# here. So I know there is a {File} to report!
+  $self->Quiet("Send: ",$work->{File}," to $client\n");
   $work->{id} = $id;
   %text = ( 'command'	=> 'DoThis',
             'client'	=> $client,
@@ -512,17 +515,17 @@ sub client_input
 $DB::single=$debug_me;
     if ( $input->{RecoFile} )
     {
-#      my %h = (	MonaLisa	=> 1,
-#		Cluster		=> $T0::System{Name},
-#		Node		=> 'PromptReco',
-#		QueueLength	=> $self->{Queue}->get_item_count(),
-#		NReco		=> scalar keys %{$self->{clients}},
-#	      );
-#      if ( exists($self->{_queue}{$id}{Start}) )
-#      {
-#        $h{Duration} = time - $self->{_queue}{$id}{Start};
-#      }
-#      $self->Log( \%h );
+      my %h = (	MonaLisa	=> 1,
+		Cluster		=> $T0::System{Name},
+		Node		=> $self->{Node},
+		QueueLength	=> $self->{Queue}->get_item_count(),
+		NReco		=> scalar keys %{$self->{clients}},
+	      );
+      if ( exists($self->{_queue}{$id}{Start}) )
+      {
+        $h{Duration} = time - $self->{_queue}{$id}{Start};
+      }
+      $self->Log( \%h );
       my %g = ( RecoReady => $input->{host} . ':' .
 			     $input->{dir}  . '/' .
 			     $input->{RecoFile},

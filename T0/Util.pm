@@ -9,7 +9,8 @@ use Carp;
 $VERSION = 1.00;
 @ISA = qw/ Exporter /;
 @EXPORT = qw/ Print dump_ref profile_flat profile_table bin_table uuid
-	      reroute_event check_host SelectTarget MapTarget /;
+	      reroute_event check_host SelectTarget MapTarget GetChannel
+	      UuidOfFile /;
 
 my ($debug,$quiet,$verbose,$i,@queue);
 
@@ -110,6 +111,14 @@ sub profile_flat
   return $size;
 }
 
+sub UuidOfFile
+{
+  $_ = shift;
+  s%^.*/%%;
+  s%\..*$%%;
+  return $_;
+}
+
 sub uuid
 {
   my $uuid;
@@ -140,23 +149,32 @@ sub SelectTarget
   croak "Don't know what target to take for TargetMode = \"$mode\"...\n";
 }
 
-sub MapTarget
+sub GetChannel
 {
-  my ($file,$target,$h,$channels);
-  $h = shift;
-  $channels = shift;
-  $file = $h->{File};
-  $target = $h->{Target};
+  my ($file,$channels) = @_;
 
 # This relies on a naming convention, /path/(CSA06-(\d+)-os-)$channel/$file,
 # and substitutes 'CHANNEL' in the target dir accordingly.
 # The '/$file' is optional.
   $_ = $file;
-  s%^.*/CSA06-(\d+)-os-%%;
+  s%^.*/([^/]+/[^/]+$)%$1%;
+  s%^CSA06-(\d+)-os-%%;
   s%/[^/]*$%%;
 
-  exists $channels->{$_} or Croak "\"$_\" is not a known channel\n";
+  exists $channels->{$_} or return undef;
+  return $_;
+}
 
+sub MapTarget
+{
+  my ($h,$channels) = @_;
+  my $target = $h->{Target};
+  $_ = GetChannel($h->{File},$channels);
+  if ( !defined($_) )
+  {
+    Print "No Channel for \"",$h->{File},"\"\n";
+    return undef;
+  }
   $target =~ s%CHANNEL%$_%;
   return $target;
 }

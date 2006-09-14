@@ -1,5 +1,5 @@
 use strict;
-package T0::PromptReconstruction::Worker;
+package T0::Component::Worker;
 use POE;
 use POE::Filter::Reference;
 use POE::Component::Client::TCP;
@@ -16,7 +16,7 @@ use Carp;
 $VERSION = 1.00;
 @ISA = qw/ Exporter /;
 
-$PromptReconstruction::Name = 'PromptReco::Worker-' . hostname();
+#$Component::Name = 'Component::Worker-' . hostname();
 
 my ($i,@queue);
 our $hdr = __PACKAGE__ . ':: ';
@@ -30,7 +30,7 @@ sub _init
 {
   my $self = shift;
 
-  $self->{Name}		 = $PromptReconstruction::Name . '-' . $$;
+#  $self->{Name}		 = $Component::Name . '-' . $$;
   $self->{State}	 = 'Created';
   $self->{QueuedThreads} = 0;
   $self->{ActiveThreads} = 0;
@@ -40,6 +40,7 @@ sub _init
   map { $self->{$_} = $h{$_}; } keys %h;
   $self->ReadConfig();
   $self->{Host} = hostname();
+  $self->{Name} .= '-' . $self->{Host} . '-' . $$;
 
   if ( defined($self->{Logger}) ) { $self->{Logger}->Name($self->{Name}); }
 
@@ -241,17 +242,18 @@ sub got_sigchld
 sub PrepareConfigFile
 {
   my ($self,$h) = @_;
-  my ($ifile,$ofile,$conf);
+  my ($ifile,$ofile,$conf,$uuidT,$log);
 
   my %protocols = ( 'Classic'	=> 'rfio:',
 		    'LocalPush'	=> 'file:',
        		    'LocalPull'	=> 'file:',
 		  );
-  $ofile = basename $h->{File};
-  $ofile =~ s%root$%%;
-  $ofile .= $self->{DataType} . '.root';
-  $ofile = SelectTarget($self) . '/' . $ofile;
+  $uuidT = basename $h->{File};
+  $uuidT =~ s%\..*root$%%;
+  $uuidT = UuidOfFile($h->{File}) . '.' . $self->{DataType};
+  $ofile = SelectTarget($self) . "/$uuidT.root";
   $h->{RecoFile} = $ofile;
+  $h->{log}      = "log.$uuidT.gz";
 
   if ( defined($self->{DataDirs}) )
   {
@@ -342,7 +344,7 @@ sub server_input {
 
     my %h = ( MonaLisa  => 1,
 	      Cluster	=> $T0::System{Name},
-              Node      => 'PromptReco',
+              Node      => $self->{Node},
               IdleTime	=> time - $heap->{WorkRequested}
 	    );
     $self->Log( \%h );
@@ -373,18 +375,13 @@ sub server_input {
         StderrEvent  => "got_child_stderr",
         CloseEvent   => "got_child_close",
       );
-    $heap->{log} = 'log.PR.' . basename $work->{File};
-    $heap->{log} =~ s%.root%%;
-    $heap->{log} .= '.out.gz';
-
     $heap->{self} = $self;
 
-    open LOGOUT, "| gzip - > $heap->{log}" or Croak "open: $heap->{log}: $!\n";
-#    select LOGOUT; $|=1;
+    open LOGOUT, "| gzip - > $work->{log}" or Croak "open: $heap->{log}: $!\n";
 
     chdir $work->{pwd};
 
-    $work->{log}  = $heap->{log};
+#   $heap->{log}  = $work->{log};
     $work->{host} = $self->{Host};
 
     $kernel->sig( CHLD => "got_sigchld" );
@@ -510,6 +507,15 @@ sub job_done
       open RFCP, "$cmd |" or Croak "$cmd: $!\n";
       while ( <RFCP> ) { $self->Verbose($_); }
       close RFCP;
+
+      if ( -f $h{dir} . '/FrameworkJobReport.xml' )
+      {
+        $cmd = 'rfcp ' . $h{dir} . '/FrameworkJobReport.xml ' . $dir . '/FrameworkJobReport.' . UuidOfFile($h{File}) . '.xml';
+        Print $cmd,"\n";
+        open RFCP, "$cmd |" or Croak "$cmd: $!\n";
+        while ( <RFCP> ) { $self->Verbose($_); }
+        close RFCP;
+      }
     }
   }
 
