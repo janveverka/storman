@@ -452,11 +452,13 @@ sub send_work
                 'client'	=> $client,
 		'wait'		=> $self->{Backoff} || 10,
 	      );
-      $self->Quiet("Send: ",$work->{File}," to $client\n");
       $heap->{client}->put( \%text );
       return;
     }
   }
+# If there was client-specific work, or no work at all, then we don't get
+# here. So I know there is a {File} to report!
+  $self->Quiet("Send: ",$work->{File}," to $client\n");
   $work->{id} = $id;
   %text = ( 'command'	=> 'DoThis',
             'client'	=> $client,
