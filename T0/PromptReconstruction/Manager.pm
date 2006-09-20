@@ -430,8 +430,8 @@ sub send_work
   ($priority, $id, $work) = $q->dequeue_next(); # if $q;
   if ( $id )
   {
-    $self->Verbose("Queued work: $work\n");
-    if ( ref($work) eq 'HASH' )
+    $self->Verbose("Queued work: ",$work->{command},"\n");
+    if ( ref($work) eq 'HASH' ) # ...and if it's not...?
     {
       %text = ( 'client'	=> $client,
 	        'priority'	=> $priority,

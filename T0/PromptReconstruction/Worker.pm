@@ -196,6 +196,11 @@ sub got_child_stdout {
     {
       my $file = $work->{dir} .'/' . $work->{RecoFile};
       my $size = (stat($file))[7];
+if ( $size < 0 )
+{
+  $DB::single=1;
+  Print $size,"is negative!\n";
+}
       $heap->{self}->{Dashboard}->Send( 'NEvents', $work->{NEvents},
 					'RecoSize', $size );
       $heap->{self}->Quiet('NEvents ',$work->{NEvents},' RecoSize ',$size,"\n");
@@ -399,6 +404,7 @@ sub server_input {
     $setup = $input->{setup};
     $self->{Debug} && dump_ref($setup);
     map { $self->{$_} = $setup->{$_} } keys %$setup;
+    $self->{QueuedThreads}-- if $self->{QueuedThreads};
     return;
   }
 
@@ -484,6 +490,11 @@ sub job_done
   if ( defined($h{dir}) && defined($h{RecoFile}) && -f $h{dir} . '/' . $h{RecoFile} )
   {
     $h{RecoSize} = (stat($h{dir} . '/' . $h{RecoFile}))[7];
+if ( $h{RecoSize} < 0 )
+{
+  $DB::single=1;
+  Print $h{RecoSize},"is negative!\n";
+}
   }
   else { $h{RecoSize} = 0; }
 
