@@ -3,7 +3,6 @@ use warnings;
 package T0::Iterator::Rfdir;
 use POE qw( Wheel::Run Filter::Line );
 use Date::Manip;
-use DB_File;
 
 our (@ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION);
 
@@ -18,34 +17,13 @@ sub Verbose { T0::Util::Verbose( (shift)->{Verbose}, @_ ); }
 sub Debug   { T0::Util::Debug(   (shift)->{Debug},   @_ ); }
 sub Quiet   { T0::Util::Quiet(   (shift)->{Quiet},   @_ ); }
 
+#select STDERR; $| = 1;	# make unbuffered
+#select STDOUT; $| = 1;	# make unbuffered
 
-# files are keys, entries are
-#
-#   for fileStatusList :
-#     0 for file ready to be inserted
-#     1 for already injected file
-#
-#   for fileSizeList :
-#     size of file
-#
-my %fileStatusList;
-my %fileSizeList;
-
-#
-# database to make fileStatusList persistent
-#
-my $database = undef;
-
-
-sub _init
-{
-  my $self = shift;
-
-  my $heap = $_[HEAP];
-
-  my %h = @_;
-  map { $self->{$_} = $h{$_} } keys %h;
-  $self->ReadConfig();
+sub new {
+  my ($class, $hash_ref) = @_;
+  my $self = {};
+  bless($self, $class);
 
   POE::Session->create(
 		       inline_states => {
@@ -56,102 +34,36 @@ sub _init
 					 got_task_close	=> \&got_task_close,
 					 got_sigchld	=> \&got_sigchld,
 					},
-		       args => [ $self->{Directory}, $self->{MinAge}, $self->{SleepTime} ],
+		       args => [ $hash_ref ],
 		      );
-
-  # if persistent, tie file to hash and clear hash of not injected files
-  if ( defined $self->{Persistent} )
-    {
-      $database = tie(%fileStatusList, 'DB_File', $self->{Persistent}) || die "can't open $self->{Persistent}: $!";
-
-      while ( my ($filename, $status) = each %fileStatusList )
-	{
-	  if ( 0 == $status )
-	    {
-	      delete($fileStatusList{$filename});
-	    }
-	}
-
-      $database->sync();
-    }
 
   return $self;
 }
 
-sub start_tasks
-{
-  my ( $kernel, $heap, $topDirectory, $minAge, $sleepTime ) = @_[ KERNEL, HEAP, ARG0, ARG1, ARG2 ];
+sub start_tasks {
+  my ( $kernel, $heap, $hash_ref ) = @_[ KERNEL, HEAP, ARG0 ];
+
+  # save parameters on heap
+  $heap->{Session} = $hash_ref->{Session};
+  $heap->{Callback} = $hash_ref->{Callback};
+  $heap->{MinAge} = $hash_ref->{MinAge};
+  $heap->{Files} = $hash_ref->{Files};
+
+  # register signal handler
+  $kernel->sig( CHLD => "got_sigchld" );
+
+  $heap->{WheelCount} = 1;
 
   my $task = POE::Wheel::Run->new(
-				  Program => [ "rfdir", $topDirectory ],
+				  Program => [ "rfdir", $hash_ref->{Directory} ],
 				  StdoutFilter => POE::Filter::Line->new(),
 				  StdoutEvent  => "got_task_stdout",
 				  StderrEvent  => "got_task_stderr",
 				  CloseEvent   => "got_task_close",
 				 );
 
-  $heap->{MinAge} = $minAge;
-
   $heap->{task}->{ $task->ID } = $task;
-  $heap->{directory}->{ $task->ID } = $topDirectory;
-  $heap->{sleepTime}->{ $task->ID } = $sleepTime;
-  $kernel->sig( CHLD => "got_sigchld" );
-
-  $kernel->yield( 'test_delay' );
-}
-
-sub new
-{
-  my $proto  = shift;
-  my $class  = ref($proto) || $proto;
-  my $parent = ref($proto) && $proto;
-  my $self = {  };
-  bless($self, $class);
-  $self->_init(@_);
-}
-
-our @attrs = ( qw/ Config ConfigRefresh Directory MinAge SleepTime Persistent Rate / );
-our %ok_field;
-for my $attr ( @attrs ) { $ok_field{$attr}++; }
-
-sub AUTOLOAD {
-  my $self = shift;
-  my $attr = our $AUTOLOAD;
-  $attr =~ s/.*:://;
-  return unless $attr =~ /[^A-Z]/;  # skip DESTROY and all-cap methods
-  Croak "AUTOLOAD: Invalid attribute method: ->$attr()" unless $ok_field{$attr};
-  $self->{$attr} = shift if @_;
-  return $self->{$attr};
-}
-
-sub ReadConfig
-{
-  no strict 'refs';
-  my $self = shift;
-  my $file = $self->{Config};
-  return unless $file;
-
-  T0::Util::ReadConfig( $self );
-}
-
-sub Next
-{
-  my $self = shift;
-
-  # loop over files
-  # return first uninjected
-  while ( my ($filename, $status) = each %fileStatusList )
-    {
-      if ( 0 == $status )
-	{
-	  $fileStatusList{$filename} = 1;
-	  if ( defined $database ) { $database->sync(); }
-	  return ($filename,$fileSizeList{$filename}) if wantarray();
-	  return $filename;
-	}
-    }
-
-  return undef;
+  $heap->{directory}->{ $task->ID } = $hash_ref->{Directory};
 }
 
 sub got_task_stdout {
@@ -173,6 +85,8 @@ sub got_task_stdout {
 
   if ( $protection =~ /^dr/ && ! ( $file =~ /^\./ ) )
     {
+      $heap->{WheelCount}++;
+
       my $task = POE::Wheel::Run->new(
 				      Program => [ "rfdir", $filename ],
 				      StdoutFilter => POE::Filter::Line->new(),
@@ -180,24 +94,28 @@ sub got_task_stdout {
 				      StderrEvent  => "got_task_stderr",
 				      CloseEvent   => "got_task_close",
 				     );
+
       $heap->{task}->{ $task->ID } = $task;
       $heap->{directory}->{ $task->ID } = $filename;
-      $kernel->sig( CHLD => "got_sigchld" );
     }
   elsif ( $protection =~ /^-r/ )
     {
-      if ( not defined($fileStatusList{$filename}) )
+      if ( not exists $heap->{Files}->{Status}->{$filename} )
 	{
+	  my $parsedDate = ParseDate($date);
+	  my $secondsSinceEpoch = UnixDate($parsedDate,"%s");
+
 	  # check that fileDate is earlier than cutoffDate (only if MinAge is defined)
 	  my $flag = -1;
-	  if ( defined($heap->{MinAge}) )
+	  if ( defined $heap->{MinAge} )
 	    {
 	      $flag = Date_Cmp( ParseDate($date), DateCalc("now","- " . $heap->{MinAge} . " minutes") );
 	    }
 	  if ( $flag < 0 )
 	    {
-	      $fileStatusList{$filename} = 0;
-	      $fileSizeList{$filename} = $size;
+	      $heap->{Files}->{Status}->{$filename} = 0;
+	      $heap->{Files}->{Size}->{$filename} = $size;
+	      $heap->{Files}->{Date}->{$filename} = $secondsSinceEpoch;
 	    }
 	}
     }
@@ -211,24 +129,14 @@ sub got_task_stderr {
 sub got_task_close {
   my ( $kernel, $heap, $task_id ) = @_[ KERNEL, HEAP, ARG0 ];
 
+  $heap->{WheelCount}--;
+
   #
-  # check if this task runs in the top directory
-  # sleepTime is only defined for this task, no other
+  # check if all wheels have finished
   #
-  # it's the users responsibility to choose a sensible sleep time !!!
-  #
-  my $sleepTime;
-  if ( exists $heap->{sleepTime}->{ $task_id } )
+  if ( $heap->{WheelCount} == 0 )
     {
-      $sleepTime = $heap->{sleepTime}->{ $task_id };
-
-      if ( defined $sleepTime and $sleepTime > 0 )
-	{
-	  # start directory scan from the top again later
-	  $kernel->delay( 'start_tasks', $sleepTime * 60, ( $heap->{directory}->{$task_id} , $heap->{MinAge} , $sleepTime ) );
-	}
-
-      delete $heap->{sleepTime}->{ $task_id };
+      $kernel->post($heap->{Session},$heap->{Callback});
     }
 
   delete $heap->{task}->{$task_id};
