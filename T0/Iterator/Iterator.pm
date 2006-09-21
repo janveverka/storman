@@ -71,7 +71,7 @@ sub new {
 
       while ( my ($filename, $status) = each %fileStatusList )
 	{
-	  if ( 0 == $status )
+	  if ( defined $self->{Restart} or 0 == $status )
 	    {
 	      delete($fileStatusList{$filename});
 	    }
