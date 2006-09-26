@@ -333,8 +333,10 @@ sub file_changed
   my ( $self, $kernel, $file ) = @_[ OBJECT, KERNEL, ARG0 ];
   $self->Quiet("Configuration file \"$self->{Config}\" has changed.\n");
   $self->ReadConfig();
+  no strict 'refs';
+  my $ref = \%{$self->{Partners}->{Worker}};
   my %text = ( 'command' => 'Setup',
-               'setup'   => \%Component::Worker,
+               'setup'   => $ref,
              );
   $kernel->yield('broadcast', [ \%text, 0 ] );
 }
@@ -394,8 +396,10 @@ sub send_setup
   my $client = $heap->{client_name};
 
   $self->Quiet("Send: Setup to $client\n");
+  no strict 'refs';
+  my $ref = \%{$self->{Partners}->{Worker}};
   my %text = ( 'command' => 'Setup',
-               'setup'   => \%Component::Worker,
+               'setup'   => $ref,
              );
   $heap->{client}->put( \%text );
 }
@@ -430,7 +434,7 @@ sub send_work
   ($priority, $id, $work) = $q->dequeue_next(); # if $q;
   if ( $id )
   {
-    $self->Verbose("Queued work: $work\n");
+    $self->Verbose("Queued work: ",$work->{command},"\n");
     if ( ref($work) eq 'HASH' )
     {
       %text = ( 'client'	=> $client,

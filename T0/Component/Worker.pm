@@ -184,7 +184,8 @@ sub got_child_stdout {
   my ($heap, $stdout) = @_[ HEAP, ARG0 ];
   print LOGOUT $stdout,"\n";;
 
-  while ( $stdout =~ m/ =================> Treating event run:\s+(\d+)\s+(event:)\s+(\d+)/g )
+# while ( $stdout =~ m/ =================> Treating event run:\s+(\d+)\s+(event:)\s+(\d+)/g )
+  while ( $stdout =~ m/TimeEvent:.+Run:\s+(\d+)\s+(Event:)\s+(\d+)/g )
   {
     my $run = $1;
     my $evt = $3;
@@ -196,10 +197,10 @@ sub got_child_stdout {
     if ( $nevt == 1 || $nevt == 2 || $nevt == 5 or ($nevt%$freq) == 0 )
     {
       my $file = $work->{dir} .'/' . $work->{RecoFile};
-      my $size = (stat($file))[7];
+      my $size = (stat($file))[7] / 1024 / 1024;
+      $heap->{self}->Quiet('NEvents ',$work->{NEvents},' RecoSize ',$size,"\n");
       $heap->{self}->{Dashboard}->Send( 'NEvents', $work->{NEvents},
 					'RecoSize', $size );
-      $heap->{self}->Quiet('NEvents ',$work->{NEvents},' RecoSize ',$size,"\n");
     }
   }
 }
@@ -375,13 +376,14 @@ sub server_input {
         StderrEvent  => "got_child_stderr",
         CloseEvent   => "got_child_close",
       );
+die here: $heap->{log} not defined, but $work->{log} is! Ust that!
     $heap->{self} = $self;
 
-    open LOGOUT, "| gzip - > $work->{log}" or Croak "open: $heap->{log}: $!\n";
+    open LOGOUT, "| gzip - > $heap->{log}" or Croak "open: $heap->{log}: $!\n";
 
     chdir $work->{pwd};
 
-#   $heap->{log}  = $work->{log};
+    $work->{log}  = $heap->{log};
     $work->{host} = $self->{Host};
 
     $kernel->sig( CHLD => "got_sigchld" );
@@ -396,6 +398,7 @@ sub server_input {
     $setup = $input->{setup};
     $self->{Debug} && dump_ref($setup);
     map { $self->{$_} = $setup->{$_} } keys %$setup;
+    $self->{QueuedThreads}-- if $self->{QueuedThreads};
     return;
   }
 
@@ -461,6 +464,7 @@ sub get_work
   else
   {
     Croak "This is not a good way to go...\n";
+    exit 0;
   }
 }
 
@@ -480,7 +484,7 @@ sub job_done
 
   if ( defined($h{dir}) && defined($h{RecoFile}) && -f $h{dir} . '/' . $h{RecoFile} )
   {
-    $h{RecoSize} = (stat($h{dir} . '/' . $h{RecoFile}))[7];
+    $h{RecoSize} = (stat($h{dir} . '/' . $h{RecoFile}))[7] / 1024 / 1024;
   }
   else { $h{RecoSize} = 0; }
 
@@ -489,7 +493,8 @@ sub job_done
 			   'RecoSize',	$h{RecoSize});
 
 # Kludges for now to get rid of the output and input...
-  if ( defined($h{dir}) && defined($h{File}) && -f $h{dir} . '/' . $h{File} ) { unlink $h{dir} . '/' . $h{File} };
+  my $xx = $h{dir} . '/' . basename $h{File};
+  -f $xx && unlink $xx;
 
   if ( defined($self->{LogDirs}) )
   {
