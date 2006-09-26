@@ -2,7 +2,10 @@ use strict;
 use warnings;
 package T0::Iterator::Iterator;
 use POE;
+use T0::Logger::Sender;
+use T0::FileWatcher;
 use T0::Iterator::Rfdir;
+use T0::Util;
 use DB_File;
 
 our (@ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION);
@@ -17,9 +20,6 @@ sub Carp    { carp  $hdr,@_; }
 sub Verbose { T0::Util::Verbose( (shift)->{Verbose}, @_ ); }
 sub Debug   { T0::Util::Debug(   (shift)->{Debug},   @_ ); }
 sub Quiet   { T0::Util::Quiet(   (shift)->{Quiet},   @_ ); }
-
-#select STDERR; $| = 1;	# make unbuffered
-#select STDOUT; $| = 1;	# make unbuffered
 
 # files are keys, entries are
 #
@@ -37,11 +37,6 @@ my %fileStatusList;
 my %fileSizeList;
 my %fileDateList;
 
-#
-# database to make fileStatusList persistent
-#
-my $database = undef;
-
 
 sub new {
   my $class = shift;
@@ -57,42 +52,17 @@ sub new {
 					  inline_states => {
 							    _start => \&start_task,
 							    start_rfdir => \&start_rfdir,
-							    task_done => \&task_done,
+							    rfdir_done => \&rfdir_done,
 							    config_changed => \&config_changed,
 							    inject_file => \&inject_file
 							   },
 					  args => [ $self ]
 					 );
-
-  # if persistent, tie file to hash and clear hash of not injected files
-  if ( defined $self->{Persistent} )
-    {
-      $database = tie(%fileStatusList, 'DB_File', $self->{Persistent}) || die "can't open $self->{Persistent}: $!";
-
-      while ( my ($filename, $status) = each %fileStatusList )
-	{
-	  if ( defined $self->{Restart} or 0 == $status )
-	    {
-	      delete($fileStatusList{$filename});
-	    }
-	}
-
-      $database->sync();
-    }
-
-  # add file watcher for config file
-  my $watcher = T0::FileWatcher->new(
-				     File            => $self->{Config},
-				     Client          => $self->{Session},
-				     Event           => 'config_changed',
-				     Interval        => $self->{ConfigRefresh},
-				    );
-
   return $self;
 }
 
 sub start_task {
-  my ( $kernel, $heap, $self ) = @_[ KERNEL, HEAP, ARG0 ];
+  my ( $kernel, $heap, $session, $self ) = @_[ KERNEL, HEAP, SESSION, ARG0 ];
 
   # save parameters
   $heap->{Self} = $self;
@@ -102,32 +72,60 @@ sub start_task {
   $heap->{Rate} = $self->{Rate};
   $heap->{MaxFiles} = $self->{MaxFiles};
   $heap->{Interval} = $self->{Interval};
+  $heap->{Persistent} = $self->{Persistent};
+  $heap->{Sender} = $self->{Sender};
 
   $heap->{WaitForData} = 1;
   $heap->{WaitForDataInterval} = 1;
+
+  # if persistent, tie file to hash and clear hash of not injected files
+  if ( defined $self->{Persistent} )
+    {
+      $heap->{Database} = tie(%fileStatusList, 'DB_File', $self->{Persistent}) || die "can't open $self->{Persistent}: $!";
+
+      while ( my ($filename, $status) = each %fileStatusList )
+	{
+	  if ( defined $self->{Restart} or 0 == $status )
+	    {
+	      delete($fileStatusList{$filename});
+	    }
+	}
+
+      $heap->{Database}->sync();
+    }
+
+  # add file watcher for config file
+  $heap->{Watcher} = T0::FileWatcher->new(
+					  File            => $self->{Config},
+					  Client          => $session,
+					  Event           => 'config_changed',
+					  Interval        => $self->{ConfigRefresh},
+					 );
 
   $kernel->yield('start_rfdir');
 }
 
 sub start_rfdir {
-  my ( $heap, $session ) = @_[ HEAP, SESSION ];
+  my ( $kernel, $heap, $session ) = @_[ KERNEL, HEAP, SESSION ];
 
   my %inputhash = (
 		   Session => $session,
-		   Callback => 'task_done',
+		   Callback => 'rfdir_done',
 		   Directory => $heap->{Directory},
 		   MinAge => $heap->{MinAge},
 		   Files => {
 			     Status => \%fileStatusList,
 			     Size => \%fileSizeList,
 			     Date => \%fileDateList
-			    }
+			    },
 		  );
 
   my $rfdir = T0::Iterator::Rfdir->new(\%inputhash);
+
+  $kernel->yield('inject_file');
 }
 
-sub task_done {
+sub rfdir_done {
   my ( $kernel, $heap ) = @_[ KERNEL, HEAP ];
 
   if ( defined $heap->{SleepTime} and $heap->{SleepTime} > 0 )
@@ -143,19 +141,16 @@ sub task_done {
 sub config_changed {
   my ( $kernel, $heap, $file ) = @_[ KERNEL, HEAP, ARG0 ];
 
-  if ( $file eq $heap->{Self}->{Config} )
-    {
-      $heap->{Self}->Quiet("Configuration file \"$file\" has changed.\n");
+  $heap->{Self}->Quiet("Configuration file \"$file\" has changed.\n");
 
-      T0::Util::ReadConfig( $heap->{Self} );
+  T0::Util::ReadConfig( $heap->{Self} );
 
-      $heap->{Directory} = $heap->{Self}->{Directory};
-      $heap->{MinAge} = $heap->{Self}->{MinAge};
-      $heap->{SleepTime} = $heap->{Self}->{SleepTime};
-      $heap->{Rate} = $heap->{Self}->{Rate};
-      $heap->{MaxFiles} = $heap->{Self}->{MaxFiles};
-      $heap->{Interval} = $heap->{Self}->{Interval};
-    }
+  $heap->{Directory} = $heap->{Self}->{Directory};
+  $heap->{MinAge} = $heap->{Self}->{MinAge};
+  $heap->{SleepTime} = $heap->{Self}->{SleepTime};
+  $heap->{Rate} = $heap->{Self}->{Rate};
+  $heap->{MaxFiles} = $heap->{Self}->{MaxFiles};
+  $heap->{Interval} = $heap->{Self}->{Interval};
 }
 
 sub ReadConfig {
@@ -168,7 +163,7 @@ sub ReadConfig {
 }
 
 sub inject_file {
-  my ( $kernel, $heap, $sender ) = @_[ KERNEL, HEAP, ARG0 ];
+  my ( $kernel, $heap, $session ) = @_[ KERNEL, HEAP, SESSION ];
 
   if ( defined $heap->{Maxfiles} and $heap->{Maxfiles} < 1 )
     {
@@ -184,7 +179,7 @@ sub inject_file {
       if ( 0 == $status )
 	{
 	  $fileStatusList{$filename} = 1;
-	  if ( defined $database ) { $database->sync(); }
+	  if ( exists $heap->{Database} ) { $heap->{Database}->sync(); }
 
 	  $file = $filename;
 	  $size = $fileSizeList{$filename};
@@ -200,7 +195,7 @@ sub inject_file {
 	{
 	  $heap->{Self}->Quiet("Wait $heap->{WaitForDataInterval} seconds for data\n");
 
-	  $kernel->delay_set( 'inject_file', $heap->{WaitForDataInterval}, ($sender)  );
+	  $kernel->delay_set( 'inject_file', $heap->{WaitForDataInterval} );
 
 	  my $newWaitTime = $heap->{WaitForDataInterval} * 2;
 
@@ -221,7 +216,20 @@ sub inject_file {
       else
 	{
 	  $heap->{Self}->Quiet("No more data, not waiting anymore\n");
-	  return 1;
+
+	  $heap->{Watcher}->RemoveClient($session);
+
+	  if ( defined $heap->{Persistent} )
+	    {
+	      delete $heap->{Database};
+	      untie(%fileStatusList);
+	    }
+	  delete $heap->{Self}->{Session};
+
+#	  return 1;
+
+	  # for now just exit
+	  exit 0;
 	}
     }
 
@@ -234,20 +242,25 @@ sub inject_file {
       $heap->{Maxfiles}--;
       if ( $heap->{Maxfiles} > 0 ) { $prefix = "$heap->{Maxfiles}: "; }
     }
-  $sender->Quiet("$prefix $file, $size, $date\n");
+  $heap->{Self}->Quiet("$prefix $file, $size, $date\n");
 
-  my %t = (  $heap->{Self}->{Notify} => $file, Size => $size, Date => $date );
-  $sender->Send( \%t );
+  my %t = (
+	   $heap->{Self}->{Notify} => $file,
+	   Size => $size,
+	   Date => $date,
+	   Channel => T0::Util::GetChannel($file),
+	  );
+  $heap->{Sender}->Send( \%t );
 
   if ( defined $heap->{Rate} )
   {
     $heap->{Interval} = $size / (1024*1024) / $heap->{Rate};
     $heap->{Interval} = int( 1000 * $heap->{Interval} ) / 1000;
-    $sender->Verbose("Set interval=",$heap->{Interval}," for ",$heap->{Rate}," MB/sec\n");
+    $heap->{Self}->Verbose("Set interval=",$heap->{Interval}," for ",$heap->{Rate}," MB/sec\n");
   }
 
-  if ( defined $heap->{Interval} ) { $kernel->delay_set( 'inject_file', $heap->{Interval}, ($sender) ); }
-  else { $kernel->yield( 'inject_file', ($sender) ); }
+  if ( defined $heap->{Interval} ) { $kernel->delay_set( 'inject_file', $heap->{Interval} ); }
+  else { $kernel->yield( 'inject_file' ); }
   return 1;
 }
 
