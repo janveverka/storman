@@ -13,7 +13,7 @@ use Carp;
 $VERSION = 1.00;
 @ISA = qw/ Exporter /;
 
-$Logger::Name = 'Logger::Sender';
+$Logger::Sender::Name = 'Logger::Sender';
 
 my ($i,@queue);
 our $hdr = __PACKAGE__ . ':: ';
@@ -27,7 +27,7 @@ sub _init
 {
   my $self = shift;
 
-  $self->{Name} = $Logger::Name . '-' . hostname() . '-' . $$;
+  $self->{Name} = $Logger::Sender::Name . '-' . hostname() . '-' . $$;
   my %h = @_;
   map { $self->{$_} = $h{$_}; } keys %h;
   $self->ReadConfig();

@@ -15,7 +15,7 @@ $Data::Dumper::Terse++;
 use Carp;
 $VERSION = 1.00;
 @ISA = qw/ Exporter /;
-$Logger::Name = 'Logger::Receiver';
+$Logger::Receiver::Name = 'Logger::Receiver';
 
 our (@queue,%q);
 our $hdr = __PACKAGE__ . ':: ';
@@ -29,7 +29,7 @@ sub _init
 {
   my $self = shift;
 
-  $self->{Name} = $Logger::Name;
+  $self->{Name} = $Logger::Receiver::Name;
   my %h = @_;
   map { $self->{$_} = $h{$_}; } keys %h;
   $self->ReadConfig();
