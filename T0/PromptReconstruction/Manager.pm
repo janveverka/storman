@@ -241,7 +241,7 @@ sub check_rate
   $self->Debug("$size MB, $nev events in $s seconds, $i readings\n");
 #  %h = (     MonaLisa	 => 1,
 #	     Cluster	 => $T0::System{Name},
-#             Node	 => 'PromptReco',
+#             Node	 => $self->{Node},
 #             Events	 => $nev,
 #	     RecoVolume  => $size,
 #             Readings	 => $i,
@@ -333,8 +333,10 @@ sub file_changed
   my ( $self, $kernel, $file ) = @_[ OBJECT, KERNEL, ARG0 ];
   $self->Quiet("Configuration file \"$self->{Config}\" has changed.\n");
   $self->ReadConfig();
+  no strict 'refs';
+  my $ref = \%{$self->{Partners}->{Worker}};
   my %text = ( 'command' => 'Setup',
-               'setup'   => \%PromptReco::Worker,
+               'setup'   => $ref,
              );
   $kernel->yield('broadcast', [ \%text, 0 ] );
 }
@@ -394,8 +396,10 @@ sub send_setup
   my $client = $heap->{client_name};
 
   $self->Quiet("Send: Setup to $client\n");
+  no strict 'refs';
+  my $ref = \%{$self->{Partners}->{Worker}};
   my %text = ( 'command' => 'Setup',
-               'setup'   => \%PromptReco::Worker,
+               'setup'   => $ref,
              );
   $heap->{client}->put( \%text );
 }
@@ -431,7 +435,7 @@ sub send_work
   if ( $id )
   {
     $self->Verbose("Queued work: ",$work->{command},"\n");
-    if ( ref($work) eq 'HASH' ) # ...and if it's not...?
+    if ( ref($work) eq 'HASH' )
     {
       %text = ( 'client'	=> $client,
 	        'priority'	=> $priority,
@@ -514,17 +518,17 @@ sub client_input
 $DB::single=$debug_me;
     if ( $input->{RecoFile} )
     {
-#      my %h = (	MonaLisa	=> 1,
-#		Cluster		=> $T0::System{Name},
-#		Node		=> 'PromptReco',
-#		QueueLength	=> $self->{Queue}->get_item_count(),
-#		NReco		=> scalar keys %{$self->{clients}},
-#	      );
-#      if ( exists($self->{_queue}{$id}{Start}) )
-#      {
-#        $h{Duration} = time - $self->{_queue}{$id}{Start};
-#      }
-#      $self->Log( \%h );
+      my %h = (	MonaLisa	=> 1,
+		Cluster		=> $T0::System{Name},
+		Node		=> $self->{Node},
+		QueueLength	=> $self->{Queue}->get_item_count(),
+		NReco		=> scalar keys %{$self->{clients}},
+	      );
+      if ( exists($self->{_queue}{$id}{Start}) )
+      {
+        $h{Duration} = time - $self->{_queue}{$id}{Start};
+      }
+      $self->Log( \%h );
       my %g = ( RecoReady => $input->{host} . ':' .
 			     $input->{dir}  . '/' .
 			     $input->{RecoFile},

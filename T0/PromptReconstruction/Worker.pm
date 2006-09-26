@@ -16,7 +16,7 @@ use Carp;
 $VERSION = 1.00;
 @ISA = qw/ Exporter /;
 
-$PromptReconstruction::Name = 'PromptReco::Worker-' . hostname();
+#$PromptReconstruction::Name = 'PromptReco::Worker-' . hostname();
 
 my ($i,@queue);
 our $hdr = __PACKAGE__ . ':: ';
@@ -30,7 +30,7 @@ sub _init
 {
   my $self = shift;
 
-  $self->{Name}		 = $PromptReconstruction::Name . '-' . $$;
+#  $self->{Name}		 = $PromptReconstruction::Name . '-' . $$;
   $self->{State}	 = 'Created';
   $self->{QueuedThreads} = 0;
   $self->{ActiveThreads} = 0;
@@ -40,6 +40,7 @@ sub _init
   map { $self->{$_} = $h{$_}; } keys %h;
   $self->ReadConfig();
   $self->{Host} = hostname();
+  $self->{Name} .= '-' . $self->{Host} . '-' . $$;
 
   if ( defined($self->{Logger}) ) { $self->{Logger}->Name($self->{Name}); }
 
@@ -183,41 +184,38 @@ sub got_child_stdout {
   my ($heap, $stdout) = @_[ HEAP, ARG0 ];
   print LOGOUT $stdout,"\n";;
 
-  while ( $stdout =~ m/ =================> Treating event run:\s+(\d+)\s+(event:)\s+(\d+)/g )
+# while ( $stdout =~ m/ =================> Treating event run:\s+(\d+)\s+(event:)\s+(\d+)/g )
+# while ( $stdout =~ m/TimeEvent:.+Run:\s+(\d+)\s+(Event:)\s+(\d+)/g )
+  while ( $stdout =~ m/^TimeModule>\s*(\d+)\s+(\d+)/g )
   {
-    my $run = $1;
-    my $evt = $3;
+    my $run = $2;
+    my $evt = $1;
     my $work = $heap->{Work}->{$heap->{program}->PID}->{work};
     next if $heap->{events}{$run}{$evt}++;
-    push @{$heap->{stdout}}, $stdout;
+#   push @{$heap->{stdout}}, $stdout;
     my $nevt = ++$work->{NEvents};
     my $freq = $heap->{self}->{ReportFrequency} || 50;
     if ( $nevt == 1 || $nevt == 2 || $nevt == 5 or ($nevt%$freq) == 0 )
     {
       my $file = $work->{dir} .'/' . $work->{RecoFile};
-      my $size = (stat($file))[7];
-if ( $size < 0 )
-{
-  $DB::single=1;
-  Print $size,"is negative!\n";
-}
+      my $size = (stat($file))[7] / 1024 / 1024;
+      $heap->{self}->Quiet('NEvents ',$work->{NEvents},' RecoSize ',$size,"\n");
       $heap->{self}->{Dashboard}->Send( 'NEvents', $work->{NEvents},
 					'RecoSize', $size );
-      $heap->{self}->Quiet('NEvents ',$work->{NEvents},' RecoSize ',$size,"\n");
     }
   }
 }
 
 sub got_child_stderr {
   my ( $heap, $stderr) = @_[ HEAP, ARG0 ];
-  push @{$heap->{stderr}}, $stderr;
+# push @{$heap->{stderr}}, $stderr;
   $stderr =~ tr[ -~][]cd;
   print LOGOUT "STDERR: ",$stderr,"\n";
   #$heap->{self}->Verbose("STDERR: $stderr\n");
-  if ( $stderr =~ m%Run:\s+(\d+)\s+Event:\s+(\d+)% )
-  {
-    push @{$heap->{stderr}}, $stderr;
-  }
+# if ( $stderr =~ m%Run:\s+(\d+)\s+Event:\s+(\d+)% )
+# {
+#   push @{$heap->{stderr}}, $stderr;
+# }
 }
 
 sub got_child_close {
@@ -347,7 +345,7 @@ sub server_input {
 
     my %h = ( MonaLisa  => 1,
 	      Cluster	=> $T0::System{Name},
-              Node      => 'PromptReco',
+              Node      => $self->{Node},
               IdleTime	=> time - $heap->{WorkRequested}
 	    );
     $self->Log( \%h );
@@ -385,7 +383,6 @@ sub server_input {
     $heap->{self} = $self;
 
     open LOGOUT, "| gzip - > $heap->{log}" or Croak "open: $heap->{log}: $!\n";
-#    select LOGOUT; $|=1;
 
     chdir $work->{pwd};
 
@@ -470,6 +467,7 @@ sub get_work
   else
   {
     Croak "This is not a good way to go...\n";
+    exit 0;
   }
 }
 
@@ -487,14 +485,10 @@ sub job_done
   map { $h{$_} = $heap->{Work}->{$h{pid}}->{work}->{$_}; }
 		keys %{$heap->{Work}->{$h{pid}}->{work}};
 
+  $h{RecoSize} = 0;
   if ( defined($h{dir}) && defined($h{RecoFile}) && -f $h{dir} . '/' . $h{RecoFile} )
   {
-    $h{RecoSize} = (stat($h{dir} . '/' . $h{RecoFile}))[7];
-if ( $h{RecoSize} < 0 )
-{
-  $DB::single=1;
-  Print $h{RecoSize},"is negative!\n";
-}
+    $h{RecoSize} = (stat($h{dir} . '/' . $h{RecoFile}))[7] / 1024 / 1024;
   }
   else { $h{RecoSize} = 0; }
 
@@ -503,6 +497,9 @@ if ( $h{RecoSize} < 0 )
 			   'RecoSize',	$h{RecoSize});
 
 # Kludges for now to get rid of the output and input...
+  my $xx = $h{dir} . '/' . basename $h{File};
+  -f $xx && unlink $xx;
+
   if ( defined($h{dir}) && defined($h{File}) && -f $h{dir} . '/' . $h{File} ) { unlink $h{dir} . '/' . $h{File} };
 
   if ( defined($self->{LogDirs}) )
@@ -521,6 +518,15 @@ if ( $h{RecoSize} < 0 )
       open RFCP, "$cmd |" or Croak "$cmd: $!\n";
       while ( <RFCP> ) { $self->Verbose($_); }
       close RFCP;
+
+      if ( -f $h{dir} . '/FrameworkJobReport.xml' )
+      {
+        $cmd = 'rfcp ' . $h{dir} . '/FrameworkJobReport.xml ' . $dir . '/FrameworkJobReport.' . UuidOfFile($h{File}) . '.xml';
+        Print $cmd,"\n";
+        open RFCP, "$cmd |" or Croak "$cmd: $!\n";
+        while ( <RFCP> ) { $self->Verbose($_); }
+        close RFCP;
+      }
     }
   }
 
