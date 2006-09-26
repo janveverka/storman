@@ -73,7 +73,8 @@ sub start_task {
   $heap->{MaxFiles} = $self->{MaxFiles};
   $heap->{Interval} = $self->{Interval};
   $heap->{Persistent} = $self->{Persistent};
-  $heap->{Sender} = $self->{Sender};
+  $heap->{CallbackSession} = $self->{CallbackSession};
+  $heap->{CallbackMethod} = $self->{CallbackMethod};
 
   $heap->{WaitForData} = 1;
   $heap->{WaitForDataInterval} = 1;
@@ -250,7 +251,7 @@ sub inject_file {
 	   Date => $date,
 	   Channel => T0::Util::GetChannel($file),
 	  );
-  $heap->{Sender}->Send( \%t );
+  $kernel->post( $heap->{CallbackSession}, $heap->{CallbackMethod}, ( \%t ) );
 
   if ( defined $heap->{Rate} )
   {
