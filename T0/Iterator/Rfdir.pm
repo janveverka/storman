@@ -17,9 +17,6 @@ sub Verbose { T0::Util::Verbose( (shift)->{Verbose}, @_ ); }
 sub Debug   { T0::Util::Debug(   (shift)->{Debug},   @_ ); }
 sub Quiet   { T0::Util::Quiet(   (shift)->{Quiet},   @_ ); }
 
-#select STDERR; $| = 1;	# make unbuffered
-#select STDOUT; $| = 1;	# make unbuffered
-
 sub new {
   my ($class, $hash_ref) = @_;
   my $self = {};
@@ -114,8 +111,8 @@ sub got_task_stdout {
 	  if ( $flag < 0 )
 	    {
 	      $heap->{Files}->{Status}->{$filename} = 0;
-	      $heap->{Files}->{Size}->{$filename} = $size;
-	      $heap->{Files}->{Date}->{$filename} = $secondsSinceEpoch;
+	      if ( exists $heap->{Files}->{Size} ) { $heap->{Files}->{Size}->{$filename} = $size; }
+	      if ( exists $heap->{Files}->{Date} ) { $heap->{Files}->{Date}->{$filename} = $secondsSinceEpoch; }
 	    }
 	}
     }
