@@ -188,7 +188,11 @@ sub ReadConfig
   do "$file" or Croak "$file: problem...? $!\n";
 
   no strict 'refs';
-  if ( ! $hash ) { ( $hash = $this->{Name} ) =~ s%^T0::%%; }
+  if ( ! $hash )
+  {
+    ( $hash = $this->{Name} ) =~ s%^T0::%%;
+    $hash =~ s%-.*$%%;
+  }
   map { $this->{$_} = $hash->{$_} } keys %$hash;
 
   foreach $hash ( keys %{$this->{Partners}} )
@@ -198,6 +202,12 @@ sub ReadConfig
   }
 
   $this->{ConfigRefresh} = 10 unless $this->{ConfigRefresh};
+  if ( ! defined($this->{Node}) )
+  {
+    my $node = $this->{Name};
+    $node =~ s%::.*$%%;
+    $this->{Node} = $node;
+  }
 }
 
 sub timestamp
