@@ -75,6 +75,7 @@ sub start_task {
   $heap->{Persistent} = $self->{Persistent};
   $heap->{CallbackSession} = $self->{CallbackSession};
   $heap->{CallbackMethod} = $self->{CallbackMethod};
+  $heap->{SizeTable} = $self->{SizeTable};
 
   $heap->{WaitForData} = 1;
   $heap->{WaitForDataInterval} = 1;
@@ -152,6 +153,7 @@ sub config_changed {
   $heap->{Rate} = $heap->{Self}->{Rate};
   $heap->{MaxFiles} = $heap->{Self}->{MaxFiles};
   $heap->{Interval} = $heap->{Self}->{Interval};
+  $heap->{SizeTable} = $heap->{Self}->{SizeTable};
 }
 
 sub ReadConfig {
@@ -243,13 +245,24 @@ sub inject_file {
       $heap->{Maxfiles}--;
       if ( $heap->{Maxfiles} > 0 ) { $prefix = "$heap->{Maxfiles}: "; }
     }
-  $heap->{Self}->Quiet("$prefix $file, $size, $date\n");
+
+  my $datasetNumber = undef;
+  if ( defined $heap->{SizeTable} )
+    {
+      $datasetNumber = T0::Util::bin_table($heap->{SizeTable});
+      $heap->{Self}->Quiet("$prefix $file, $size, $date, $datasetNumber\n");
+    }
+  else
+    {
+      $heap->{Self}->Quiet("$prefix $file, $size, $date\n");
+    }
 
   my %t = (
 	   $heap->{Self}->{Notify} => $file,
 	   Size => $size,
 	   Date => $date,
 	   Channel => T0::Util::GetChannel($file),
+	   DatasetNumber => $datasetNumber,
 	  );
   $kernel->post( $heap->{CallbackSession}, $heap->{CallbackMethod}, ( \%t ) );
 
