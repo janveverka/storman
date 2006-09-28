@@ -168,7 +168,7 @@ sub ReadConfig {
 sub inject_file {
   my ( $kernel, $heap, $session ) = @_[ KERNEL, HEAP, SESSION ];
 
-  if ( defined $heap->{Maxfiles} and $heap->{Maxfiles} < 1 )
+  if ( defined $heap->{MaxFiles} and $heap->{MaxFiles} < 1 )
     {
       return 1;
     }
@@ -240,10 +240,10 @@ sub inject_file {
   $heap->{WaitForDataInterval} = 1;
 
   my $prefix = '';
-  if ( defined $heap->{Maxfiles} )
+  if ( defined $heap->{MaxFiles} )
     {
-      $heap->{Maxfiles}--;
-      if ( $heap->{Maxfiles} > 0 ) { $prefix = "$heap->{Maxfiles}: "; }
+      $heap->{MaxFiles}--;
+      if ( $heap->{MaxFiles} > 0 ) { $prefix = "$heap->{MaxFiles}: "; }
     }
 
   my $datasetNumber = undef;
