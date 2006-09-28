@@ -161,8 +161,10 @@ sub GetChannel
   s%^CSA06-(\d+)-os-%%;
   s%/[^/]*$%%;
 
-  exists $channels->{$_} or return undef;
-  return $_;
+  return $_ if ! defined($channels);
+  return $_ if exists $channels->{$_};
+  Print "Unknown channel \"$_\" for file \"$file\"\n";
+  return undef;
 }
 
 sub MapTarget
