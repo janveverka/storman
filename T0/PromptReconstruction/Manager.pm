@@ -483,11 +483,10 @@ sub send_work
     return;
   }
 
-# If there's any client-specific stuff in the queue, send that. Otherwise,
-# tell the client to wait
-#
-# BTW, this is a mess!
-#
+# If there's any client-specific stuff in the queue, send that first.
+# If the state is running, and there's non-client-specific stuff, send that
+# Otherwise, tell the client to wait
+
   $q = $self->Queue($client);
   ($priority, $id, $work) = $q->dequeue_next(); # if $q;
   if ( $id )
@@ -503,48 +502,36 @@ sub send_work
       $heap->{client}->put( \%text );
       return;
     }
-    Print "Why was $work not a hashref?\n";
+    Croak "Why was $work not a hashref for $client?\n";
     $heap->{idle} = 0;
-  }
-  else
-  {
-    if ( $self->{State} eq 'Running' )
-    {
-      ($priority, $id, $work) = $self->{Queue}->dequeue_next();
-    }
-    if ( $id )
-    {
-      $self->Quiet("Send: ",T0::Util::strhash($work)," to $client\n");
-      $work->{id} = $id;
-      %text = ( 'command'	=> 'DoThis',
-                'client'	=> $client,
-	        'work'	=> $work,
-	        'priority'	=> $priority,
-	      );
-      $heap->{client}->put( \%text );
-      $kernel->yield( 'SetRecoTimer', $id );
-    }
-    else
-    {
-      %text = ( 'command'	=> 'Sleep',
-                'client'	=> $client,
-		'wait'		=> $self->{Backoff} || 60,
-	      );
-      $heap->{client}->put( \%text );
-      return;
-    }
+    return;
   }
 
-#  $self->Quiet("Send: ",T0::Util::strhash($work)," to $client\n");
-#  $work->{id} = $id;
-#  %text = ( 'command'	=> 'DoThis',
-#            'client'	=> $client,
-#	    'work'	=> $work,
-#	    'priority'	=> $priority,
-#	  );
-#  $heap->{client}->put( \%text );
-#  $kernel->yield( 'SetRecoTimer', $id );
-  Croak "Now what am I doing here...?\n";
+  undef $id; # Redundant, but safe...
+  if ( $self->{State} eq 'Running' )
+  {
+    ($priority, $id, $work) = $self->{Queue}->dequeue_next();
+  }
+  if ( $id ) # True only if we are 'Running' and there was queued work
+  {
+    $self->Quiet("Send: ",T0::Util::strhash($work)," to $client\n");
+    $work->{id} = $id;
+    %text = ( 'command'	 => 'DoThis',
+              'client'	 => $client,
+	      'work'	 => $work,
+	      'priority' => $priority,
+	    );
+    $heap->{client}->put( \%text );
+    $kernel->yield( 'SetRecoTimer', $id );
+    return;
+  }
+
+  %text = ( 'command'	=> 'Sleep',
+            'client'	=> $client,
+	    'wait'	=> $self->{Backoff} || 60,
+	  );
+  $heap->{client}->put( \%text );
+  return;
 }
 
 sub _client_input { reroute_event( (caller(0))[3], @_ ); }

@@ -231,6 +231,7 @@ sub got_sigchld
 {
   my ( $self, $heap, $kernel, $child_pid, $status ) =
 			@_[ OBJECT, HEAP, KERNEL, ARG1, ARG2 ];
+  return unless defined($heap->{program});
   my $pid = $heap->{program}->PID;
   if ( $child_pid == $pid ) {
     $kernel->yield( 'job_done', [ pid => $pid, status => $status ] );
@@ -350,7 +351,7 @@ sub server_input {
               IdleTime	=> time - $heap->{WorkRequested}
 	    );
     $self->Log( \%h );
-    $self->Quiet("Got $command($work,$priority)...\n");
+    $self->Quiet("Got $command: ",T0::Util::strhash($work)," ($priority)...\n");
 
     $work->{pwd} = cwd;
     my $wdir = 'w_' . T0::Util::timestamp;
@@ -434,13 +435,26 @@ sub server_input {
 
     if ( $state =~ m%Abort% )
     {
-      $self->{State} = $state;
+#     $self->{State} = $state;
       foreach ( keys %{$self->{Children}} )
       {
         $self->Quiet("Kill child PID=$_\n");
 $DB::single=1;
-        kill "TERM", $_;
+        kill 15 => -$_;
+        delete $self->{Children}->{$_};
       }
+      open KILL, "killall -KILL cmsRun |";
+      while ( <KILL> ) { print; }
+      close KILL;
+      return;
+    }
+
+    if ( $state =~ m%Usr2% )
+    {
+$DB::single=1;
+      open KILL, "killall -USR2 cmsRun |";
+      while ( <KILL> ) { print; }
+      close KILL;
       return;
     }
 
@@ -531,8 +545,11 @@ sub job_done
 			   'RecoSize',	$h{RecoSize});
 
 # Kludges for now to get rid of the output and input...
-  my $xx = $h{dir} . '/' . basename $h{File};
-  -f $xx && unlink $xx;
+  if ( $h{File} )
+  {
+    my $xx = $h{dir} . '/' . basename $h{File};
+    -f $xx && unlink $xx;
+  }
 
   if ( defined($h{dir}) && defined($h{File}) && -f $h{dir} . '/' . $h{File} ) { unlink $h{dir} . '/' . $h{File} };
 
