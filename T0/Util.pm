@@ -229,4 +229,9 @@ sub timestamp
                   $year,$month,$day,$hour,$minute,$seconds);
 }
 
+sub strhash
+{
+  my $ref = shift;
+  return join(', ', map { "$_ => $ref->{$_}" } keys %$ref);
+}
 1;

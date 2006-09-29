@@ -237,6 +237,7 @@ sub got_sigchld
     delete $heap->{program};
     delete $heap->{stdio};
     close LOGOUT or Croak "closing logfile: $!\n";
+    delete $self->{Children}->{$pid};
   }
   return 0;
 }
@@ -327,7 +328,7 @@ sub server_input {
   $command  = $input->{command};
   $client   = $input->{client};
 
-  $self->Verbose("from server: $command\n");
+  $self->Verbose("from server: ",T0::Util::strhash($input),"\n");
   if ( $command =~ m%Sleep% )
   {
     $self->{QueuedThreads}-- if $self->{QueuedThreads};
@@ -390,7 +391,15 @@ sub server_input {
     $work->{host} = $self->{Host};
 
     $kernel->sig( CHLD => "got_sigchld" );
-    $heap->{Work}->{$heap->{program}->PID} = $input;
+    my $cpid = $heap->{program}->PID;
+    $heap->{Work}->{$cpid} = $input;
+
+#   Preserve some settings against config changes during the run
+    foreach ( qw / LogDirs DataDirs SvcClass / )
+    {
+      $heap->{Work}->{$cpid}->{$_} = $self->{$_};
+    }
+    $self->{Children}->{$cpid}++;
 
     return;
   }
@@ -405,30 +414,55 @@ sub server_input {
     return;
   }
 
-  if ( $command =~ m%Start% )
+  if ( $command =~ m%SetState% )
   {
-    $self->Quiet("Got $command...\n");
-    $kernel->yield('get_work') if ( $self->{State} eq 'Created' );
-    $self->{State} = 'Running';
+    my $state = $input->{SetState};
+    $self->Quiet("Got State $state...\n");
+
+    if ( $state =~ m%Resume% or $state =~ m%Start% )
+    {
+      $kernel->yield('get_work') if ( ! $self->{GettingWork}++ );
+      $self->{State} = 'Running';
+      return;
+    }
+
+    if ( $state =~ m%Pause% )
+    {
+      $self->{State} = $state;
+      return;
+    }
+
+    if ( $state =~ m%Abort% )
+    {
+      $self->{State} = $state;
+      foreach ( keys %{$self->{Children}} )
+      {
+        $self->Quiet("Kill child PID=$_\n");
+$DB::single=1;
+        kill "TERM", $_;
+      }
+      return;
+    }
+
+    if ( $state =~ m%Flush% )
+    {
+      $self->{State} = $state;
+      return;
+    }
+
+    if ( $state =~ m%Quit% )
+    {
+      $self->{State} = $state;
+      $kernel->yield('shutdown');
+      exit 0;
+      return;
+    }
+
+    Print "Unrecognised state from server: ",T0::Util::strhash($input),"\n";
     return;
   }
 
-  if ( $command =~ m%Stop% )
-  {
-    $self->Quiet("Got $command...\n");
-    $self->{State} = 'Stop';
-    return;
-  }
-
-  if ( $command =~ m%Quit% )
-  {
-    $self->Quiet("Got $command...\n");
-    $self->{State} = 'Quit';
-    $kernel->yield('shutdown');
-    return;
-  }
-
-  Print "Error: unrecognised input from server! \"$command\"\n";
+  Print "Unrecognised input from server! ",T0::Util::strhash($input),"\n";
   $kernel->yield('shutdown');
 }
 
@@ -450,7 +484,7 @@ sub get_work
 
   $self->Verbose("Queued threads: ",$self->{QueuedThreads},"\n");
   $kernel->delay_set( 'get_work', 7 ) if $self->{MaxTasks};
-  return if ( $self->{State} ne 'Running' );
+# return if ( $self->{State} ne 'Running' );
   return if ( $self->{QueuedThreads} >= $self->{MaxThreads} );
   $self->{QueuedThreads}++;
 
@@ -502,9 +536,9 @@ sub job_done
 
   if ( defined($h{dir}) && defined($h{File}) && -f $h{dir} . '/' . $h{File} ) { unlink $h{dir} . '/' . $h{File} };
 
-  if ( defined($self->{LogDirs}) )
+  if ( defined($h{LogDirs}) )
   {
-    my %g = ( 'TargetDirs' => $self->{LogDirs},
+    my %g = ( 'TargetDirs' => $h{LogDirs},
 	      'TargetMode' => 'RoundRobin' );
     my $dir = SelectTarget( \%g );
     %g = ( 'File'	=> $h{File},
@@ -530,9 +564,9 @@ sub job_done
     }
   }
 
-  if ( defined($self->{DataDirs}) )
+  if ( defined($h{DataDirs}) )
   {
-    my %g = ( 'TargetDirs' => $self->{DataDirs},
+    my %g = ( 'TargetDirs' => $h{DataDirs},
 	      'TargetMode' => 'RoundRobin' );
     my $dir = SelectTarget( \%g );
     %g = ( 'File'	=> $h{File},
@@ -542,9 +576,9 @@ sub job_done
     {
       my $cmd = 'rfcp ' . $h{dir} . '/' . $h{RecoFile} . ' ' . $dir;
       Print $cmd,"\n";
-      if ( defined($self->{SvcClass}) )
+      if ( defined($h{SvcClass}) )
       {
-        $cmd = 'STAGE_SVCCLASS=' . $self->{SvcClass} . ' ' . $cmd;
+        $cmd = 'STAGE_SVCCLASS=' . $h{SvcClass} . ' ' . $cmd;
       }
       open RFCP, "$cmd |" or Croak "$cmd: $!\n";
       while ( <RFCP> ) { $self->Verbose($_); }
@@ -580,6 +614,7 @@ sub job_done
   {
     Print "Shutting down...\n";
     $kernel->yield('shutdown');
+    exit 0; # Bring out the big guns...
   }
 }
 

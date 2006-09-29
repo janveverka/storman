@@ -282,13 +282,6 @@ sub client_input
         $self->{ApMon}->Send($input);
       }
     }
-#      my $cluster = $input->{Cluster};
-#      my $node    = $input->{Node};
-#      foreach ( qw / MonaLisa Cluster Node / ) { delete $input->{$_}; }
-#      $apm->sendParameters( $cluster, $node, %$input );
-#      $input->{Cluster} = $cluster; $input->{Node} = $node;
-#      $input->{MonaLisa}++;
-#    }
 
 #   Look for subscribtions matching this hash...
     my ($k,$i,$v);
