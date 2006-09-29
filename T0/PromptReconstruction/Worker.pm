@@ -401,7 +401,6 @@ sub server_input {
       $heap->{Work}->{$cpid}->{$_} = $self->{$_};
     }
     $self->{Children}->{$cpid}++;
-
     return;
   }
 
@@ -498,7 +497,7 @@ sub get_work
 
   $self->Verbose("Queued threads: ",$self->{QueuedThreads},"\n");
   $kernel->delay_set( 'get_work', 7 ) if $self->{MaxTasks};
-# return if ( $self->{State} ne 'Running' );
+  return if ( $self->{State} ne 'Running' );
   return if ( $self->{QueuedThreads} >= $self->{MaxThreads} );
   $self->{QueuedThreads}++;
 
