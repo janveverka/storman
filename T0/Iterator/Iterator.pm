@@ -76,6 +76,7 @@ sub start_task {
   $heap->{CallbackSession} = $self->{CallbackSession};
   $heap->{CallbackMethod} = $self->{CallbackMethod};
   $heap->{SizeTable} = $self->{SizeTable};
+  $heap->{Notify} = $self->{Notify};
 
   $heap->{WaitForData} = 1;
   $heap->{WaitForDataInterval} = 1;
@@ -154,6 +155,7 @@ sub config_changed {
   $heap->{MaxFiles} = $heap->{Self}->{MaxFiles};
   $heap->{Interval} = $heap->{Self}->{Interval};
   $heap->{SizeTable} = $heap->{Self}->{SizeTable};
+  $heap->{Notify} = $heap->{Self}->{Notify};
 }
 
 sub ReadConfig {
@@ -170,7 +172,21 @@ sub inject_file {
 
   if ( defined $heap->{MaxFiles} and $heap->{MaxFiles} < 1 )
     {
-      return 1;
+      $heap->{Self}->Quiet("Reached maximum file count, exiting\n");
+
+      $heap->{Watcher}->RemoveClient($session);
+
+      if ( defined $heap->{Persistent} )
+	{
+	  delete $heap->{Database};
+	  untie(%fileStatusList);
+	}
+      delete $heap->{Self}->{Session};
+
+      #return 1;
+
+      # for now just exit
+      exit 0;
     }
 
   # loop over files, find first uninjected
@@ -229,7 +245,7 @@ sub inject_file {
 	    }
 	  delete $heap->{Self}->{Session};
 
-#	  return 1;
+	  #return 1;
 
 	  # for now just exit
 	  exit 0;
@@ -258,7 +274,7 @@ sub inject_file {
     }
 
   my %t = (
-	   $heap->{Self}->{Notify} => $file,
+	   $heap->{Notify} => $file,
 	   Size => $size,
 	   Date => $date,
 	   Channel => T0::Util::GetChannel($file),
