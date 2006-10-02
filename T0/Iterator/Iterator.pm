@@ -193,9 +193,9 @@ sub inject_file {
   my $file = undef;
   my $size = 0;
   my $date = 0;
-  while ( my ($filename, $status) = each %fileStatusList )
+  for my $filename ( sort keys %fileStatusList )
     {
-      if ( 0 == $status )
+      if ( 0 == $fileStatusList{$filename} )
 	{
 	  $fileStatusList{$filename} = 1;
 	  if ( exists $heap->{Database} ) { $heap->{Database}->sync(); }
