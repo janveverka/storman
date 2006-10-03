@@ -45,6 +45,9 @@ sub start_tasks {
   # remember hash reference
   $heap->{inputhash} = $hash_ref;
 
+  # remember SvcClass
+  $heap->{svcclass} = $hash_ref->{svcclass};
+
   # put callback session and method on heap
   $heap->{session} = $hash_ref->{session};
   $heap->{callback} = $hash_ref->{callback};
@@ -119,6 +122,8 @@ sub start_tasks {
 
 sub start_wheel {
   my ( $kernel, $heap, $file ) = @_[ KERNEL, HEAP, ARG0 ];
+
+  $ENV{STAGE_SVCCLASS} = $heap->{svcclass} if ( defined $heap->{svcclass} );
 
   my $task = POE::Wheel::Run->new(
 				  Program => [ "rfcp", $file->{source} , $file->{target} ],
