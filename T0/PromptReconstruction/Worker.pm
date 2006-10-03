@@ -69,6 +69,7 @@ sub _init
 		       connection_error_handler => 'connection_error_handler',
       				job_done	=> 'job_done',
       				get_work	=> 'get_work',
+				Quit		=> 'Quit',
 			]
 	],
   );
@@ -183,6 +184,21 @@ sub Log
 sub got_child_stdout {
   my ($heap, $stdout) = @_[ HEAP, ARG0 ];
   print LOGOUT $stdout,"\n";;
+  my $work = $heap->{Work}->{$heap->{program}->PID}->{work};
+
+  if ( $stdout =~ s%^T0PoolFileCatalog:\s+%% )
+  {
+    if ( $stdout =~ m%File ID="([^"]+)"% ) { $work->{FileID} = $1; }
+  }
+  if ( $stdout =~ s%^T0Signature:\s+%% )
+  {
+    while ( $stdout =~ s%([^=]+)=(\S+)\s*%% ) { $work->{$1} = $2; }
+  }
+  if ( $stdout =~ m%^T0Checksums:\s+(\d+)\s+(\d+)\s+(\S+)% )
+  {
+    $work->{Files}->{$3}->{Size} = $2;
+    $work->{Files}->{$3}->{Checksum} = $1;
+  }
 
 # while ( $stdout =~ m/ =================> Treating event run:\s+(\d+)\s+(event:)\s+(\d+)/g )
 # while ( $stdout =~ m/TimeEvent:.+Run:\s+(\d+)\s+(Event:)\s+(\d+)/g )
@@ -190,7 +206,6 @@ sub got_child_stdout {
   {
     my $run = $2;
     my $evt = $1;
-    my $work = $heap->{Work}->{$heap->{program}->PID}->{work};
     next if $heap->{events}{$run}{$evt}++;
 #   push @{$heap->{stdout}}, $stdout;
     my $nevt = ++$work->{NEvents};
@@ -278,7 +293,12 @@ sub PrepareConfigFile
   $ifile = $h->{File};
   if ( $self->{Mode} eq 'LocalPull' )
   {
-    if ( ! open RFCP, "rfcp $h->{File} . |" )
+    my $cmd = "rfcp $h->{File} .";
+    if ( $self->{InputSvcClass} )
+    {
+      $cmd = "STAGE_SVCCLASS=" . $self->{InputSvcClass} . ' ' . $cmd;
+    }
+    if ( ! open RFCP, "$cmd |" )
       {
 	$self->Verbose("ERROR: can't rfcp $h->{File} !\n");
 	return undef;
@@ -396,9 +416,9 @@ sub server_input {
     $heap->{Work}->{$cpid} = $input;
 
 #   Preserve some settings against config changes during the run
-    foreach ( qw / LogDirs DataDirs SvcClass / )
+    foreach ( qw / LogDirs DataDirs InputSvcClass OutputSvcClass / )
     {
-      $heap->{Work}->{$cpid}->{$_} = $self->{$_};
+      $heap->{Work}->{$cpid}->{Setup}->{$_} = $self->{$_};
     }
     $self->{Children}->{$cpid}++;
     return;
@@ -410,12 +430,13 @@ sub server_input {
     $setup = $input->{setup};
     $self->{Debug} && dump_ref($setup);
     map { $self->{$_} = $setup->{$_} } keys %$setup;
-    $self->{QueuedThreads}-- if $self->{QueuedThreads};
+#   $self->{QueuedThreads}-- if $self->{QueuedThreads};
     return;
   }
 
   if ( $command =~ m%SetState% )
   {
+$DB::single=$debug_me;
     my $state = $input->{SetState};
     $self->Quiet("Got State $state...\n");
 
@@ -438,7 +459,6 @@ sub server_input {
       foreach ( keys %{$self->{Children}} )
       {
         $self->Quiet("Kill child PID=$_\n");
-$DB::single=1;
         kill 15 => -$_;
         delete $self->{Children}->{$_};
       }
@@ -450,7 +470,6 @@ $DB::single=1;
 
     if ( $state =~ m%Usr2% )
     {
-$DB::single=1;
       open KILL, "killall -USR2 cmsRun |";
       while ( <KILL> ) { print; }
       close KILL;
@@ -463,11 +482,11 @@ $DB::single=1;
       return;
     }
 
-    if ( $state =~ m%Quit% )
+    if ( $state =~ m%Quit% or $state =~ m%WorkerQuit% )
     {
       $self->{State} = $state;
-      $kernel->yield('shutdown');
-      exit 0;
+#     $kernel->yield('shutdown');
+      $kernel->delay_set( 'Quit', 5 );
       return;
     }
 
@@ -483,6 +502,10 @@ sub _connected { reroute_event( (caller(0))[3], @_ ); }
 sub connected
 {
   my ( $self, $heap, $kernel, $input ) = @_[ OBJECT, HEAP, KERNEL, ARG0 ];
+
+# Gotta put this somewhere...
+  $kernel->state( 'Quit', $self );
+
   $self->Debug("handle_connect: from server: $input\n");
   my %text = (  'command'       => 'HelloFrom',
                 'client'        => $self->{Name},
@@ -495,7 +518,7 @@ sub get_work
 {
   my ( $self, $heap, $kernel ) = @_[ OBJECT, HEAP, KERNEL ];
 
-  $self->Verbose("Queued threads: ",$self->{QueuedThreads},"\n");
+  $self->Debug("Queued threads: ",$self->{QueuedThreads},"\n");
   $kernel->delay_set( 'get_work', 7 ) if $self->{MaxTasks};
   return if ( $self->{State} ne 'Running' );
   return if ( $self->{QueuedThreads} >= $self->{MaxThreads} );
@@ -531,6 +554,10 @@ sub job_done
 
   map { $h{$_} = $heap->{Work}->{$h{pid}}->{work}->{$_}; }
 		keys %{$heap->{Work}->{$h{pid}}->{work}};
+  foreach ( qw / LogDirs DataDirs InputSvcClass OutputSvcClass / )
+  {
+    $h{$_} = $heap->{Work}->{$h{pid}}->{Setup}->{$_};
+  }
 
   $h{RecoSize} = 0;
   if ( defined($h{dir}) && defined($h{RecoFile}) && -f $h{dir} . '/' . $h{RecoFile} )
@@ -580,26 +607,76 @@ sub job_done
     }
   }
 
+  $self->Debug(T0::Util::strhash(\%h),"\n");
   if ( defined($h{DataDirs}) )
   {
-    my %g = ( 'TargetDirs' => $h{DataDirs},
-	      'TargetMode' => 'RoundRobin' );
-    my $dir = SelectTarget( \%g );
-    %g = ( 'File'	=> $h{File},
-	   'Target'	=> $dir );
-    $dir = MapTarget( \%g, $self->{Channels} );
+    my (%g,$dir);
+
+#   This was the coshure way of doing it, but it's not good enough for CSA06
+$DB::single=$debug_me;
+    %g = ( 'TargetDirs' => $h{DataDirs},
+	   'TargetMode' => 'RoundRobin' );
+    $dir = SelectTarget( \%g );
+#    %g = ( 'File'	=> $h{File},
+#	   'Target'	=> $dir );
+#    $dir = MapTarget( \%g, $self->{Channels} );
+#
+#   This is the CSA06-way. See the writeup at
+#   https://twiki.cern.ch/twiki/bin/view/CMS/CMST0DataManagement
+#   for details...
+#
+#   Primary dataset...
+    my $v = $h{Version};
+    $v =~ s%_%%g;
+    $dir .= '/CSA06-' . $v . '-os-' . $h{Channel} . '-0/';
+#   Tier...
+    my $datatype = $h{RecoFile};
+    $datatype =~ s%\.root$%%;
+    $datatype =~ s%^.*\.%%;
+    $dir .= $datatype;
+#   Processing Name...
+    $dir .= '/CMSSW_' . $h{Version} . '-' . $datatype . '-H' . $h{PsetHash};
+
+    open RFMKDIR, "rfmkdir -p $dir |" or warn "rfmkdir $dir: $!\n";
+    while ( <RFMKDIR> ) {}
+    close RFMKDIR; # Don't check for errors, I will have one if the dir exists!
+
     if ( defined($dir) && defined($h{dir}) && defined($h{RecoFile}) && -f $h{dir} . '/' . $h{RecoFile} )
     {
+#     Rename file...
+$DB::single=$debug_me;
+      if ( $h{FileID} )
+      {
+        my ($f,$g);
+        $f = basename $h{RecoFile};
+#        ( $g=$f ) =~ s%[^.]*%%;
+        $g = $h{FileID} . '.root';
+        $h{OriginalRecoFile} = $f;
+	$h{RecoFile} = $g;
+        $h{Files}{$g}{Checksum} = $h{Files}{$f}{Checksum};
+        $h{Files}{$g}{Size}     = $h{Files}{$f}{Size};
+
+        my %t = (
+			RenameFile	=> 1,
+			From		=> $f,
+			To		=> $g,
+		);
+	$self->Log( \%t );
+        rename $h{dir} . '/' . $f, $h{dir} . '/' . $g;
+      }
+
       my $cmd = 'rfcp ' . $h{dir} . '/' . $h{RecoFile} . ' ' . $dir;
       Print $cmd,"\n";
-      if ( defined($h{SvcClass}) )
+      if ( defined($h{OutputSvcClass}) )
       {
-        $cmd = 'STAGE_SVCCLASS=' . $h{SvcClass} . ' ' . $cmd;
+        $cmd = 'STAGE_SVCCLASS=' . $h{OutputSvcClass} . ' ' . $cmd;
       }
       open RFCP, "$cmd |" or Croak "$cmd: $!\n";
       while ( <RFCP> ) { $self->Verbose($_); }
       close RFCP;
       unlink $h{dir} . '/' . $h{RecoFile};
+      $h{RecoFile} = $dir . '/' . basename $h{RecoFile};
+      $h{RecoFile} =~ s%//%/%g;
     }
   }
 # </kludge>
@@ -630,8 +707,13 @@ sub job_done
   {
     Print "Shutting down...\n";
     $kernel->yield('shutdown');
-    exit 0; # Bring out the big guns...
   }
+}
+
+sub Quit
+{
+  Print "I'm outta here...\n";
+  exit 0;
 }
 
 1;

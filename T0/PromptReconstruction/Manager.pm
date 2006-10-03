@@ -1,5 +1,6 @@
 use strict;
 package T0::PromptReconstruction::Manager;
+use File::Basename;
 use Sys::Hostname;
 use POE;
 use POE::Filter::Reference;
@@ -282,6 +283,9 @@ sub check_rate
              Readings	 => $i,
 	     TotalEvents => $Stats{TotalEvents},
 	     TotalVolume => $Stats{TotalVolume},
+	     QueueLength => $self->{Queue}->get_item_count(),
+	     NReco	 => scalar keys %{$self->{queues}},
+	     NActive	 => scalar keys %{$self->{_queue}},
        );
   $self->Log( \%h );
 }
@@ -522,6 +526,10 @@ sub send_work
 	      'priority' => $priority,
 	    );
     $heap->{client}->put( \%text );
+
+#   Why do I need to do this here...?
+    $self->{_queue}{$id}{Start} = time;
+
     $kernel->yield( 'SetRecoTimer', $id );
     return;
   }
@@ -583,18 +591,39 @@ sub client_input
 		Node		=> $self->{Node},
 		QueueLength	=> $self->{Queue}->get_item_count(),
 		NReco		=> scalar keys %{$self->{queues}},
+		NActive		=> scalar keys %{$self->{_queue}},
 	      );
       if ( exists($self->{_queue}{$id}{Start}) )
       {
         $h{Duration} = time - $self->{_queue}{$id}{Start};
       }
       $self->Log( \%h );
-      my %g = ( RecoReady => $input->{host} . ':' .
-			     $input->{dir}  . '/' .
-			     $input->{RecoFile},
-      		RecoSize  => $input->{RecoSize},
-		NEvents	  => $input->{NEvents},
+$DB::single=$debug_me;
+      my $guid = $input->{RecoFile};
+      $guid =~ s%^.*/%%;
+      $guid =~ s%\..*$%%;
+      my $lfn = $input->{RecoFile};
+      $lfn =~ s%^/castor/cern.ch/cms/[^/]+%%;
+      $lfn =~ s%//%/%g;
+      my %g = ( RecoReady  => 'DBS.RegisterReco',
+		T0Name	   => $T0::System{Name},
+		SizesA	   => $input->{RecoSize},
+		SizesB	   => int($input->{RecoSize} * 1024 * 1024 + 0.4),
+		PsetHash   => $input->{PsetHash},
+		Version    => $input->{Version},
+		CheckSums  => $input->{Files}->{basename $input->{RecoFile}}->{Checksum},
+		Sizes      => $input->{Files}->{basename $input->{RecoFile}}->{Size},
+		GUIDs	   => $guid,
+		Dataset	   => $input->{Channel} . $input->{DatasetNumber},
+		NbEvents   => $input->{NEvents},
+		RECOLFNs   => $lfn,
+		PFNs	   => $input->{RecoFile},
+		WNLocation => $input->{host} . ':' .
+			      $input->{dir}  . '/',
+      		RecoSize   => $input->{RecoSize},
+		status	   => $status,
 	      );
+      if ( $status ) { $g{RecoFailed} = delete $g{RecoReady}; }
       $self->Log( \%g );
       $self->GatherStatistics($input);
     }

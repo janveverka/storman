@@ -232,6 +232,6 @@ sub timestamp
 sub strhash
 {
   my $ref = shift;
-  return join(', ', map { "$_ => $ref->{$_}" } keys %$ref);
+  return join(', ', map { "$_ => $ref->{$_}" } sort keys %$ref);
 }
 1;
