@@ -196,8 +196,12 @@ sub got_child_stdout {
   }
   if ( $stdout =~ m%^T0Checksums:\s+(\d+)\s+(\d+)\s+(\S+)% )
   {
-    $work->{Files}->{$3}->{Size} = $2;
-    $work->{Files}->{$3}->{Checksum} = $1;
+    my $f = $3;
+    $work->{Files}->{$f}->{Size} = $2;
+    $work->{Files}->{$f}->{Checksum} = $1;
+    my $r = $f;
+    $r =~ s%^.*\.(.+)\.root%$1%;
+    $work->{Files}->{$f}->{DataType} = $r;
   }
 
 # while ( $stdout =~ m/ =================> Treating event run:\s+(\d+)\s+(event:)\s+(\d+)/g )
@@ -436,7 +440,6 @@ sub server_input {
 
   if ( $command =~ m%SetState% )
   {
-$DB::single=$debug_me;
     my $state = $input->{SetState};
     $self->Quiet("Got State $state...\n");
 
@@ -613,7 +616,6 @@ sub job_done
     my (%g,$dir);
 
 #   This was the coshure way of doing it, but it's not good enough for CSA06
-$DB::single=$debug_me;
     %g = ( 'TargetDirs' => $h{DataDirs},
 	   'TargetMode' => 'RoundRobin' );
     $dir = SelectTarget( \%g );
@@ -637,6 +639,11 @@ $DB::single=$debug_me;
 #   Processing Name...
     $dir .= '/CMSSW_' . $h{Version} . '-' . $datatype . '-H' . $h{PsetHash};
 
+$DB::single=$debug_me;
+#   Add a date-related subdirectory
+    my @a = localtime;
+    my $a = sprintf("%02i%02i",$a[4]+1,$a[3]);
+    $dir .= '/' . $a;
     open RFMKDIR, "rfmkdir -p $dir |" or warn "rfmkdir $dir: $!\n";
     while ( <RFMKDIR> ) {}
     close RFMKDIR; # Don't check for errors, I will have one if the dir exists!
@@ -644,7 +651,6 @@ $DB::single=$debug_me;
     if ( defined($dir) && defined($h{dir}) && defined($h{RecoFile}) && -f $h{dir} . '/' . $h{RecoFile} )
     {
 #     Rename file...
-$DB::single=$debug_me;
       if ( $h{FileID} )
       {
         my ($f,$g);
@@ -655,6 +661,7 @@ $DB::single=$debug_me;
 	$h{RecoFile} = $g;
         $h{Files}{$g}{Checksum} = $h{Files}{$f}{Checksum};
         $h{Files}{$g}{Size}     = $h{Files}{$f}{Size};
+        $h{Files}{$g}{DataType} = $h{Files}{$f}{DataType};
 
         my %t = (
 			RenameFile	=> 1,
