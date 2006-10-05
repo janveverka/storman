@@ -33,21 +33,31 @@ sub new
 					 got_task_close	=> \&got_task_close,
 					 got_sigchld => \&got_sigchld,
 					},
-		       args => [ $hash_ref ],
+		       args => [ $hash_ref, $self ],
 		      );
 
   return $self;
 }
 
 sub start_tasks {
-  my ( $kernel, $heap, $hash_ref ) = @_[ KERNEL, HEAP, ARG0 ];
+  my ( $kernel, $heap, $hash_ref, $self ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
 
   # remember hash reference
   $heap->{inputhash} = $hash_ref;
 
+  # remember refercne to myself
+  $heap->{Self} = $self;
+
+  # remember SvcClass
+  $heap->{svcclass} = $hash_ref->{svcclass};
+
   # put callback session and method on heap
   $heap->{session} = $hash_ref->{session};
   $heap->{callback} = $hash_ref->{callback};
+
+  # put job report and output catalog name on heap
+  $heap->{jobreport} = $hash_ref->{jobreport};
+  $heap->{outputcatalog} = $hash_ref->{outputcatalog};
 
   # before spawning wheel, register signal handler
   $kernel->sig( CHLD => "got_sigchld" );
@@ -59,6 +69,8 @@ sub start_tasks {
       push(@{$heap->{arguments}}, '--in ' . $file);
     }
   push(@{$heap->{arguments}}, '--out ' . $hash_ref->{target});
+  push(@{$heap->{arguments}}, '--jobreport ' . $hash_ref->{jobreport});
+  push(@{$heap->{arguments}}, '--writecatalog ' . $hash_ref->{outputcatalog});
 
   # configure number of retries
   if ( exists $hash_ref->{retries} )
@@ -87,6 +99,8 @@ sub start_tasks {
 
 sub start_wheel {
   my ( $kernel, $heap ) = @_[ KERNEL, HEAP ];
+
+  $ENV{STAGE_SVCCLASS} = $heap->{svcclass} if ( defined $heap->{svcclass} );
 
   my $task = POE::Wheel::Run->new(
 				  Program => "EdmFastMerge",
@@ -135,7 +149,7 @@ sub monitor_task {
 
 sub got_task_stdout {
   my ( $kernel, $heap, $stdout, $task_id ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
-#  print "FASTMERGE STDOUT: $stdout\n";
+  print "FASTMERGE STDOUT: $stdout\n";
 }
 
 sub got_task_stderr {
@@ -174,17 +188,29 @@ sub cleanup_task {
       # update status in caller hash
       $heap->{inputhash}->{status} = $status;
 
-      if ( $status != 0 and $heap->{retries} > 0 )
+      if ( $status != 0 )
 	{
-	  $heap->{retries}--;
+	  $heap->{Self}->Debug("FastMerge failed with status $status\n");
 
-	  if ( exists $heap->{retry_backoff} )
+	  if ( $heap->{retries} > 0 )
 	    {
-	      $kernel->delay_set('start_wheel',$heap->{retry_backoff});
+	      $heap->{Self}->Debug("Retry count at " . $heap->{retries} . " , retrying\n");
+
+	      $heap->{retries}--;
+
+	      if ( exists $heap->{retry_backoff} )
+		{
+		  $kernel->delay_set('start_wheel',$heap->{retry_backoff});
+		}
+	      else
+		{
+		  $kernel->yield('start_wheel');
+		}
 	    }
 	  else
 	    {
-	      $kernel->yield('start_wheel');
+	      $heap->{Self}->Debug("Retry count at " . $heap->{retries} . " , abandoning\n");
+	      $kernel->post( $heap->{session}, $heap->{callback}, $heap->{inputhash} );
 	    }
 	}
       else
