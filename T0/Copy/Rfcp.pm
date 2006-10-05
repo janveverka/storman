@@ -33,17 +33,20 @@ sub new
 					 got_task_close	=> \&got_task_close,
 					 got_sigchld => \&got_sigchld,
 					},
-		       args => [ $hash_ref ],
+		       args => [ $hash_ref, $self ],
 		      );
 
   return $self;
 }
 
 sub start_tasks {
-  my ( $kernel, $heap, $hash_ref ) = @_[ KERNEL, HEAP, ARG0 ];
+  my ( $kernel, $heap, $hash_ref, $self ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
 
   # remember hash reference
   $heap->{inputhash} = $hash_ref;
+
+  # remember refercne to myself
+  $heap->{Self} = $self;
 
   # remember SvcClass
   $heap->{svcclass} = $hash_ref->{svcclass};
@@ -216,19 +219,30 @@ sub cleanup_task {
       # update status in caller hash
       $file->{original}->{status} = $status;
 
-      if ( $status != 0 and $file->{retries} > 0 )
+      if ( $status != 0 )
 	{
-	  $file->{retries}--;
+	  $heap->{Self}->Debug("Rfcp of $file failed with status $status\n");
 
-	  if ( exists $file->{retry_backoff} )
+	  if ( $heap->{retries} > 0 )
 	    {
-	      $heap->{wheel_count}++;
-	      $kernel->delay_set('start_wheel',$file->{retry_backoff},($file));
+	      $heap->{Self}->Debug("Retry count at " . $heap->{retries} . " , retrying\n");
+
+	      $file->{retries}--;
+
+	      if ( exists $file->{retry_backoff} )
+		{
+		  $heap->{wheel_count}++;
+		  $kernel->delay_set('start_wheel',$file->{retry_backoff},($file));
+		}
+	      else
+		{
+		  $heap->{wheel_count}++;
+		  $kernel->yield('start_wheel',($file));
+		}
 	    }
 	  else
 	    {
-	      $heap->{wheel_count}++;
-	      $kernel->yield('start_wheel',($file));
+	      $heap->{Self}->Debug("Retry count at " . $heap->{retries} . " , abandoning\n");
 	    }
 	}
 
