@@ -603,7 +603,7 @@ $DB::single=$debug_me;
       $guid =~ s%^.*/%%;
       $guid =~ s%\..*$%%;
       my $lfn = $input->{RecoFile};
-      $lfn =~ s%^/castor/cern.ch/cms/[^/]+%%;
+      $lfn =~ s%^/castor/cern.ch/cms/%%;
       $lfn =~ s%//%/%g;
       my %g = ( RecoReady  => 'DBS.RegisterReco',
 		T0Name	   => $T0::System{Name},
