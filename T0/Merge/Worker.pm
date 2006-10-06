@@ -233,7 +233,8 @@ sub server_input {
 	    # extract SvcClass (assumes they are the same for all input files)
 	    # to fix this Rfcp.pm needs to be changed to allow for different SvcClass
 	    # direct FastMerge.pm merging doesn't support multiple SvcClass
-	    $heap->{InputSvcClass} = $w->{svcclass} unless defined $heap->{InputSvcClass};
+	    $heap->{InputSvcClass} = $w->{SvcClass} unless defined $heap->{InputSvcClass};
+	    $heap->{OutputSvcClass} = $w->{SvcClass} unless defined $heap->{OutputSvcClass};
 	  }
       }
     else
