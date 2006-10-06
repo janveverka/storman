@@ -149,26 +149,29 @@ sub merge_timeout {
 
   for my $dataset ( keys %{$heap->{MergesPending}} )
     {
-      for my $version ( keys %{$heap->{MergesPending}->{$dataset}} )
+      for my $datatype ( keys %{$heap->{MergesPending}->{$dataset}} )
 	{
-	  for my $psethash ( keys %{$heap->{MergesPending}->{$dataset}->{$version}} )
+	  for my $version ( keys %{$heap->{MergesPending}->{$dataset}->{$datatype}} )
 	    {
-	      my $latest = 0;
-	      foreach my $work ( @{$heap->{MergesPending}->{$dataset}->{$version}->{$psethash}} )
+	      for my $psethash ( keys %{$heap->{MergesPending}->{$dataset}->{$datatype}->{$version}} )
 		{
-		  if ( $work->{received} > $latest )
+		  my $latest = 0;
+		  foreach my $work ( @{$heap->{MergesPending}->{$dataset}->{$datatype}->{$version}->{$psethash}} )
 		    {
-		      $latest = $work->{received};
+		      if ( $work->{received} > $latest )
+			{
+			  $latest = $work->{received};
+			}
 		    }
-		}
 
-	      if ( (time - $latest) > $heap->{Self}->{AgeThreshold} )
-		{
-		  my $priority = 99;
-		  my $id = $heap->{Self}->{Queue}->enqueue($priority,$heap->{MergesPending}->{$dataset}->{$version}->{$psethash});
-		  $heap->{Self}->Quiet("Queue Merge $id for Dataset $dataset, Version $version and PSetHash $psethash\n");
+		  if ( (time - $latest) > $heap->{Self}->{AgeThreshold} )
+		    {
+		      my $priority = 99;
+		      my $id = $heap->{Self}->{Queue}->enqueue($priority,$heap->{MergesPending}->{$dataset}->{$datatype}->{$version}->{$psethash});
+		      $heap->{Self}->Quiet("Queue Merge $id for Dataset $dataset, Version $version and PSetHash $psethash\n");
 
-		  delete $heap->{MergesPending}->{$dataset}->{$version}->{$psethash};
+		      delete $heap->{MergesPending}->{$dataset}->{$datatype}->{$version}->{$psethash};
+		    }
 		}
 	    }
 	}
@@ -185,35 +188,60 @@ sub MergeIsPending
   $work->{received} = time;
 
   my $dataset = $work->{Dataset};
+  my $datatype = $work->{DataType};
   my $version = $work->{Version};
   my $psethash = $work->{PsetHash};
-  if ( not exists $heap->{MergesPending}->{$dataset}->{$version}->{$psethash} )
-    {
-      my @temp = ();
-      $heap->{MergesPending}->{$dataset}->{$version}->{$psethash} = \@temp;
-    }
-  push( @{$heap->{MergesPending}->{$dataset}->{$version}->{$psethash}}, $work );
 
-  my $count = 0;
-  my $events = 0;
-  my $size = 0;
-  foreach my $temp ( @{$heap->{MergesPending}->{$dataset}->{$version}->{$psethash}} )
+  # check if we should merge this datatype
+  my $mergeThis = 0;
+  foreach my $allowedDataType ( @{$self->{DataTypes}} )
     {
-      $count++;
-      $events += $temp->{NbEvents};
-      $size += $temp->{Sizes};
+      if ( $datatype eq $allowedDataType )
+	{
+	  $mergeThis = 1;
+	  last;
+	}
     }
 
-  # submit merge job if conditions satisfied
-  if ( ( defined $self->{FileThreshold} and $count >= $self->{FileThreshold} ) or
-       ( defined $self->{EventThreshold} and $events >= $self->{EventThreshold} ) or
-       ( defined $self->{SizeThreshold} and $size >= $self->{SizeThreshold} ) )
+  if ( $mergeThis )
     {
-      my $priority = 99;
-      my $id = $self->{Queue}->enqueue($priority,$heap->{MergesPending}->{$dataset}->{$version}->{$psethash});
-      $self->Quiet("Queue Merge $id for Dataset $dataset, Version $version and PSetHash $psethash\n");
+      # keep track of this input
+      if ( not exists $heap->{MergesPending}->{$dataset}->{$datatype}->{$version}->{$psethash} )
+	{
+	  my @temp = ();
+	  $heap->{MergesPending}->{$dataset}->{$datatype}->{$version}->{$psethash} = \@temp;
+	}
+      push( @{$heap->{MergesPending}->{$dataset}->{$datatype}->{$version}->{$psethash}}, $work );
 
-      delete $heap->{MergesPending}->{$dataset}->{$version}->{$psethash};
+      # calculate number of input files, number of events and combined size
+      my $count = 0;
+      my $events = 0;
+      my $size = 0;
+      foreach my $temp ( @{$heap->{MergesPending}->{$dataset}->{$datatype}->{$version}->{$psethash}} )
+	{
+	  $count++;
+	  $events += $temp->{NbEvents};
+	  $size += $temp->{Sizes};
+	}
+
+      # check whether we are above merge threshold
+      if ( ( defined $self->{FileThreshold} and $count >= $self->{FileThreshold} ) or
+	   ( defined $self->{EventThreshold} and $events >= $self->{EventThreshold} ) or
+	   ( defined $self->{SizeThreshold} and $size >= $self->{SizeThreshold} ) )
+	{
+	  my $priority = 99;
+	  my $id = $self->{Queue}->enqueue($priority,$heap->{MergesPending}->{$dataset}->{$datatype}->{$version}->{$psethash});
+	  $self->Quiet("Queue Merge $id for Dataset $dataset, DataType $datatype, Version $version and PSetHash $psethash\n");
+
+	  delete $heap->{MergesPending}->{$dataset}->{$datatype}->{$version}->{$psethash};
+	}
+    }
+  else
+    {
+      # pass directly to DBSUpdater
+      $work->{DBSUpdate} = 'DBS.RegisterReco';
+      delete $work->{MergeReady};
+      $self->Log( $work );
     }
 }
 
