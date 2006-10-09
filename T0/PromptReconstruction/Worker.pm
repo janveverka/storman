@@ -192,7 +192,8 @@ sub got_child_stdout {
   }
   if ( $stdout =~ s%^T0Signature:\s+%% )
   {
-    while ( $stdout =~ s%([^=]+)=(\S+)\s*%% ) { $work->{$1} = $2; }
+    Print $stdout,"\n";
+    while ( $stdout =~ s%\s*([^=]+)=(\S+)\s*%% ) { $work->{$1} = $2; }
   }
   if ( $stdout =~ m%^T0Checksums:\s+(\d+)\s+(\d+)\s+(\S+)% )
   {
@@ -557,10 +558,12 @@ sub job_done
 
   map { $h{$_} = $heap->{Work}->{$h{pid}}->{work}->{$_}; }
 		keys %{$heap->{Work}->{$h{pid}}->{work}};
+# Pass some parameters to downstream components
   foreach ( qw / LogDirs DataDirs InputSvcClass OutputSvcClass / )
   {
     $h{$_} = $heap->{Work}->{$h{pid}}->{Setup}->{$_};
   }
+  $h{SvcClass} = $h{OutputSvcClass}; # explicit change of key name.
 
   $h{RecoSize} = 0;
   if ( defined($h{dir}) && defined($h{RecoFile}) && -f $h{dir} . '/' . $h{RecoFile} )
@@ -573,44 +576,8 @@ sub job_done
 			   'NEvents',	$h{NEvents},
 			   'RecoSize',	$h{RecoSize});
 
-# Kludges for now to get rid of the output and input...
-  if ( $h{File} )
-  {
-    my $xx = $h{dir} . '/' . basename $h{File};
-    -f $xx && unlink $xx;
-  }
-
-  if ( defined($h{dir}) && defined($h{File}) && -f $h{dir} . '/' . $h{File} ) { unlink $h{dir} . '/' . $h{File} };
-
-  if ( defined($h{LogDirs}) )
-  {
-    my %g = ( 'TargetDirs' => $h{LogDirs},
-	      'TargetMode' => 'RoundRobin' );
-    my $dir = SelectTarget( \%g );
-    %g = ( 'File'	=> $h{File},
-           'Target'	=> $dir );
-# Why does it die here sometimes...?
-    $dir = MapTarget( \%g, $self->{Channels} );
-    if ( defined($dir) && defined($h{dir}) && defined($h{log}) && -f $h{dir} . '/' . $h{log} )
-    {
-      my $cmd = 'rfcp ' . $h{dir} . '/' . $h{log} . ' ' . $dir;
-      Print $cmd,"\n";
-      open RFCP, "$cmd |" or Croak "$cmd: $!\n";
-      while ( <RFCP> ) { $self->Verbose($_); }
-      close RFCP;
-
-      if ( -f $h{dir} . '/FrameworkJobReport.xml' )
-      {
-        $cmd = 'rfcp ' . $h{dir} . '/FrameworkJobReport.xml ' . $dir . '/FrameworkJobReport.' . UuidOfFile($h{File}) . '.xml';
-        Print $cmd,"\n";
-        open RFCP, "$cmd |" or Croak "$cmd: $!\n";
-        while ( <RFCP> ) { $self->Verbose($_); }
-        close RFCP;
-      }
-    }
-  }
-
   $self->Debug(T0::Util::strhash(\%h),"\n");
+  my $lfndir;
   if ( defined($h{DataDirs}) )
   {
     my (%g,$dir);
@@ -630,20 +597,22 @@ sub job_done
 #   Primary dataset...
     my $v = $h{Version};
     $v =~ s%_%%g;
-    $dir .= '/CSA06-' . $v . '-os-' . $h{Channel} . '-0/';
+    $lfndir = '/CSA06-' . $v . '-os-' . $h{Channel} . '-0/';
 #   Tier...
     my $datatype = $h{RecoFile};
     $datatype =~ s%\.root$%%;
     $datatype =~ s%^.*\.%%;
-    $dir .= $datatype;
+    $lfndir .= $datatype;
 #   Processing Name...
-    $dir .= '/CMSSW_' . $h{Version} . '-' . $datatype . '-H' . $h{PsetHash};
+    $lfndir .= '/CMSSW_' . $h{Version} . '-' . $datatype . '-H' . $h{PsetHash};
 
 $DB::single=$debug_me;
 #   Add a date-related subdirectory
     my @a = localtime;
     my $a = sprintf("%02i%02i",$a[4]+1,$a[3]);
-    $dir .= '/' . $a;
+    $lfndir .= '/' . $a;
+
+    $dir .= $lfndir;
     open RFMKDIR, "rfmkdir -p $dir |" or warn "rfmkdir $dir: $!\n";
     while ( <RFMKDIR> ) {}
     close RFMKDIR; # Don't check for errors, I will have one if the dir exists!
@@ -686,6 +655,46 @@ $DB::single=$debug_me;
       $h{RecoFile} =~ s%//%/%g;
     }
   }
+
+  if ( defined($h{LogDirs}) )
+  {
+    my %g = ( 'TargetDirs' => $h{LogDirs},
+	      'TargetMode' => 'RoundRobin' );
+    my $dir = SelectTarget( \%g );
+    %g = ( 'File'	=> $h{File},
+           'Target'	=> $dir );
+
+    $dir .= $lfndir;
+    open RFMKDIR, "rfmkdir -p $dir |" or warn "rfmkdir $dir: $!\n";
+    while ( <RFMKDIR> ) {}
+    close RFMKDIR; # Don't check for errors, I will have one if the dir exists!
+#   $dir = MapTarget( \%g, $self->{Channels} );
+    if ( defined($dir) && defined($h{dir}) && defined($h{log}) && -f $h{dir} . '/' . $h{log} )
+    {
+      my $cmd = 'rfcp ' . $h{dir} . '/' . $h{log} . ' ' . $dir;
+      Print $cmd,"\n";
+      open RFCP, "$cmd |" or Croak "$cmd: $!\n";
+      while ( <RFCP> ) { $self->Verbose($_); }
+      close RFCP;
+
+      if ( -f $h{dir} . '/FrameworkJobReport.xml' )
+      {
+        $cmd = 'rfcp ' . $h{dir} . '/FrameworkJobReport.xml ' . $dir . '/FrameworkJobReport.' . UuidOfFile($h{File}) . '.xml';
+        Print $cmd,"\n";
+        open RFCP, "$cmd |" or Croak "$cmd: $!\n";
+        while ( <RFCP> ) { $self->Verbose($_); }
+        close RFCP;
+      }
+    }
+  }
+
+# Kludges for now to get rid of the output and input...
+  if ( $h{File} )
+  {
+    my $xx = $h{dir} . '/' . basename $h{File};
+    -f $xx && unlink $xx;
+  }
+  if ( defined($h{dir}) && defined($h{File}) && -f $h{dir} . '/' . $h{File} ) { unlink $h{dir} . '/' . $h{File} };
 # </kludge>
 
   $self->Quiet("Send: JobDone: work=$h{pid}, status=$h{status}, priority=$h{priority}\n");
