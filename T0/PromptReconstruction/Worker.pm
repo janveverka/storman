@@ -650,7 +650,11 @@ $DB::single=$debug_me;
       }
       open RFCP, "$cmd |" or Croak "$cmd: $!\n";
       while ( <RFCP> ) { $self->Verbose($_); }
-      close RFCP;
+      close RFCP or do
+      {
+        $h{status} = -1;
+	$h{reason} = 'Stageout failed';
+      };
       unlink $h{dir} . '/' . $h{RecoFile};
       $h{RecoFile} = $dir . '/' . basename $h{RecoFile};
       $h{RecoFile} =~ s%//%/%g;
