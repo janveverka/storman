@@ -286,13 +286,14 @@ sub PrepareConfigFile
 	    );
     my $dir = SelectTarget( \%g );
 #   This is a hack while I fix the persistent queueing in the Manager
-    my $exists = 1;
-    my $f = $dir . '/' . $ofile;
-    open RFSTAT, "rfstat $f 2>&1 |" or Croak "rfstat $f: $!\n";
-    while ( <RFSTAT> )
-    { if ( m%No such file or directory% ) { $exists = 0; } }
-    close RFSTAT; # or Croak "close: rfstat $f: $!\n";
-    if ( $exists ) { return undef; }
+#   ...and it doesn't work anymore, because the output structure is wrong!
+#    my $exists = 1;
+#    my $f = $dir . '/' . $ofile;
+#    open RFSTAT, "rfstat $f 2>&1 |" or Croak "rfstat $f: $!\n";
+#    while ( <RFSTAT> )
+#    { if ( m%No such file or directory% ) { $exists = 0; } }
+#    close RFSTAT; # or Croak "close: rfstat $f: $!\n";
+#    if ( $exists ) { return undef; }
   }
 
   $ifile = $h->{File};
