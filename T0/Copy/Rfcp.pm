@@ -223,9 +223,9 @@ sub cleanup_task {
 	{
 	  $heap->{Self}->Debug("Rfcp of $file failed with status $status\n");
 
-	  if ( $heap->{retries} > 0 )
+	  if ( $file->{retries} > 0 )
 	    {
-	      $heap->{Self}->Debug("Retry count at " . $heap->{retries} . " , retrying\n");
+	      $heap->{Self}->Debug("Retry count at " . $file->{retries} . " , retrying\n");
 
 	      $file->{retries}--;
 
@@ -242,7 +242,7 @@ sub cleanup_task {
 	    }
 	  else
 	    {
-	      $heap->{Self}->Debug("Retry count at " . $heap->{retries} . " , abandoning\n");
+	      $heap->{Self}->Debug("Retry count at " . $file->{retries} . " , abandoning\n");
 	    }
 	}
 
