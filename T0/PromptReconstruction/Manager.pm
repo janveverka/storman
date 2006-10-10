@@ -625,7 +625,7 @@ $DB::single=$debug_me;
 	      );
       foreach ( qw / DataType SvcClass / )
       {
-        if ( defined($input->{$_} ) { $g{$_} = $input->{$_};
+        if ( defined($input->{$_}) ) { $g{$_} = $input->{$_}; }
       }
       if ( $status ) { $g{RecoFailed} = delete $g{RecoReady}; }
       $self->Log( \%g );
