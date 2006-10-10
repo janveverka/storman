@@ -65,6 +65,7 @@ sub _init
 				      broadcast	=> 'broadcast',
 				      MergeIsPending => 'MergeIsPending',
 				      merge_timeout => 'merge_timeout',
+				      merge_submit => 'merge_submit',
 				     ],
 			   ],
        Args => [ $self ],
@@ -128,6 +129,7 @@ sub start_task
 # _WHY_ do I need  to do this...?
   $kernel->state( 'MergeIsPending', $self );
   $kernel->state( 'merge_timeout', $self );
+  $kernel->state( 'merge_submit', $self );
 
   # check age of files to be merged
   if ( exists $heap->{Self}->{AgeThreshold} )
@@ -166,10 +168,7 @@ sub merge_timeout {
 
 		  if ( (time - $latest) > $heap->{Self}->{AgeThreshold} )
 		    {
-		      my $priority = 99;
-		      my $id = $heap->{Self}->{Queue}->enqueue($priority,$heap->{MergesPending}->{$dataset}->{$datatype}->{$version}->{$psethash});
-		      $heap->{Self}->Quiet("Queue Merge $id for Dataset $dataset, Version $version and PSetHash $psethash\n");
-
+		      $kernel->yield('merge_submit',($heap->{MergesPending}->{$dataset}->{$datatype}->{$version}->{$psethash}));
 		      delete $heap->{MergesPending}->{$dataset}->{$datatype}->{$version}->{$psethash};
 		    }
 		}
@@ -178,6 +177,31 @@ sub merge_timeout {
     }
 
   $kernel->delay_set('merge_timeout',300);
+}
+
+sub merge_submit {
+  my ( $self, $kernel, $heap, $worklist ) = @_[ OBJECT, KERNEL, HEAP, ARG0 ];
+
+  if ( scalar @{$worklist} > 1 )
+    {
+      my $dataset = $worklist->[0]->{Dataset};
+      my $datatype =$worklist->[0]->{DataType};
+      my $version = $worklist->[0]->{Version};
+      my $psethash = $worklist->[0]->{PsetHash};
+
+      my $priority = 99;
+
+      my $id = $heap->{Self}->{Queue}->enqueue($priority,$worklist);
+
+      $self->Quiet("Queue Merge $id for Dataset $dataset, DataType $datatype, Version $version and PSetHash $psethash\n");
+    }
+  elsif ( scalar @{$worklist} == 1 )
+    {
+      # pass directly to DBSUpdater
+      $worklist->[0]->{DBSUpdate} = 'DBS.RegisterReco';
+      delete $worklist->[0]->{MergeReady};
+      $self->Log( $worklist->[0] );
+    }
 }
 
 sub MergeIsPending
@@ -229,10 +253,7 @@ sub MergeIsPending
 	   ( defined $self->{EventThreshold} and $events >= $self->{EventThreshold} ) or
 	   ( defined $self->{SizeThreshold} and $size >= $self->{SizeThreshold} ) )
 	{
-	  my $priority = 99;
-	  my $id = $self->{Queue}->enqueue($priority,$heap->{MergesPending}->{$dataset}->{$datatype}->{$version}->{$psethash});
-	  $self->Quiet("Queue Merge $id for Dataset $dataset, DataType $datatype, Version $version and PSetHash $psethash\n");
-
+	  $kernel->yield('merge_submit',($heap->{MergesPending}->{$dataset}->{$datatype}->{$version}->{$psethash}));
 	  delete $heap->{MergesPending}->{$dataset}->{$datatype}->{$version}->{$psethash};
 	}
     }
