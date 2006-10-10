@@ -511,8 +511,15 @@ sub stageout_done {
       if ( $file->{status} != 0 )
 	{
 	  $heap->{Self}->Debug("rfcp " . $file->{source} . " " . $file->{target} . " returned " . $file->{status} . "\n");
-	  $status = $file->{status};
-	  last;
+	  if ( $file->{source} eq $heap->{jobreport} )
+	    {
+	      $heap->{Self}->Debug("Ignore stageout failure for jobreport\n");
+	    }
+	  else
+	    {
+	      $status = $file->{status};
+	      last;
+	    }
 	}
     }
 
