@@ -199,7 +199,7 @@ sub merge_submit {
     {
       # pass directly to DBSUpdater
       $worklist->[0]->{DBSUpdate} = 'DBS.RegisterReco';
-      delete $worklist->[0]->{MergeReady};
+      delete $worklist->[0]->{RecoReady};
       $self->Log( $worklist->[0] );
     }
 }
@@ -261,7 +261,7 @@ sub MergeIsPending
     {
       # pass directly to DBSUpdater
       $work->{DBSUpdate} = 'DBS.RegisterReco';
-      delete $work->{MergeReady};
+      delete $work->{RecoReady};
       $self->Log( $work );
     }
 }
