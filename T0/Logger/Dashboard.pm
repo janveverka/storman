@@ -28,7 +28,7 @@ sub _init
   $self->{DashboardHost} = 'lxarda05.cern.ch';
   $self->{apmon}->{sys_monitoring} = 0;
   $self->{apmon}->{general_info}   = 0;
-  $self->{MaxMsgRate}  = 20;
+  $self->{MaxMsgRate}  = 120;
 
   my %h = @_;
   map { $self->{$_} = $h{$_}; } keys %h;
