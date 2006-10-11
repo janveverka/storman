@@ -578,7 +578,7 @@ sub job_done
   else { $h{RecoSize} = 0; }
 
   $h{NEvents} = GetEventsFromJobReport;
-# my $x = GetRootFileInfo;
+  my $x = GetRootFileInfo;
   $self->{Dashboard}->Stop($h{status},	$h{reason},
 			   'NEvents',	$h{NEvents},
 			   'RecoSize',	$h{RecoSize});
@@ -588,6 +588,7 @@ sub job_done
   if ( defined($h{DataDirs}) )
   {
     my (%g,$dir);
+    my ($vsn,$datatype);
 
 #   This was the coshure way of doing it, but it's not good enough for CSA06
     %g = ( 'TargetDirs' => $h{DataDirs},
@@ -601,16 +602,16 @@ sub job_done
 #   https://twiki.cern.ch/twiki/bin/view/CMS/CMST0DataManagement
 #   for details...
 #
+#   THIS NEEDS FIXING FOR ALCA-RECO!!!
+#
 #   Primary dataset...
-    my $v = $h{Version};
-    $v =~ s%_%%g;
-    $lfndir = '/CSA06-' . $v . '-os-' . $h{Channel} . '-0/';
+    $vsn = $h{Version};
+    $vsn =~ s%_%%g;
+    $lfndir = '/CSA06-' . $vsn . '-os-' . $h{Channel} . '-0/';
 #   Tier...
-    my $datatype = $h{RecoFile};
-    $datatype =~ s%\.root$%%;
-    $datatype =~ s%^.*\.%%;
-    $lfndir .= $datatype;
+    $lfndir .= $self->{DataType};
 #   Processing Name...
+    $datatype = $self->{DataType};
     $lfndir .= '/CMSSW_' . $h{Version} . '-' . $datatype . '-H' . $h{PsetHash};
 
 #   Add a date-related subdirectory
@@ -623,66 +624,57 @@ sub job_done
     while ( <RFMKDIR> ) {}
     close RFMKDIR; # Don't check for errors, I will have one if the dir exists!
 
-#    if ( defined($dir) && defined($h{dir}) && defined($h{RecoFile}) && -f $h{dir} . '/' . $h{RecoFile} )
-    foreach ( glob "alcareco*root" )
-    {
-      my ($f,$g);
-#     Rename file...
-      $h{RecoFile} = $_;
-      if ( $h{FileID} )
-      {
-        $f = basename $h{RecoFile};
-#        ( $g=$f ) =~ s%[^.]*%%;
-#        $g = $h{FileID} . '.root';
-        ( $g = $f ) =~ s%^alcareco%$h{FileID}%;
-        $h{OriginalRecoFile} = $f;
-	$h{RecoFile} = $g;
-        $h{Files}{$g}{Checksum} = $h{Files}{$f}{Checksum};
-        $h{Files}{$g}{Size}     = $h{Files}{$f}{Size};
-        $h{Files}{$g}{DataType} = $h{Files}{$f}{DataType};
-
-        my %t = (
-			RenameFile	=> 1,
-			From		=> $f,
-			To		=> $g,
-		);
-	$self->Log( \%t );
-        rename $h{dir} . '/' . $f, $h{dir} . '/' . $g;
-      }
-
-      my $cmd = 'rfcp ' . $h{dir} . '/' . $h{RecoFile} . ' ' . $dir;
-      Print $cmd,"\n";
-      if ( defined($h{OutputSvcClass}) )
-      {
-        $cmd = 'STAGE_SVCCLASS=' . $h{OutputSvcClass} . ' ' . $cmd;
-      }
-      open RFCP, "$cmd |" or Croak "$cmd: $!\n";
-      while ( <RFCP> ) { $self->Verbose($_); }
-      close RFCP or do
-      {
-        $h{status} = -1;
-	$h{reason} = 'Stageout failed';
-      };
 $DB::single=$debug_me;
-      $self->{AutoDelete} && unlink $h{dir} . '/' . $h{RecoFile};
-      $h{RecoFile} = $dir . '/' . basename $h{RecoFile};
-      $h{RecoFile} =~ s%//%/%g;
-      my $stream = $h{RecoFile};
+    foreach ( keys %{$x} )
+    {
+      my ($f,$g,$i,$stream);
+      $f = $_;
+      $i = $x->{$_}{ID};
+      $g = $i . '.root';
+      $x->{$g} = delete $x->{$f};
+      $x->{$g}{OriginalFile} = $f;
+      rename $f, $g;
+      $h{Files}{$g} = delete $h{Files}{$f};
+      map { $h{Files}{$g}{$_} = $x->{$g}{$_} } keys %{$x->{$g}};
+      $stream = $f;
       $stream =~ s%\.root$%%;
       $stream =~ s%^.*\.%%;
       my %u = (
-		'AlcarecoReady' => 1,
+		AlcarecoReady	=> 1,
 		Sizes		=> $h{Files}{$g}{Size},
 		CheckSums	=> $h{Files}{$g}{Checksum},
 		DataType	=> $self->{DataType},
-		PFNs		=> $h{RecoFile},
+		PFNs		=> $dir .'/' . $g,
+		File		=> $g,
 		WNLocation	=> $h{dir},
 		Version		=> $h{Version},
 		PsetHash	=> $h{PsetHash},
 		Stream		=> $stream,
 		Dataset		=> $stream,
-#		NEvents		=> $x->{basename $h{RecoFile}}{NEvents},
+ 		NEvents		=> $x->{$g}{NEvents},
 	      );
+
+      if ( $x->{$g}{NEvents} )
+      {
+        my $cmd = "rfcp $g $dir";
+#
+#       NEED TO CALCULATE THE DESTINATION DIRECTORY PER-FILE!
+#
+        Print $cmd,"\n";
+        if ( defined($h{OutputSvcClass}) )
+        {
+          $cmd = 'STAGE_SVCCLASS=' . $h{OutputSvcClass} . ' ' . $cmd;
+        }
+        open RFCP, "$cmd |" or Croak "$cmd: $!\n";
+        while ( <RFCP> ) { $self->Verbose($_); }
+        close RFCP or do
+        {
+          $u{status} = -1;
+	  $u{reason} = 'Stageout failed';
+        };
+      }
+      $self->{AutoDelete} && unlink $g;
+      $u{AlcarecoEmpty} = delete $u{AlcarecoReady} unless $u{NEvents};
       $self->Log( \%u );
     }
   }

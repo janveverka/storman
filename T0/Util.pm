@@ -248,24 +248,39 @@ sub GetRootFileInfo
 {
 # Look up info on the root files using the FrameworkJobReport and PoolCatalog
 # XML files
-  my ($t,%h,$p,$pfn);
+  my ($t,%h,$p,$pfn,@a,@b);
   $p = XML::Simple->new( );
 
   $t = $p->XMLin( 'FrameworkJobReport.xml' );
-  foreach ( @{$t->{File}} )
+  if ( ref($t->{File}) eq 'ARRAY' ) { @a = @{$t->{File}}; }
+  else { push @a, $t->{File}; }
+  foreach ( @a)
   {
-    $pfn = $_->{PFN};
-    $pfn =~ s%^[^:]*:%%;
+    ($pfn = $_->{PFN}) =~ s%^[^:]*:%%;
     $h{$pfn}{NEvents} = $_->{TotalEvents};
   }
 
-  print "Parse POOL catalogue\n";
   $t = $p->XMLin( 'PoolFileCatalog.xml' );
-  foreach ( @{$t->{File}} )
+  if ( ref($t->{File}) eq 'ARRAY' ) { @b = @{$t->{File}}; }
+  else { push @b, $t->{File}; }
+  foreach ( @b )
   {
-    $pfn = $_->{physical}{pfn}{name};
-    $pfn =~ s%^[^:]*:%%;
+    ($pfn = $_->{physical}{pfn}{name}) =~ s%^[^:]*:%%;
     $h{$pfn}{ID} = $_->{ID};
+  }
+
+  foreach $pfn ( keys %h )
+  {
+    next if defined $h{$pfn}{ID};
+    open POOLID, "pool_extractFileIdentifier $pfn |" or die "pool_extractFileIdentifier $pfn: $!\n";
+    while ( <POOLID> )
+    {
+      if ( m%^(\S+)\s+\($pfn\)$% )
+      {
+        $h{$pfn}{ID} = $1;
+      }
+    }
+    close POOLID or die "close pool_extractFileIdentifier $pfn: $!\n";
   }
 
   return \%h;
