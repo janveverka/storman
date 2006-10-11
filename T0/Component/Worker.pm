@@ -16,8 +16,6 @@ use Carp;
 $VERSION = 1.00;
 @ISA = qw/ Exporter /;
 
-#$Component:Worker:Name = 'Component:Worker:Worker-' . hostname();
-
 my ($i,@queue);
 our $hdr = __PACKAGE__ . ':: ';
 sub Croak   { croak $hdr,@_; }
@@ -30,7 +28,6 @@ sub _init
 {
   my $self = shift;
 
-#  $self->{Name}		 = $ComponentWorker::Name . '-' . $$;
   $self->{State}	 = 'Created';
   $self->{QueuedThreads} = 0;
   $self->{ActiveThreads} = 0;
@@ -38,6 +35,7 @@ sub _init
 
   my %h = @_;
   map { $self->{$_} = $h{$_}; } keys %h;
+  defined($self->{Name}) or Croak "Shamed, unnamed, I die...\n";
   $self->ReadConfig();
   $self->{Host} = hostname();
   $self->{Name} .= '-' . $self->{Host} . '-' . $$;
@@ -105,7 +103,6 @@ sub AUTOLOAD {
   return unless $attr =~ /[^A-Z]/;  # skip DESTROY and all-cap methods
   Croak "AUTOLOAD: Invalid attribute method: ->$attr()" unless $ok_field{$attr};
   $self->{$attr} = shift if @_;
-# if ( @_ ) { Croak "Setting attributes not yet supported!\n"; }
   return $self->{$attr};
 }
 
@@ -618,15 +615,18 @@ $DB::single=$debug_me;
     while ( <RFMKDIR> ) {}
     close RFMKDIR; # Don't check for errors, I will have one if the dir exists!
 
-    if ( defined($dir) && defined($h{dir}) && defined($h{RecoFile}) && -f $h{dir} . '/' . $h{RecoFile} )
+#    if ( defined($dir) && defined($h{dir}) && defined($h{RecoFile}) && -f $h{dir} . '/' . $h{RecoFile} )
+    foreach ( glob "alcareco*root" )
     {
+      my ($f,$g);
 #     Rename file...
+      $h{RecoFile} = $_;
       if ( $h{FileID} )
       {
-        my ($f,$g);
         $f = basename $h{RecoFile};
 #        ( $g=$f ) =~ s%[^.]*%%;
-        $g = $h{FileID} . '.root';
+#        $g = $h{FileID} . '.root';
+        ( $g = $f ) =~ s%^alcareco%$h{FileID}%;
         $h{OriginalRecoFile} = $f;
 	$h{RecoFile} = $g;
         $h{Files}{$g}{Checksum} = $h{Files}{$f}{Checksum};
@@ -658,6 +658,14 @@ $DB::single=$debug_me;
       unlink $h{dir} . '/' . $h{RecoFile};
       $h{RecoFile} = $dir . '/' . basename $h{RecoFile};
       $h{RecoFile} =~ s%//%/%g;
+      my %u = (
+		$self->{OutputKey}	=> 1,
+		Sizes			=> $h{Files}{$g}{Size},
+		CheckSums		=> $h{Files}{$g}{Checksum},
+		DataType		=> $self->{DataType},
+		PFNs			=> $dir .'/' . $h{RecoFile},
+	      );
+      $self->Log( \%u );
     }
   }
 
