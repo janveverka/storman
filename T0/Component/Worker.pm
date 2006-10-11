@@ -577,8 +577,8 @@ sub job_done
   }
   else { $h{RecoSize} = 0; }
 
-$DB::single=$debug_me;
   $h{NEvents} = GetEventsFromJobReport;
+# my $x = GetRootFileInfo;
   $self->{Dashboard}->Stop($h{status},	$h{reason},
 			   'NEvents',	$h{NEvents},
 			   'RecoSize',	$h{RecoSize});
@@ -613,7 +613,6 @@ $DB::single=$debug_me;
 #   Processing Name...
     $lfndir .= '/CMSSW_' . $h{Version} . '-' . $datatype . '-H' . $h{PsetHash};
 
-$DB::single=$debug_me;
 #   Add a date-related subdirectory
     my @a = localtime;
     my $a = sprintf("%02i%02i",$a[4]+1,$a[3]);
@@ -664,15 +663,25 @@ $DB::single=$debug_me;
         $h{status} = -1;
 	$h{reason} = 'Stageout failed';
       };
-      unlink $h{dir} . '/' . $h{RecoFile};
+$DB::single=$debug_me;
+      $self->{AutoDelete} && unlink $h{dir} . '/' . $h{RecoFile};
       $h{RecoFile} = $dir . '/' . basename $h{RecoFile};
       $h{RecoFile} =~ s%//%/%g;
+      my $stream = $h{RecoFile};
+      $stream =~ s%\.root$%%;
+      $stream =~ s%^.*\.%%;
       my %u = (
-		'AlcarecoReady'   	=> 1,
-		Sizes			=> $h{Files}{$g}{Size},
-		CheckSums		=> $h{Files}{$g}{Checksum},
-		DataType		=> $self->{DataType},
-		PFNs			=> $dir .'/' . $h{RecoFile},
+		'AlcarecoReady' => 1,
+		Sizes		=> $h{Files}{$g}{Size},
+		CheckSums	=> $h{Files}{$g}{Checksum},
+		DataType	=> $self->{DataType},
+		PFNs		=> $h{RecoFile},
+		WNLocation	=> $h{dir},
+		Version		=> $h{Version},
+		PsetHash	=> $h{PsetHash},
+		Stream		=> $stream,
+		Dataset		=> $stream,
+#		NEvents		=> $x->{basename $h{RecoFile}}{NEvents},
 	      );
       $self->Log( \%u );
     }
