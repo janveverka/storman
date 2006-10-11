@@ -1,6 +1,7 @@
 use strict;
 package T0::Util;
 use Sys::Hostname;
+use XML::Simple;
 use POE;
 
 our (@ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION);
@@ -10,7 +11,7 @@ $VERSION = 1.00;
 @ISA = qw/ Exporter /;
 @EXPORT = qw/ Print dump_ref profile_flat profile_table bin_table uuid
 	      reroute_event check_host SelectTarget MapTarget GetChannel
-	      UuidOfFile /;
+	      UuidOfFile GetEventsFromJobReport GetRootFileInfo /;
 
 my ($debug,$quiet,$verbose,$i,@queue);
 
@@ -234,4 +235,40 @@ sub strhash
   my $ref = shift;
   return join(', ', map { "$_ => $ref->{$_}" } sort keys %$ref);
 }
+
+sub GetEventsFromJobReport
+{
+  my ($t,$p);
+  $p = XML::Simple->new( );
+  $t = $p->XMLin( 'FrameworkJobReport.xml' );
+  return $t->{InputFile}{EventsRead};
+}
+
+sub GetRootFileInfo
+{
+# Look up info on the root files using the FrameworkJobReport and PoolCatalog
+# XML files
+  my ($t,%h,$p,$pfn);
+  $p = XML::Simple->new( );
+
+  $t = $p->XMLin( 'FrameworkJobReport.xml' );
+  foreach ( @{$t->{File}} )
+  {
+    $pfn = $_->{PFN};
+    $pfn =~ s%^[^:]*:%%;
+    $h{$pfn}{NEvents} = $_->{TotalEvents};
+  }
+
+  print "Parse POOL catalogue\n";
+  $t = $p->XMLin( 'PoolFileCatalog.xml' );
+  foreach ( @{$t->{File}} )
+  {
+    $pfn = $_->{physical}{pfn}{name};
+    $pfn =~ s%^[^:]*:%%;
+    $h{$pfn}{ID} = $_->{ID};
+  }
+
+  return \%h;
+}
+
 1;
