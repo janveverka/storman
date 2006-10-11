@@ -28,6 +28,7 @@ sub _init
 {
   my $self = shift;
 
+  $self->{pwd} = cwd;
   $self->{State}	 = 'Created';
   $self->{QueuedThreads} = 0;
   $self->{ActiveThreads} = 0;
@@ -202,12 +203,19 @@ sub got_child_stdout {
     $work->{Files}->{$f}->{DataType} = $r;
   }
 
-# while ( $stdout =~ m/ =================> Treating event run:\s+(\d+)\s+(event:)\s+(\d+)/g )
-# while ( $stdout =~ m/TimeEvent:.+Run:\s+(\d+)\s+(Event:)\s+(\d+)/g )
-  while ( $stdout =~ m/^TimeModule>\s*(\d+)\s+(\d+)/g )
+  my ($run,$evt);
+
+  if ( $stdout =~ m/^Begin processing the \S+ record. Run (\d+), Event (\d+)/ )
   {
-    my $run = $2;
-    my $evt = $1;
+$DB::single=$debug_me;
+    $run = $1; $evt = $2;
+  }
+  if ( $stdout =~ m/^TimeModule>\s*(\d+)\s+(\d+)/g )
+  {
+    $run = $2; $evt = $1;
+  }
+  if ( defined($run) && defined($evt) )
+  {
     next if $heap->{events}{$run}{$evt}++;
 #   push @{$heap->{stdout}}, $stdout;
     my $nevt = ++$work->{NEvents};
@@ -362,6 +370,7 @@ sub server_input {
 
   if ( $command =~ m%DoThis% )
   {
+    chdir $self->{pwd};
     $self->{MaxTasks}--;
     $self->{ActiveThreads}++;
     $work     = $input->{work};
@@ -376,7 +385,6 @@ sub server_input {
     $self->Log( \%h );
     $self->Quiet("Got $command: ",T0::Util::strhash($work)," ($priority)...\n");
 
-    $work->{pwd} = cwd;
     my $wdir = 'w_' . T0::Util::timestamp;
     mkdir $wdir or Croak "mkdir: $wdir: $!\n";
     chdir $wdir or Croak "chdir: $wdir: $!\n";
@@ -409,7 +417,6 @@ sub server_input {
 
     open LOGOUT, "| gzip - > $heap->{log}" or Croak "open: $heap->{log}: $!\n";
 
-    chdir $work->{pwd};
 
     $work->{log}  = $heap->{log};
     $work->{host} = $self->{Host};
@@ -570,6 +577,8 @@ sub job_done
   }
   else { $h{RecoSize} = 0; }
 
+$DB::single=$debug_me;
+  $h{NEvents} = GetEventsFromJobReport;
   $self->{Dashboard}->Stop($h{status},	$h{reason},
 			   'NEvents',	$h{NEvents},
 			   'RecoSize',	$h{RecoSize});
