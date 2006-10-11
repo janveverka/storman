@@ -16,7 +16,7 @@ use Carp;
 $VERSION = 1.00;
 @ISA = qw/ Exporter /;
 
-#$Component::Name = 'Component::Worker-' . hostname();
+#$Component:Worker:Name = 'Component:Worker:Worker-' . hostname();
 
 my ($i,@queue);
 our $hdr = __PACKAGE__ . ':: ';
@@ -30,7 +30,7 @@ sub _init
 {
   my $self = shift;
 
-#  $self->{Name}		 = $Component::Name . '-' . $$;
+#  $self->{Name}		 = $ComponentWorker::Name . '-' . $$;
   $self->{State}	 = 'Created';
   $self->{QueuedThreads} = 0;
   $self->{ActiveThreads} = 0;
@@ -69,6 +69,7 @@ sub _init
 		       connection_error_handler => 'connection_error_handler',
       				job_done	=> 'job_done',
       				get_work	=> 'get_work',
+				Quit		=> 'Quit',
 			]
 	],
   );
@@ -183,15 +184,35 @@ sub Log
 sub got_child_stdout {
   my ($heap, $stdout) = @_[ HEAP, ARG0 ];
   print LOGOUT $stdout,"\n";;
+  my $work = $heap->{Work}->{$heap->{program}->PID}->{work};
+
+  if ( $stdout =~ s%^T0PoolFileCatalog:\s+%% )
+  {
+    if ( $stdout =~ m%File ID="([^"]+)"% ) { $work->{FileID} = $1; }
+  }
+  if ( $stdout =~ s%^T0Signature:\s+%% )
+  {
+    Print $stdout,"\n";
+    while ( $stdout =~ s%\s*([^=]+)=(\S+)\s*%% ) { $work->{$1} = $2; }
+  }
+  if ( $stdout =~ m%^T0Checksums:\s+(\d+)\s+(\d+)\s+(\S+)% )
+  {
+    my $f = $3;
+    $work->{Files}->{$f}->{Size} = $2;
+    $work->{Files}->{$f}->{Checksum} = $1;
+    my $r = $f;
+    $r =~ s%^.*\.(.+)\.root%$1%;
+    $work->{Files}->{$f}->{DataType} = $r;
+  }
 
 # while ( $stdout =~ m/ =================> Treating event run:\s+(\d+)\s+(event:)\s+(\d+)/g )
-  while ( $stdout =~ m/TimeEvent:.+Run:\s+(\d+)\s+(Event:)\s+(\d+)/g )
+# while ( $stdout =~ m/TimeEvent:.+Run:\s+(\d+)\s+(Event:)\s+(\d+)/g )
+  while ( $stdout =~ m/^TimeModule>\s*(\d+)\s+(\d+)/g )
   {
-    my $run = $1;
-    my $evt = $3;
-    my $work = $heap->{Work}->{$heap->{program}->PID}->{work};
+    my $run = $2;
+    my $evt = $1;
     next if $heap->{events}{$run}{$evt}++;
-    push @{$heap->{stdout}}, $stdout;
+#   push @{$heap->{stdout}}, $stdout;
     my $nevt = ++$work->{NEvents};
     my $freq = $heap->{self}->{ReportFrequency} || 50;
     if ( $nevt == 1 || $nevt == 2 || $nevt == 5 or ($nevt%$freq) == 0 )
@@ -207,14 +228,14 @@ sub got_child_stdout {
 
 sub got_child_stderr {
   my ( $heap, $stderr) = @_[ HEAP, ARG0 ];
-  push @{$heap->{stderr}}, $stderr;
+# push @{$heap->{stderr}}, $stderr;
   $stderr =~ tr[ -~][]cd;
   print LOGOUT "STDERR: ",$stderr,"\n";
   #$heap->{self}->Verbose("STDERR: $stderr\n");
-  if ( $stderr =~ m%Run:\s+(\d+)\s+Event:\s+(\d+)% )
-  {
-    push @{$heap->{stderr}}, $stderr;
-  }
+# if ( $stderr =~ m%Run:\s+(\d+)\s+Event:\s+(\d+)% )
+# {
+#   push @{$heap->{stderr}}, $stderr;
+# }
 }
 
 sub got_child_close {
@@ -230,12 +251,14 @@ sub got_sigchld
 {
   my ( $self, $heap, $kernel, $child_pid, $status ) =
 			@_[ OBJECT, HEAP, KERNEL, ARG1, ARG2 ];
+  return unless defined($heap->{program});
   my $pid = $heap->{program}->PID;
   if ( $child_pid == $pid ) {
     $kernel->yield( 'job_done', [ pid => $pid, status => $status ] );
     delete $heap->{program};
     delete $heap->{stdio};
     close LOGOUT or Croak "closing logfile: $!\n";
+    delete $self->{Children}->{$pid};
   }
   return 0;
 }
@@ -243,18 +266,17 @@ sub got_sigchld
 sub PrepareConfigFile
 {
   my ($self,$h) = @_;
-  my ($ifile,$ofile,$conf,$uuidT,$log);
+  my ($ifile,$ofile,$conf);
 
   my %protocols = ( 'Classic'	=> 'rfio:',
 		    'LocalPush'	=> 'file:',
        		    'LocalPull'	=> 'file:',
 		  );
-  $uuidT = basename $h->{File};
-  $uuidT =~ s%\..*root$%%;
-  $uuidT = UuidOfFile($h->{File}) . '.' . $self->{DataType};
-  $ofile = SelectTarget($self) . "/$uuidT.root";
+  $ofile = basename $h->{File};
+  $ofile =~ s%root$%%;
+  $ofile .= $self->{DataType} . '.root';
+  $ofile = SelectTarget($self) . '/' . $ofile;
   $h->{RecoFile} = $ofile;
-  $h->{log}      = "log.$uuidT.gz";
 
   if ( defined($self->{DataDirs}) )
   {
@@ -264,19 +286,25 @@ sub PrepareConfigFile
 	    );
     my $dir = SelectTarget( \%g );
 #   This is a hack while I fix the persistent queueing in the Manager
-    my $exists = 1;
-    my $f = $dir . '/' . $ofile;
-    open RFSTAT, "rfstat $f 2>&1 |" or Croak "rfstat $f: $!\n";
-    while ( <RFSTAT> )
-    { if ( m%No such file or directory% ) { $exists = 0; } }
-    close RFSTAT; # or Croak "close: rfstat $f: $!\n";
-    if ( $exists ) { return undef; }
+#   ...and it doesn't work anymore, because the output structure is wrong!
+#    my $exists = 1;
+#    my $f = $dir . '/' . $ofile;
+#    open RFSTAT, "rfstat $f 2>&1 |" or Croak "rfstat $f: $!\n";
+#    while ( <RFSTAT> )
+#    { if ( m%No such file or directory% ) { $exists = 0; } }
+#    close RFSTAT; # or Croak "close: rfstat $f: $!\n";
+#    if ( $exists ) { return undef; }
   }
 
   $ifile = $h->{File};
   if ( $self->{Mode} eq 'LocalPull' )
   {
-    if ( ! open RFCP, "rfcp $h->{File} . |" )
+    my $cmd = "rfcp $h->{File} .";
+    if ( $self->{InputSvcClass} )
+    {
+      $cmd = "STAGE_SVCCLASS=" . $self->{InputSvcClass} . ' ' . $cmd;
+    }
+    if ( ! open RFCP, "$cmd |" )
       {
 	$self->Verbose("ERROR: can't rfcp $h->{File} !\n");
 	return undef;
@@ -327,7 +355,7 @@ sub server_input {
   $command  = $input->{command};
   $client   = $input->{client};
 
-  $self->Verbose("from server: $command\n");
+  $self->Verbose("from server: ",T0::Util::strhash($input),"\n");
   if ( $command =~ m%Sleep% )
   {
     $self->{QueuedThreads}-- if $self->{QueuedThreads};
@@ -349,7 +377,7 @@ sub server_input {
               IdleTime	=> time - $heap->{WorkRequested}
 	    );
     $self->Log( \%h );
-    $self->Quiet("Got $command($work,$priority)...\n");
+    $self->Quiet("Got $command: ",T0::Util::strhash($work)," ($priority)...\n");
 
     $work->{pwd} = cwd;
     my $wdir = 'w_' . T0::Util::timestamp;
@@ -376,7 +404,10 @@ sub server_input {
         StderrEvent  => "got_child_stderr",
         CloseEvent   => "got_child_close",
       );
-die here: $heap->{log} not defined, but $work->{log} is! Ust that!
+    $heap->{log} = 'log.PR.' . basename $work->{File};
+    $heap->{log} =~ s%.root%%;
+    $heap->{log} .= '.out.gz';
+
     $heap->{self} = $self;
 
     open LOGOUT, "| gzip - > $heap->{log}" or Croak "open: $heap->{log}: $!\n";
@@ -387,8 +418,15 @@ die here: $heap->{log} not defined, but $work->{log} is! Ust that!
     $work->{host} = $self->{Host};
 
     $kernel->sig( CHLD => "got_sigchld" );
-    $heap->{Work}->{$heap->{program}->PID} = $input;
+    my $cpid = $heap->{program}->PID;
+    $heap->{Work}->{$cpid} = $input;
 
+#   Preserve some settings against config changes during the run
+    foreach ( qw / LogDirs DataDirs InputSvcClass OutputSvcClass / )
+    {
+      $heap->{Work}->{$cpid}->{Setup}->{$_} = $self->{$_};
+    }
+    $self->{Children}->{$cpid}++;
     return;
   }
 
@@ -398,34 +436,70 @@ die here: $heap->{log} not defined, but $work->{log} is! Ust that!
     $setup = $input->{setup};
     $self->{Debug} && dump_ref($setup);
     map { $self->{$_} = $setup->{$_} } keys %$setup;
-    $self->{QueuedThreads}-- if $self->{QueuedThreads};
+#   $self->{QueuedThreads}-- if $self->{QueuedThreads};
     return;
   }
 
-  if ( $command =~ m%Start% )
+  if ( $command =~ m%SetState% )
   {
-    $self->Quiet("Got $command...\n");
-    $kernel->yield('get_work') if ( $self->{State} eq 'Created' );
-    $self->{State} = 'Running';
+    my $state = $input->{SetState};
+    $self->Quiet("Got State $state...\n");
+
+    if ( $state =~ m%Resume% or $state =~ m%Start% )
+    {
+      $kernel->yield('get_work') if ( ! $self->{GettingWork}++ );
+      $self->{State} = 'Running';
+      return;
+    }
+
+    if ( $state =~ m%Pause% )
+    {
+      $self->{State} = $state;
+      return;
+    }
+
+    if ( $state =~ m%Abort% )
+    {
+#     $self->{State} = $state;
+      foreach ( keys %{$self->{Children}} )
+      {
+        $self->Quiet("Kill child PID=$_\n");
+        kill 15 => -$_;
+        delete $self->{Children}->{$_};
+      }
+      open KILL, "killall -KILL cmsRun |";
+      while ( <KILL> ) { print; }
+      close KILL;
+      return;
+    }
+
+    if ( $state =~ m%Usr2% )
+    {
+      open KILL, "killall -USR2 cmsRun |";
+      while ( <KILL> ) { print; }
+      close KILL;
+      return;
+    }
+
+    if ( $state =~ m%Flush% )
+    {
+      $self->{State} = $state;
+      return;
+    }
+
+    if ( $state =~ m%Quit% or $state =~ m%WorkerQuit% )
+    {
+      $self->{State} = $state;
+#     $kernel->yield('shutdown');
+      $kernel->delay_set( 'Quit', 5 );
+      return;
+    }
+
+    Print "Unrecognised state from server: ",T0::Util::strhash($input),"\n";
     return;
   }
 
-  if ( $command =~ m%Stop% )
-  {
-    $self->Quiet("Got $command...\n");
-    $self->{State} = 'Stop';
-    return;
-  }
-
-  if ( $command =~ m%Quit% )
-  {
-    $self->Quiet("Got $command...\n");
-    $self->{State} = 'Quit';
-    $kernel->yield('shutdown');
-    return;
-  }
-
-  Print "Error: unrecognised input from server! \"$command\"\n";
+  Print "Unrecognised input from server! ",T0::Util::strhash($input),"\n";
   $kernel->yield('shutdown');
 }
 
@@ -433,6 +507,10 @@ sub _connected { reroute_event( (caller(0))[3], @_ ); }
 sub connected
 {
   my ( $self, $heap, $kernel, $input ) = @_[ OBJECT, HEAP, KERNEL, ARG0 ];
+
+# Gotta put this somewhere...
+  $kernel->state( 'Quit', $self );
+
   $self->Debug("handle_connect: from server: $input\n");
   my %text = (  'command'       => 'HelloFrom',
                 'client'        => $self->{Name},
@@ -445,7 +523,7 @@ sub get_work
 {
   my ( $self, $heap, $kernel ) = @_[ OBJECT, HEAP, KERNEL ];
 
-  $self->Verbose("Queued threads: ",$self->{QueuedThreads},"\n");
+  $self->Debug("Queued threads: ",$self->{QueuedThreads},"\n");
   $kernel->delay_set( 'get_work', 7 ) if $self->{MaxTasks};
   return if ( $self->{State} ne 'Running' );
   return if ( $self->{QueuedThreads} >= $self->{MaxThreads} );
@@ -481,7 +559,14 @@ sub job_done
 
   map { $h{$_} = $heap->{Work}->{$h{pid}}->{work}->{$_}; }
 		keys %{$heap->{Work}->{$h{pid}}->{work}};
+# Pass some parameters to downstream components
+  foreach ( qw / LogDirs DataDirs InputSvcClass OutputSvcClass / )
+  {
+    $h{$_} = $heap->{Work}->{$h{pid}}->{Setup}->{$_};
+  }
+  $h{SvcClass} = $h{OutputSvcClass}; # explicit change of key name.
 
+  $h{RecoSize} = 0;
   if ( defined($h{dir}) && defined($h{RecoFile}) && -f $h{dir} . '/' . $h{RecoFile} )
   {
     $h{RecoSize} = (stat($h{dir} . '/' . $h{RecoFile}))[7] / 1024 / 1024;
@@ -492,19 +577,103 @@ sub job_done
 			   'NEvents',	$h{NEvents},
 			   'RecoSize',	$h{RecoSize});
 
-# Kludges for now to get rid of the output and input...
-  my $xx = $h{dir} . '/' . basename $h{File};
-  -f $xx && unlink $xx;
-
-  if ( defined($self->{LogDirs}) )
+  $self->Debug(T0::Util::strhash(\%h),"\n");
+  my $lfndir;
+  if ( defined($h{DataDirs}) )
   {
-    my %g = ( 'TargetDirs' => $self->{LogDirs},
+    my (%g,$dir);
+
+#   This was the coshure way of doing it, but it's not good enough for CSA06
+    %g = ( 'TargetDirs' => $h{DataDirs},
+	   'TargetMode' => 'RoundRobin' );
+    $dir = SelectTarget( \%g );
+#    %g = ( 'File'	=> $h{File},
+#	   'Target'	=> $dir );
+#    $dir = MapTarget( \%g, $self->{Channels} );
+#
+#   This is the CSA06-way. See the writeup at
+#   https://twiki.cern.ch/twiki/bin/view/CMS/CMST0DataManagement
+#   for details...
+#
+#   Primary dataset...
+    my $v = $h{Version};
+    $v =~ s%_%%g;
+    $lfndir = '/CSA06-' . $v . '-os-' . $h{Channel} . '-0/';
+#   Tier...
+    my $datatype = $h{RecoFile};
+    $datatype =~ s%\.root$%%;
+    $datatype =~ s%^.*\.%%;
+    $lfndir .= $datatype;
+#   Processing Name...
+    $lfndir .= '/CMSSW_' . $h{Version} . '-' . $datatype . '-H' . $h{PsetHash};
+
+$DB::single=$debug_me;
+#   Add a date-related subdirectory
+    my @a = localtime;
+    my $a = sprintf("%02i%02i",$a[4]+1,$a[3]);
+    $lfndir .= '/' . $a;
+
+    $dir .= $lfndir;
+    open RFMKDIR, "rfmkdir -p $dir |" or warn "rfmkdir $dir: $!\n";
+    while ( <RFMKDIR> ) {}
+    close RFMKDIR; # Don't check for errors, I will have one if the dir exists!
+
+    if ( defined($dir) && defined($h{dir}) && defined($h{RecoFile}) && -f $h{dir} . '/' . $h{RecoFile} )
+    {
+#     Rename file...
+      if ( $h{FileID} )
+      {
+        my ($f,$g);
+        $f = basename $h{RecoFile};
+#        ( $g=$f ) =~ s%[^.]*%%;
+        $g = $h{FileID} . '.root';
+        $h{OriginalRecoFile} = $f;
+	$h{RecoFile} = $g;
+        $h{Files}{$g}{Checksum} = $h{Files}{$f}{Checksum};
+        $h{Files}{$g}{Size}     = $h{Files}{$f}{Size};
+        $h{Files}{$g}{DataType} = $h{Files}{$f}{DataType};
+
+        my %t = (
+			RenameFile	=> 1,
+			From		=> $f,
+			To		=> $g,
+		);
+	$self->Log( \%t );
+        rename $h{dir} . '/' . $f, $h{dir} . '/' . $g;
+      }
+
+      my $cmd = 'rfcp ' . $h{dir} . '/' . $h{RecoFile} . ' ' . $dir;
+      Print $cmd,"\n";
+      if ( defined($h{OutputSvcClass}) )
+      {
+        $cmd = 'STAGE_SVCCLASS=' . $h{OutputSvcClass} . ' ' . $cmd;
+      }
+      open RFCP, "$cmd |" or Croak "$cmd: $!\n";
+      while ( <RFCP> ) { $self->Verbose($_); }
+      close RFCP or do
+      {
+        $h{status} = -1;
+	$h{reason} = 'Stageout failed';
+      };
+      unlink $h{dir} . '/' . $h{RecoFile};
+      $h{RecoFile} = $dir . '/' . basename $h{RecoFile};
+      $h{RecoFile} =~ s%//%/%g;
+    }
+  }
+
+  if ( defined($h{LogDirs}) )
+  {
+    my %g = ( 'TargetDirs' => $h{LogDirs},
 	      'TargetMode' => 'RoundRobin' );
     my $dir = SelectTarget( \%g );
     %g = ( 'File'	=> $h{File},
            'Target'	=> $dir );
-# Why does it die here sometimes...?
-    $dir = MapTarget( \%g, $self->{Channels} );
+
+    $dir .= $lfndir;
+    open RFMKDIR, "rfmkdir -p $dir |" or warn "rfmkdir $dir: $!\n";
+    while ( <RFMKDIR> ) {}
+    close RFMKDIR; # Don't check for errors, I will have one if the dir exists!
+#   $dir = MapTarget( \%g, $self->{Channels} );
     if ( defined($dir) && defined($h{dir}) && defined($h{log}) && -f $h{dir} . '/' . $h{log} )
     {
       my $cmd = 'rfcp ' . $h{dir} . '/' . $h{log} . ' ' . $dir;
@@ -524,28 +693,13 @@ sub job_done
     }
   }
 
-  if ( defined($self->{DataDirs}) )
+# Kludges for now to get rid of the output and input...
+  if ( $h{File} )
   {
-    my %g = ( 'TargetDirs' => $self->{DataDirs},
-	      'TargetMode' => 'RoundRobin' );
-    my $dir = SelectTarget( \%g );
-    %g = ( 'File'	=> $h{File},
-	   'Target'	=> $dir );
-    $dir = MapTarget( \%g, $self->{Channels} );
-    if ( defined($dir) && defined($h{dir}) && defined($h{RecoFile}) && -f $h{dir} . '/' . $h{RecoFile} )
-    {
-      my $cmd = 'rfcp ' . $h{dir} . '/' . $h{RecoFile} . ' ' . $dir;
-      Print $cmd,"\n";
-      if ( defined($self->{SvcClass}) )
-      {
-        $cmd = 'STAGE_SVCCLASS=' . $self->{SvcClass} . ' ' . $cmd;
-      }
-      open RFCP, "$cmd |" or Croak "$cmd: $!\n";
-      while ( <RFCP> ) { $self->Verbose($_); }
-      close RFCP;
-      unlink $h{dir} . '/' . $h{RecoFile};
-    }
+    my $xx = $h{dir} . '/' . basename $h{File};
+    -f $xx && unlink $xx;
   }
+  if ( defined($h{dir}) && defined($h{File}) && -f $h{dir} . '/' . $h{File} ) { unlink $h{dir} . '/' . $h{File} };
 # </kludge>
 
   $self->Quiet("Send: JobDone: work=$h{pid}, status=$h{status}, priority=$h{priority}\n");
@@ -575,6 +729,12 @@ sub job_done
     Print "Shutting down...\n";
     $kernel->yield('shutdown');
   }
+}
+
+sub Quit
+{
+  Print "I'm outta here...\n";
+  exit 0;
 }
 
 1;

@@ -1,5 +1,6 @@
 use strict;
 package T0::Component::Manager;
+use File::Basename;
 use Sys::Hostname;
 use POE;
 use POE::Filter::Reference;
@@ -14,7 +15,7 @@ my $debug_me=1;
 use Carp;
 $VERSION = 1.00;
 @ISA = qw/ Exporter /;
-$Component::Name = 'Component::Manager';
+$ComponentManager::Name = 'Component::Manager';
 
 our (@queue,%q);
 
@@ -29,7 +30,7 @@ sub _init
 {
   my $self = shift;
 
-  $self->{Name} = $Component::Name;
+  $self->{Name} = $ComponentManager::Name;
   my %h = @_;
   map { $self->{$_} = $h{$_}; } keys %h;
   $self->ReadConfig();
@@ -62,16 +63,13 @@ sub _init
 		   file_changed => 'file_changed',
 		      broadcast	=> 'broadcast',
 		     check_rate	=> 'check_rate',
-	           SetRecoTimer => 'SetRecoTimer',
-	            RecoIsStale => 'RecoIsStale',
-	          RecoIsPending => 'RecoIsPending',
-           RecoHasBeenProcessed => 'RecoHasBeenProcessed',
 		 ],
 	],
     Args => [ $self ],
   );
 
   $self->{Queue} = POE::Queue::Array->new();
+  $self->{State} = 'Running';
   return $self;
 }
 
@@ -105,6 +103,42 @@ sub AUTOLOAD {
   if ( @_ ) { Croak "Setting attributes not yet supported!\n"; }
 # $self->{$attr} = shift if @_;
   return $self->{$attr};
+}
+
+sub FSM_Abort
+{
+  my ( $self, $kernel, $heap ) = @_[ OBJECT, KERNEL, HEAP ];
+  Print "I am in FSM_Abort. Empty the queue and forget all allocated work.\n";
+  $self->{Queue} = POE::Queue::Array->new();
+  delete $self->{_queue};
+}
+
+sub FSM_Flush
+{
+  my ( $self, $kernel, $heap ) = @_[ OBJECT, KERNEL, HEAP ];
+  Print "I am in FSM_Flush. I only empty the queue.\n";
+  $self->{Queue} = POE::Queue::Array->new();
+}
+
+sub FSM_Pause
+{
+  my ( $self, $kernel, $heap ) = @_[ OBJECT, KERNEL, HEAP ];
+  Print "I am in FSM_Pause\n";
+  $self->{State} = 'Pause';
+}
+
+sub FSM_Quit
+{
+  my ( $self, $kernel, $heap ) = @_[ OBJECT, KERNEL, HEAP ];
+  Print "I am in FSM_Quit. I will shoot myself. Arrgh!\n";
+  exit 0;
+}
+
+sub FSM_Resume
+{
+  my ( $self, $kernel, $heap ) = @_[ OBJECT, KERNEL, HEAP ];
+  Print "I am in FSM_Resume\n";
+  $self->{State} = 'Running';
 }
 
 sub RecoIsPending
@@ -186,14 +220,16 @@ sub AddClient
 {
   my $self = shift;
   my $client = shift or Croak "Expected a client name...\n";
-  $self->{clients}->{$client} = POE::Queue::Array->new();
+  $self->{queues}->{$client} = POE::Queue::Array->new();
+  $_ = shift;
+  if ( $_ ) { $self->{clients}{$client} = $$_; }
 }
 
 sub RemoveClient
 {
   my $self = shift;
   my $client = shift or Croak "Expected a client name...\n";
-  delete $self->{clients}->{$client};
+  delete $self->{queues}->{$client};
 }
 
 sub Queue
@@ -201,19 +237,19 @@ sub Queue
   my $self = shift;
   my $client = shift;
   return undef unless defined($client);
-  if ( ! defined($self->{clients}->{$client}) )
+  if ( ! defined($self->{queues}->{$client}) )
   {
     $self->AddClient($client);
   }
-  return $self->{clients}->{$client};
+  return $self->{queues}->{$client};
 }
 
 sub Clients
 {
   my $self = shift;
   my $client = shift;
-  if ( defined($client) ) { return $self->{clients}->{$client}; }
-  return keys %{$self->{clients}};
+  if ( defined($client) ) { return $self->{queues}->{$client}; }
+  return keys %{$self->{queues}};
 }
 
 my %Stats;
@@ -239,16 +275,19 @@ sub check_rate
 
   Print "TotalEvents = $Stats{TotalEvents}, TotalVolume = $Stats{TotalVolume}\n";
   $self->Debug("$size MB, $nev events in $s seconds, $i readings\n");
-#  %h = (     MonaLisa	 => 1,
-#	     Cluster	 => $T0::System{Name},
-#             Node	 => $self->{Node},
-#             Events	 => $nev,
-#	     RecoVolume  => $size,
-#             Readings	 => $i,
-#	     TotalEvents => $Stats{TotalEvents},
-#	     TotalVolume => $Stats{TotalVolume},
-#       );
-#  $self->Log( \%h );
+  %h = (     MonaLisa	 => 1,
+	     Cluster	 => $T0::System{Name},
+             Node	 => $self->{Node},
+             Events	 => $nev,
+	     RecoVolume  => $size,
+             Readings	 => $i,
+	     TotalEvents => $Stats{TotalEvents},
+	     TotalVolume => $Stats{TotalVolume},
+	     QueueLength => $self->{Queue}->get_item_count(),
+	     NReco	 => scalar keys %{$self->{queues}},
+	     NActive	 => scalar keys %{$self->{_queue}},
+       );
+  $self->Log( \%h );
 }
 
 sub GatherStatistics
@@ -256,18 +295,18 @@ sub GatherStatistics
   my ($self,$input) = @_;
   my ($nev,%h);
 
-#  foreach ( @{$input->{stderr}} )
-#  {
-#    if ( m%Run:\s+(\d+)\s+Event:\s+(\d+)% ) { $h{run} = $1; $h{nev} = $2; }
-#  }
-#  if ( defined($h{nev}) && defined($input->{NEvents}) )
-#  {
-#    if ( $h{nev} != $input->{NEvents} )
-#    {
-#      Print "nev != NEvents: ",$h{nev},' ',$input->{NEvents},"\n";
-#    }
-#    $h{nev} = $input->{NEvents};
-#  }
+  foreach ( @{$input->{stderr}} )
+  {
+    if ( m%Run:\s+(\d+)\s+Event:\s+(\d+)% ) { $h{run} = $1; $h{nev} = $2; }
+  }
+  if ( defined($h{nev}) && defined($input->{NEvents}) )
+  {
+    if ( $h{nev} != $input->{NEvents} )
+    {
+      Print "nev != NEvents: ",$h{nev},' ',$input->{NEvents},"\n";
+    }
+    $h{nev} = $input->{NEvents};
+  }
   $h{nev}  = $input->{NEvents};
   $h{size} = $input->{RecoSize};
   push @{$self->{stats}}, \%h;
@@ -286,17 +325,23 @@ sub _started
   my %param;
 
   $self->Debug($self->{Name}," has started...\n");
-  $self->Log($self->{Name}," has started...\n");
+  $self->Log($self->{Name}." has started...\n");
   $self->{Session} = $session->ID;
 
   $kernel->state( 'send_setup',   $self );
   $kernel->state( 'file_changed', $self );
   $kernel->state( 'broadcast',    $self );
-# _WHY_ do I need  to do this...?
+  $kernel->state( 'SetState',     $self );
   $kernel->state( 'SetRecoTimer',		$self );
   $kernel->state( 'RecoIsStale',		$self );
   $kernel->state( 'RecoIsPending',		$self );
   $kernel->state( 'RecoHasBeenProcessed',	$self );
+
+  $kernel->state( 'FSM_Abort',	$self );
+  $kernel->state( 'FSM_Flush',	$self );
+  $kernel->state( 'FSM_Pause',	$self );
+  $kernel->state( 'FSM_Quit',	$self );
+  $kernel->state( 'FSM_Resume',	$self );
 
   %param = ( File     => $self->{Config},
              Interval => $self->{ConfigRefresh},
@@ -319,12 +364,13 @@ sub broadcast
   $work = $args->[0];
   $priority = $args->[1] || 0;
 
-  $self->Quiet("broadcasting... ",$work,"\n");
+  $self->Quiet("broadcasting... ",T0::Util::strhash($work),"\n");
 
-  foreach ( $self->Clients )
+  foreach ( values %{$self->{clients}} )
   {
-    $self->Quiet("Send: work=\"",$work,"\", priority=",$priority," to $_\n");
-    $self->Clients($_)->enqueue($priority,$work);
+    $self->Quiet("Send: ",T0::Util::strhash($work)," to $_\n");
+    $_->put($work);
+#   $self->Clients($_)->enqueue($priority,$work);
   }
 }
 
@@ -348,7 +394,7 @@ sub ReadConfig
   my $file = $self->{Config};
   return unless $file;  
 
-  $self->Log("Reading configuration file ",$file);
+  $self->Log($self->{Name}.": Reading configuration file: ".$file);
 
   my $n = $self->{Name};
   $n =~ s%Manager%Worker%;
@@ -367,6 +413,18 @@ sub ReadConfig
   }
 }
 
+sub SetState
+{
+  my ( $self, $kernel, $heap, $input ) = @_[ OBJECT, KERNEL, HEAP, ARG0 ];
+  $self->Quiet("State control: ",T0::Util::strhash($input),"\n");
+  return if $self->{State} eq $input->{SetState};
+  $kernel->yield( 'FSM_' . $input->{SetState}, $input );
+
+# This is also a but ugly... :-(
+  $input->{command} = 'SetState';
+  $kernel->yield('broadcast', [ $input, 0 ] );
+}
+
 sub _client_error { reroute_event( (caller(0))[3], @_ ); }
 sub client_error
 {
@@ -378,7 +436,7 @@ sub client_error
 
 sub handle_unfinished
 {
-  Print "handle_unfinished: Not written yet...\n";
+  Print "handle_unfinished: Not written yet. Should call RemoveClient and recycle unfinished queue entries.\n";
 }
 
 sub _client_disconnected { reroute_event( (caller(0))[3], @_ ); }
@@ -411,7 +469,8 @@ sub send_start
   $client = $heap->{client_name};
   $self->Quiet("Send: Start to $client\n");
 
-  %text = ( 'command' => 'Start',);
+  %text = ( command	=> 'SetState',
+	    SetState	=> 'Start', );
   $heap->{client}->put( \%text );
 }
 
@@ -428,8 +487,10 @@ sub send_work
     return;
   }
 
-# If there's any client-specific stuff in the queue, send that. Otherwise,
-# tell the client to wait
+# If there's any client-specific stuff in the queue, send that first.
+# If the state is running, and there's non-client-specific stuff, send that
+# Otherwise, tell the client to wait
+
   $q = $self->Queue($client);
   ($priority, $id, $work) = $q->dequeue_next(); # if $q;
   if ( $id )
@@ -445,33 +506,40 @@ sub send_work
       $heap->{client}->put( \%text );
       return;
     }
+    Croak "Why was $work not a hashref for $client?\n";
     $heap->{idle} = 0;
-  }
-  else
-  {
-    ($priority, $id, $work) = $self->{Queue}->dequeue_next();
-    if ( ! $id )
-    {
-      %text = ( 'command'	=> 'Sleep',
-                'client'	=> $client,
-		'wait'		=> $self->{Backoff} || 10,
-	      );
-      $heap->{client}->put( \%text );
-      return;
-    }
+    return;
   }
 
-# If there was client-specific work, or no work at all, then we don't get
-# here. So I know there is a {File} to report!
-  $self->Quiet("Send: ",$work->{File}," to $client\n");
-  $work->{id} = $id;
-  %text = ( 'command'	=> 'DoThis',
+  undef $id; # Redundant, but safe...
+  if ( $self->{State} eq 'Running' )
+  {
+    ($priority, $id, $work) = $self->{Queue}->dequeue_next();
+  }
+  if ( $id ) # True only if we are 'Running' and there was queued work
+  {
+    $self->Quiet("Send: ",T0::Util::strhash($work)," to $client\n");
+    $work->{id} = $id;
+    %text = ( 'command'	 => 'DoThis',
+              'client'	 => $client,
+	      'work'	 => $work,
+	      'priority' => $priority,
+	    );
+    $heap->{client}->put( \%text );
+
+#   Why do I need to do this here...?
+    $self->{_queue}{$id}{Start} = time;
+
+    $kernel->yield( 'SetRecoTimer', $id );
+    return;
+  }
+
+  %text = ( 'command'	=> 'Sleep',
             'client'	=> $client,
-	    'work'	=> $work,
-	    'priority'	=> $priority,
+	    'wait'	=> $self->{Backoff} || 60,
 	  );
   $heap->{client}->put( \%text );
-  $kernel->yield( 'SetRecoTimer', $id );
+  return;
 }
 
 sub _client_input { reroute_event( (caller(0))[3], @_ ); }
@@ -483,13 +551,13 @@ sub client_input
 
   $command = $input->{command};
   $client = $input->{client};
-  $self->Debug("Got $command from $client\n");
+  $self->Debug("Got ",T0::Util::strhash($input)," from $client\n");
 
   if ( $command =~ m%HelloFrom% )
   {
     Print "New client: $client\n";
     $heap->{client_name} = $client;
-    $self->AddClient($client);
+    $self->AddClient($client,\$heap->{client});
     $kernel->yield( 'send_setup' );
     $kernel->yield( 'send_start' );
     if ( ! --$self->{MaxClients} )
@@ -500,55 +568,84 @@ sub client_input
     }
   }
 
-  if ( $command =~ m%SendWork% )
+  elsif ( $command =~ m%SendWork% )
   {
     $kernel->yield( 'send_work' );
   }
 
-  if ( $command =~ m%JobDone% )
+  elsif ( $command =~ m%JobDone% )
   {
     my $work     = $input->{work};
     my $status   = $input->{status};
     my $priority = $input->{work}{priority};
     my $id       = $input->{id};
-    $self->Quiet("JobDone: work=$work, priority=$priority, id=$id, status=$status\n");
+    $self->Quiet("JobDone: work=",T0::Util::strhash($work),", id=$id, status=$status\n");
 
 #   Check rate statistics from the first client onwards...
     if ( !$self->{client_count}++ ) { $kernel->yield( 'check_rate' ); }
 
-$DB::single=$debug_me;
     if ( $input->{RecoFile} )
     {
       my %h = (	MonaLisa	=> 1,
 		Cluster		=> $T0::System{Name},
 		Node		=> $self->{Node},
 		QueueLength	=> $self->{Queue}->get_item_count(),
-		NReco		=> scalar keys %{$self->{clients}},
+		NReco		=> scalar keys %{$self->{queues}},
+		NActive		=> scalar keys %{$self->{_queue}},
 	      );
       if ( exists($self->{_queue}{$id}{Start}) )
       {
         $h{Duration} = time - $self->{_queue}{$id}{Start};
       }
       $self->Log( \%h );
-      my %g = ( RecoReady => $input->{host} . ':' .
-			     $input->{dir}  . '/' .
-			     $input->{RecoFile},
-      		RecoSize  => $input->{RecoSize},
-		NEvents	  => $input->{NEvents},
+$DB::single=$debug_me;
+      my $guid = $input->{RecoFile};
+      $guid =~ s%^.*/%%;
+      $guid =~ s%\..*$%%;
+      my $lfn = $input->{RecoFile};
+      $lfn =~ s%^/castor/cern.ch/cms%%;
+      $lfn =~ s%//%/%g;
+      my %g = ( RecoReady  => 'DBS.RegisterReco',
+		T0Name	   => $T0::System{Name},
+		SizesA	   => $input->{RecoSize},
+		SizesB	   => int($input->{RecoSize} * 1024 * 1024 + 0.4),
+		PsetHash   => $input->{PsetHash},
+		Version    => $input->{Version},
+		CheckSums  => $input->{Files}->{basename $input->{RecoFile}}->{Checksum},
+		Sizes      => $input->{Files}->{basename $input->{RecoFile}}->{Size},
+		GUIDs	   => $guid,
+		Dataset	   => $input->{Channel} . $input->{DatasetNumber},
+		NbEvents   => $input->{NEvents},
+		RECOLFNs   => $lfn,
+		PFNs	   => $input->{RecoFile},
+		WNLocation => $input->{host} . ':' .
+			      $input->{dir}  . '/',
+      		RecoSize   => $input->{RecoSize},
+		status	   => $status,
 	      );
+      foreach ( qw / DataType SvcClass / )
+      {
+        if ( defined($input->{$_}) ) { $g{$_} = $input->{$_}; }
+      }
+      if ( $status ) { $g{RecoFailed} = delete $g{RecoReady}; }
       $self->Log( \%g );
       $self->GatherStatistics($input);
     }
     $self->CleanupReco($id);
   }
 
-  if ( $command =~ m%Quit% )
+  elsif ( $command =~ m%Quit% )
   {
     Print "Quit: $command\n";
     my %text = ( 'command'   => 'Quit',
                  'client' => $client,
                );
     $heap->{client}->put( \%text );
+  }
+
+  else
+  {
+    Print "Unrecognised command: ",T0::Util::strhash($input),"\n";
   }
 }
 
