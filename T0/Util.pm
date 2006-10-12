@@ -238,9 +238,14 @@ sub strhash
 
 sub GetEventsFromJobReport
 {
+  my $file = shift || 'FrameworkJobReport.xml';
   my ($t,$p);
   $p = XML::Simple->new( );
-  $t = $p->XMLin( 'FrameworkJobReport.xml' );
+  eval
+  {
+    $t = $p->XMLin( $file );
+  };
+  return undef if $@;
   return $t->{InputFile}{EventsRead};
 }
 
@@ -249,39 +254,44 @@ sub GetRootFileInfo
 # Look up info on the root files using the FrameworkJobReport and PoolCatalog
 # XML files
   my ($t,%h,$p,$pfn,@a,@b);
+  my %h = @_;
   $p = XML::Simple->new( );
 
-  $t = $p->XMLin( 'FrameworkJobReport.xml' );
-  if ( ref($t->{File}) eq 'ARRAY' ) { @a = @{$t->{File}}; }
-  else { push @a, $t->{File}; }
-  foreach ( @a)
+  eval
   {
-    ($pfn = $_->{PFN}) =~ s%^[^:]*:%%;
-    $h{$pfn}{NEvents} = $_->{TotalEvents};
-  }
-
-  $t = $p->XMLin( 'PoolFileCatalog.xml' );
-  if ( ref($t->{File}) eq 'ARRAY' ) { @b = @{$t->{File}}; }
-  else { push @b, $t->{File}; }
-  foreach ( @b )
-  {
-    ($pfn = $_->{physical}{pfn}{name}) =~ s%^[^:]*:%%;
-    $h{$pfn}{ID} = $_->{ID};
-  }
-
-  foreach $pfn ( keys %h )
-  {
-    next if defined $h{$pfn}{ID};
-    open POOLID, "pool_extractFileIdentifier $pfn |" or die "pool_extractFileIdentifier $pfn: $!\n";
-    while ( <POOLID> )
+    $t = $p->XMLin( $h{FrameworkJobReport} || 'FrameworkJobReport.xml' );
+    if ( ref($t->{File}) eq 'ARRAY' ) { @a = @{$t->{File}}; }
+    else { push @a, $t->{File}; }
+    foreach ( @a)
     {
-      if ( m%^(\S+)\s+\($pfn\)$% )
-      {
-        $h{$pfn}{ID} = $1;
-      }
+      ($pfn = $_->{PFN}) =~ s%^[^:]*:%%;
+      $h{$pfn}{NEvents} = $_->{TotalEvents};
     }
-    close POOLID or die "close pool_extractFileIdentifier $pfn: $!\n";
-  }
+
+    $t = $p->XMLin( $h{PoolFileCatalog} || 'PoolFileCatalog.xml' );
+    if ( ref($t->{File}) eq 'ARRAY' ) { @b = @{$t->{File}}; }
+    else { push @b, $t->{File}; }
+    foreach ( @b )
+    {
+      ($pfn = $_->{physical}{pfn}{name}) =~ s%^[^:]*:%%;
+      $h{$pfn}{ID} = $_->{ID};
+    }
+
+    foreach $pfn ( keys %h )
+    {
+      next if defined $h{$pfn}{ID};
+      open POOLID, "pool_extractFileIdentifier $pfn |" or die "pool_extractFileIdentifier $pfn: $!\n";
+      while ( <POOLID> )
+      {
+        if ( m%^(\S+)\s+\($pfn\)$% )
+        {
+          $h{$pfn}{ID} = $1;
+        }
+      }
+      close POOLID or die "close pool_extractFileIdentifier $pfn: $!\n";
+    }
+  };
+  return undef if $@;
 
   return \%h;
 }
