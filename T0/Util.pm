@@ -266,6 +266,9 @@ sub GetRootFileInfo
     {
       ($pfn = $_->{PFN}) =~ s%^[^:]*:%%;
       $h{$pfn}{NbEvents} = $_->{TotalEvents};
+      $h{$pfn}{Module}	 = $_->{ModuleLabel};
+#     $h{$pfn}{Branches} = $_->{Branches};
+#     $h{$pfn}{Runs}	 = $_->{Runs};
     }
 
     $t = $p->XMLin( $h{PoolFileCatalog} || 'PoolFileCatalog.xml' );
