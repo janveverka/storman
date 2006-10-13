@@ -11,6 +11,7 @@ use T0::Util;
 
 our (@ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION);
 my $debug_me=1;
+our %known_dirs;
 
 use Carp;
 $VERSION = 1.00;
@@ -182,12 +183,13 @@ sub Log
 sub got_child_stdout {
   my ($heap, $stdout) = @_[ HEAP, ARG0 ];
   print LOGOUT $stdout,"\n";;
-  my $work = $heap->{Work}->{$heap->{program}->PID}->{work};
+  my $work = $heap->{Work}->{$heap->{program}->PID};
 
-  if ( $stdout =~ s%^T0PoolFileCatalog:\s+%% )
-  {
-    if ( $stdout =~ m%File ID="([^"]+)"% ) { $work->{FileID} = $1; }
-  }
+# This is not useful...
+#  if ( $stdout =~ s%^T0PoolFileCatalog:\s+%% )
+#  {
+#    if ( $stdout =~ m%File ID="([^"]+)"% ) { $work->{FileID} = $1; }
+#  }
   if ( $stdout =~ s%^T0Signature:\s+%% )
   {
     Print $stdout,"\n";
@@ -207,7 +209,6 @@ sub got_child_stdout {
 
   if ( $stdout =~ m/^Begin processing the \S+ record. Run (\d+), Event (\d+)/ )
   {
-$DB::single=$debug_me;
     $run = $1; $evt = $2;
   }
   if ( $stdout =~ m/^TimeModule>\s*(\d+)\s+(\d+)/g )
@@ -388,7 +389,6 @@ sub server_input {
     my $wdir = 'w_' . T0::Util::timestamp;
     mkdir $wdir or Croak "mkdir: $wdir: $!\n";
     chdir $wdir or Croak "chdir: $wdir: $!\n";
-    $work->{dir} = cwd;
 
     $self->{Dashboard}->Step($work->{id});
     $self->{Dashboard}->Start('NEvents',0,'RecoSize',0);
@@ -412,18 +412,17 @@ sub server_input {
     $heap->{log} = 'log.PR.' . basename $work->{File};
     $heap->{log} =~ s%.root%%;
     $heap->{log} .= '.out.gz';
-
     $heap->{self} = $self;
 
     open LOGOUT, "| gzip - > $heap->{log}" or Croak "open: $heap->{log}: $!\n";
 
 
-    $work->{log}  = $heap->{log};
-    $work->{host} = $self->{Host};
-
     $kernel->sig( CHLD => "got_sigchld" );
     my $cpid = $heap->{program}->PID;
-    $heap->{Work}->{$cpid} = $input;
+    $heap->{Work}->{$cpid}{Parent} = $input->{work};
+    $heap->{Work}->{$cpid}{dir}    = cwd;
+    $heap->{Work}->{$cpid}{log}    = $heap->{log};
+    $heap->{Work}->{$cpid}{host}   = $self->{Host};
 
 #   Preserve some settings against config changes during the run
     foreach ( qw / LogDirs DataDirs InputSvcClass OutputSvcClass / )
@@ -561,21 +560,24 @@ sub job_done
   my ( $self, $heap, $kernel, $arg0 ) = @_[ OBJECT, HEAP, KERNEL, ARG0 ];
   my %h = @{ $arg0 };
 
-  map { $h{$_} = $heap->{Work}->{$h{pid}}->{work}->{$_}; }
-		keys %{$heap->{Work}->{$h{pid}}->{work}};
+# $h{Parent} = $heap->{Work}->{$h{pid}}->{Parent};
+  map { $h{$_} = $heap->{Work}->{$h{pid}}->{$_}; }
+		keys %{$heap->{Work}->{$h{pid}}};
+
 # Pass some parameters to downstream components
   foreach ( qw / LogDirs DataDirs InputSvcClass OutputSvcClass / )
   {
     $h{$_} = $heap->{Work}->{$h{pid}}->{Setup}->{$_};
   }
   $h{SvcClass} = $h{OutputSvcClass}; # explicit change of key name.
+  $h{Dataset} = $h{Parent}{Dataset} unless $h{Dataset};
 
-  $h{RecoSize} = 0;
-  if ( defined($h{dir}) && defined($h{RecoFile}) && -f $h{dir} . '/' . $h{RecoFile} )
-  {
-    $h{RecoSize} = (stat($h{dir} . '/' . $h{RecoFile}))[7] / 1024 / 1024;
-  }
-  else { $h{RecoSize} = 0; }
+#  $h{RecoSize} = 0;
+#  if ( defined($h{dir}) && defined($h{RecoFile}) && -f $h{dir} . '/' . $h{RecoFile} )
+#  {
+#    $h{RecoSize} = (stat($h{dir} . '/' . $h{RecoFile}))[7] / 1024 / 1024;
+#  }
+#  else { $h{RecoSize} = 0; }
 
   $h{NEvents} = GetEventsFromJobReport;
   my $x = GetRootFileInfo;
@@ -587,13 +589,30 @@ sub job_done
   my $lfndir;
   if ( defined($h{DataDirs}) )
   {
-    my (%g,$dir);
+    my (%g,$dir,$file);
     my ($vsn,$datatype);
+    my ($f,$g,$i,$stream);
+    $vsn = $h{Version};
+    $vsn =~ s%_%%g;
 
-#   This was the coshure way of doing it, but it's not good enough for CSA06
-    %g = ( 'TargetDirs' => $h{DataDirs},
-	   'TargetMode' => 'RoundRobin' );
-    $dir = SelectTarget( \%g );
+$DB::single=$debug_me;
+    foreach $file ( keys %{$x} )
+    {
+      my ($a,@a,$cmd,$pfn,$lfn,$key);
+#     This was the coshure way of doing it, but it's not good enough for CSA06
+      %g = ( 'TargetDirs' => $h{DataDirs},
+	     'TargetMode' => 'RoundRobin' );
+      $dir = SelectTarget( \%g );
+      $f = $file;
+      $i = $x->{$file}{ID};
+      $g = $i . '.root';
+      $x->{$g} = delete $x->{$f};
+      $x->{$g}{OriginalFile} = $f;
+      rename $f, $g;
+      $h{Files}{$g} = delete $h{Files}{$f};
+      map { $h{Files}{$g}{$_} = $x->{$g}{$_} } keys %{$x->{$g}};
+      $stream = $h{Files}{$g}{Module};
+
 #    %g = ( 'File'	=> $h{File},
 #	   'Target'	=> $dir );
 #    $dir = MapTarget( \%g, $self->{Channels} );
@@ -602,64 +621,52 @@ sub job_done
 #   https://twiki.cern.ch/twiki/bin/view/CMS/CMST0DataManagement
 #   for details...
 #
-#   THIS NEEDS FIXING FOR ALCA-RECO!!!
-#
-#   Primary dataset...
-    $vsn = $h{Version};
-    $vsn =~ s%_%%g;
-    $lfndir = '/CSA06-' . $vsn . '-os-' . $h{Channel} . '-0/';
-#   Tier...
-    $lfndir .= $self->{DataType};
-#   Processing Name...
-    $datatype = $self->{DataType};
-    $lfndir .= '/CMSSW_' . $h{Version} . '-' . $datatype . '-H' . $h{PsetHash};
+#     Primary dataset...
+      $lfndir = '/CSA06-' . $vsn . '-os-' . $h{Dataset} . '-0/';
+#     Tier...
+      $lfndir .= $self->{DataType};
+#     Processing Name...
+      $datatype = $self->{DataType};
+      $lfndir .= '/CMSSW_' . $h{Version} . '-' . $stream . '-H' . $h{PsetHash};
 
-#   Add a date-related subdirectory
-    my @a = localtime;
-    my $a = sprintf("%02i%02i",$a[4]+1,$a[3]);
-    $lfndir .= '/' . $a;
+#     Add a date-related subdirectory
+      @a = localtime;
+      $a = sprintf("%02i%02i",$a[4]+1,$a[3]);
+      $lfndir .= '/' . $a;
 
-    $dir .= $lfndir;
-    open RFMKDIR, "rfmkdir -p $dir |" or warn "rfmkdir $dir: $!\n";
-    while ( <RFMKDIR> ) {}
-    close RFMKDIR; # Don't check for errors, I will have one if the dir exists!
+      $dir .= $lfndir;
+      if ( ! $known_dirs{$dir}++ )
+      {
+        open RFMKDIR, "rfmkdir -p $dir |" or warn "rfmkdir $dir: $!\n";
+        while ( <RFMKDIR> ) {}
+        close RFMKDIR; # No check for errors, I will have one if the dir exists
+      }
 
-$DB::single=$debug_me;
-    foreach ( keys %{$x} )
-    {
-      my ($f,$g,$i,$stream);
-      $f = $_;
-      $i = $x->{$_}{ID};
-      $g = $i . '.root';
-      $x->{$g} = delete $x->{$f};
-      $x->{$g}{OriginalFile} = $f;
-      rename $f, $g;
-      $h{Files}{$g} = delete $h{Files}{$f};
-      map { $h{Files}{$g}{$_} = $x->{$g}{$_} } keys %{$x->{$g}};
-      $stream = $f;
-      $stream =~ s%\.root$%%;
-      $stream =~ s%^.*\.%%;
+      $pfn = $dir .'/' . $g;
+      $lfn = $pfn;
+      $lfn =~ s%^.&/store%/store%;
       my %u = (
-		AlcarecoReady	=> 1,
 		Sizes		=> $h{Files}{$g}{Size},
 		CheckSums	=> $h{Files}{$g}{Checksum},
 		DataType	=> $self->{DataType},
-		PFNs		=> $dir .'/' . $g,
+		PFNs		=> $pfn,
+		RECOLFNs	=> $lfn,
 		File		=> $g,
 		WNLocation	=> $h{dir},
 		Version		=> $h{Version},
 		PsetHash	=> $h{PsetHash},
 		Stream		=> $stream,
 		Dataset		=> $stream,
- 		NEvents		=> $x->{$g}{NEvents},
+ 		NbEvents	=> $x->{$g}{NbEvents},
+		Parent		=> $h{Parent},
+		GUIDs		=> $h{Files}{$g}{ID},
 	      );
 
-      if ( $x->{$g}{NEvents} )
+      if ( $x->{$g}->{NbEvents} ) { $key = 'Ready'; }
+      else                        { $key = 'Empty'; }
+      if ( $x->{$g}{NbEvents} )
       {
-        my $cmd = "rfcp $g $dir";
-#
-#       NEED TO CALCULATE THE DESTINATION DIRECTORY PER-FILE!
-#
+        $cmd = "rfcp $g $dir";
         Print $cmd,"\n";
         if ( defined($h{OutputSvcClass}) )
         {
@@ -671,10 +678,11 @@ $DB::single=$debug_me;
         {
           $u{status} = -1;
 	  $u{reason} = 'Stageout failed';
+          $key = 'Failed';
         };
       }
       $self->{AutoDelete} && unlink $g;
-      $u{AlcarecoEmpty} = delete $u{AlcarecoReady} unless $u{NEvents};
+      $u{$self->{OutputKey} . $key} = 1;
       $self->Log( \%u );
     }
   }
@@ -702,7 +710,8 @@ $DB::single=$debug_me;
 
       if ( -f $h{dir} . '/FrameworkJobReport.xml' )
       {
-        $cmd = 'rfcp ' . $h{dir} . '/FrameworkJobReport.xml ' . $dir . '/FrameworkJobReport.' . UuidOfFile($h{File}) . '.xml';
+$DB::single=$debug_me;
+        $cmd = 'rfcp ' . $h{dir} . '/FrameworkJobReport.xml ' . $dir . '/FrameworkJobReport.' . $h{Parent}{GUIDs} . '.xml';
         Print $cmd,"\n";
         open RFCP, "$cmd |" or Croak "$cmd: $!\n";
         while ( <RFCP> ) { $self->Verbose($_); }
