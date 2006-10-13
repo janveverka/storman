@@ -644,7 +644,7 @@ $DB::single=$debug_me;
 
       $pfn = $dir .'/' . $g;
       $lfn = $pfn;
-      $lfn =~ s%^.&/store%/store%;
+      $lfn =~ s%^.*/store%/store%;
       my %u = (
 		Sizes		=> $h{Files}{$g}{Size},
 		CheckSums	=> $h{Files}{$g}{Checksum},
