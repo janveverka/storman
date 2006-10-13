@@ -36,9 +36,6 @@ sub _init
   $self->ReadConfig();
   check_host( $self->{Host} ); 
 
-#  Croak "undefined Application\n"
-#    unless defined $self->{Application};
-
   Croak "no merge threshold defined\n"
     unless ( defined $self->{FileThreshold} or defined $self->{EventThreshold}
 	     or defined $self->{SizeThreshold} or defined $self->{AgeThreshold} );
@@ -63,15 +60,13 @@ sub _init
 				      send_start => 'send_start',
 				      file_changed => 'file_changed',
 				      broadcast	=> 'broadcast',
-				      MergeIsPending => 'MergeIsPending',
-				      merge_timeout => 'merge_timeout',
-				      merge_submit => 'merge_submit',
 				     ],
 			   ],
        Args => [ $self ],
       );
 
   $self->{Queue} = POE::Queue::Array->new();
+  $self->{State} = 'Running';
   return $self;
 }
 
@@ -126,8 +121,15 @@ sub start_task
   $kernel->state( 'send_setup', $self );
   $kernel->state( 'file_changed', $self );
   $kernel->state( 'broadcast', $self );
-# _WHY_ do I need  to do this...?
-  $kernel->state( 'MergeIsPending', $self );
+  $kernel->state( 'SetState', $self );
+
+  $kernel->state( 'FSM_MergeNow',	$self );
+  $kernel->state( 'FSM_MergePause',	$self );
+  $kernel->state( 'FSM_MergeResume',	$self );
+  $kernel->state( 'FSM_MergeQuit',	$self );
+
+  $kernel->state( 'process_file', $self );
+  $kernel->state( 'process_merge', $self );
   $kernel->state( 'merge_timeout', $self );
   $kernel->state( 'merge_submit', $self );
 
@@ -143,11 +145,10 @@ sub start_task
              Event    => 'file_changed',
            );
  $self->{Watcher} = T0::FileWatcher->new( %param );
-#  $kernel->yield( 'file_changed' );
 }
 
 sub merge_timeout {
-  my ( $kernel, $heap ) = @_[ KERNEL, HEAP ];
+  my ( $kernel, $heap, $force ) = @_[ KERNEL, HEAP, ARG0 ];
 
   for my $dataset ( keys %{$heap->{MergesPending}} )
     {
@@ -157,26 +158,34 @@ sub merge_timeout {
 	    {
 	      for my $psethash ( keys %{$heap->{MergesPending}->{$dataset}->{$datatype}->{$version}} )
 		{
-		  my $latest = 0;
-		  foreach my $work ( @{$heap->{MergesPending}->{$dataset}->{$datatype}->{$version}->{$psethash}} )
-		    {
-		      if ( $work->{received} > $latest )
-			{
-			  $latest = $work->{received};
-			}
-		    }
-
-		  if ( (time - $latest) > $heap->{Self}->{AgeThreshold} )
+		  if ( $force )
 		    {
 		      $kernel->yield('merge_submit',($heap->{MergesPending}->{$dataset}->{$datatype}->{$version}->{$psethash}));
 		      delete $heap->{MergesPending}->{$dataset}->{$datatype}->{$version}->{$psethash};
+		    }
+		  else
+		    {
+		      my $latest = 0;
+		      foreach my $work ( @{$heap->{MergesPending}->{$dataset}->{$datatype}->{$version}->{$psethash}} )
+			{
+			  if ( $work->{received} > $latest )
+			    {
+			      $latest = $work->{received};
+			    }
+			}
+
+		      if ( (time - $latest) > $heap->{Self}->{AgeThreshold} )
+			{
+			  $kernel->yield('merge_submit',($heap->{MergesPending}->{$dataset}->{$datatype}->{$version}->{$psethash}));
+			  delete $heap->{MergesPending}->{$dataset}->{$datatype}->{$version}->{$psethash};
+			}
 		    }
 		}
 	    }
 	}
     }
 
-  $kernel->delay_set('merge_timeout',300);
+  $kernel->delay_set('merge_timeout',300) unless $force;
 }
 
 sub merge_submit {
@@ -197,24 +206,45 @@ sub merge_submit {
     }
   elsif ( scalar @{$worklist} == 1 )
     {
-      # pass directly to DBSUpdater
-      $worklist->[0]->{DBSUpdate} = 'DBS.RegisterReco';
-      delete $worklist->[0]->{RecoReady};
+      my $work = $worklist->[0];
+
+      # send notification to DBS updater
+      my %g = (
+	       DBSUpdate => 'DBS.RegisterMerged',
+	       Dataset => $work->{Dataset},
+	       Version => $work->{Version},
+	       PsetHash => $work->{PsetHash},
+	       DataType => $work->{DataType},
+	       RECOLFNs => $work->{RECOLFNs},
+	       GUIDs => $work->{GUIDs},
+	       CheckSums => $work->{CheckSums},
+	       Sizes => $work->{Sizes},
+	       NbEvents => $work->{NbEvents},
+	       Parents => [ $work->{Parent} ],
+	      );
       $self->Log( $worklist->[0] );
     }
 }
 
-sub MergeIsPending
+sub process_file
 {
   my ( $self, $kernel, $heap, $work ) = @_[ OBJECT, KERNEL, HEAP, ARG0 ];
 
   # record time received
   $work->{received} = time;
 
+  if ( not defined $work->{SvcClass} )
+    {
+      print "SvcClass missing in input notification\n";
+      $work->{SvcClass} = 't0export';
+    }
+
   my $dataset = $work->{Dataset};
   my $datatype = $work->{DataType};
   my $version = $work->{Version};
   my $psethash = $work->{PsetHash};
+
+  return unless $work->{NbEvents} > 0;
 
   # check if we should merge this datatype
   my $mergeThis = 0;
@@ -257,13 +287,17 @@ sub MergeIsPending
 	  delete $heap->{MergesPending}->{$dataset}->{$datatype}->{$version}->{$psethash};
 	}
     }
-  else
-    {
-      # pass directly to DBSUpdater
-      $work->{DBSUpdate} = 'DBS.RegisterReco';
-      delete $work->{RecoReady};
-      $self->Log( $work );
-    }
+#  else
+#    {
+#      $kernel->yield('merge_submit',($work));
+#    }
+}
+
+sub process_merge
+{
+  my ( $kernel, $notification ) = @_[ KERNEL, ARG0 ];
+
+  $kernel->yield('merge_submit',($notification->{work}));
 }
 
 sub AddClient
@@ -355,11 +389,54 @@ sub ReadConfig
     $self->{Watcher}->Interval($self->{ConfigRefresh});
     $self->{Watcher}->Options(\%FileWatcher::Params);
   }
+}
 
-#  if ( $self->{Application} !~ m%^/% )
-#  {
-#    $self->{Application} = $ENV{T0ROOT} . '/' . $self->{Application};
-#  }
+sub SetState
+{
+  my ( $self, $kernel, $heap, $input ) = @_[ OBJECT, KERNEL, HEAP, ARG0 ];
+  $self->Quiet("State control: ",T0::Util::strhash($input),"\n");
+  return if $self->{State} eq $input->{SetState};
+  $kernel->yield( 'FSM_' . $input->{SetState}, $input );
+
+# This is also a but ugly... :-(
+  $input->{command} = 'SetState';
+  $kernel->yield('broadcast', [ $input, 0 ] );
+}
+
+sub FSM_Abort
+{
+  my ( $self, $kernel, $heap ) = @_[ OBJECT, KERNEL, HEAP ];
+  Print "I am in FSM_Abort. Empty the queue and forget all allocated work.\n";
+  $self->{Queue} = POE::Queue::Array->new();
+  delete $self->{_queue};
+}
+
+sub FSM_MergeNow
+{
+  my ( $self, $kernel, $heap ) = @_[ OBJECT, KERNEL, HEAP ];
+  Print "I am in FSM_MergeNow. I only empty the queue.\n";
+  $kernel->yield('merge_timeout',('1'));
+}
+
+sub FSM_MergePause
+{
+  my ( $self, $kernel, $heap ) = @_[ OBJECT, KERNEL, HEAP ];
+  Print "I am in FSM_Pause\n";
+  $self->{State} = 'Pause';
+}
+
+sub FSM_MergeResume
+{
+  my ( $self, $kernel, $heap ) = @_[ OBJECT, KERNEL, HEAP ];
+  Print "I am in FSM_MergeResume\n";
+  $self->{State} = 'Running';
+}
+
+sub FSM_MergeQuit
+{
+  my ( $self, $kernel, $heap ) = @_[ OBJECT, KERNEL, HEAP ];
+  Print "I am in FSM_MergeQuit. I will shoot myself. Arrgh!\n";
+  exit 0;
 }
 
 sub _client_error { reroute_event( (caller(0))[3], @_ ); }
@@ -414,7 +491,7 @@ sub send_work
 {
   my ( $self, $kernel, $heap ) = @_[ OBJECT, KERNEL, HEAP ];
   my ($client,%text,$size,$target);
-  my ($priority, $id, $work);
+  my ($priority, $id, $work) = ( undef, undef, undef );
 
   $client = $heap->{client_name};
   if ( ! defined($client) )
@@ -426,7 +503,7 @@ sub send_work
   # If there's any client-specific stuff in the queue, send that.
   # Otherwise tell the client to wait
   ($priority, $id, $work) = $self->Queue($client)->dequeue_next(); # if $q;
-  if ( $id )
+  if ( defined $id )
     {
       $self->Verbose("Queued work: ",$work->{command},"\n");
       if ( ref($work) eq 'HASH' )
@@ -440,34 +517,36 @@ sub send_work
 	  $heap->{client}->put( \%text );
 	  return;
 	}
+      Croak "Why was $work not a hashref for $client?\n";
       $heap->{idle} = 0;
+      return;
     }
-  else
+
+  if ( $self->{State} eq 'Running' )
     {
       ($priority, $id, $work) = $self->{Queue}->dequeue_next();
-      if ( ! $id )
+      if ( defined $id )
 	{
-	  %text = ( 'command'	=> 'Sleep',
-		    'client'	=> $client,
-		    'wait'	=> $self->{Backoff} || 10,
+	  $self->Quiet("Send: Merge job ",$id," to $client\n");
+	  %text = (
+		   'command'	=> 'DoThis',
+		   'client'	=> $client,
+		   'priority'	=> $priority,
+		   'work'	=> $work,
+		   'id'         => $id,
 		  );
 	  $heap->{client}->put( \%text );
+
 	  return;
 	}
     }
 
-  # If there was client-specific work, or no work at all, then we don't get
-  # here. So I know there is a {File} to report!
-  $self->Quiet("Send: Merge job ",$id," to $client\n");
-  %text = (
-	   'command'	=> 'DoThis',
-	   'client'	=> $client,
-	   'priority'	=> $priority,
-	   'work'	=> $work,
-	   'id'         => $id,
-	   'svcclass'   => 't0export'
+  %text = ( 'command'	=> 'Sleep',
+	    'client'	=> $client,
+	    'wait'	=> $self->{Backoff} || 10,
 	  );
   $heap->{client}->put( \%text );
+  return;
 }
 
 sub _client_input { reroute_event( (caller(0))[3], @_ ); }
@@ -523,7 +602,7 @@ sub client_input
 	$self->Log( \%h );
 
 	my $lfn = $input->{mergefile};
-	$lfn =~ s%^/castor/cern.ch/cms/[^/]+%%;
+	$lfn =~ s%^/castor/cern.ch/cms%%;
 	$lfn =~ s%//%/%g;
 
 	my $guid = $input->{mergefile};
@@ -532,16 +611,24 @@ sub client_input
 
 	# sent notification to DBS updater
 	my %g = (
-		 DBSUpdate => 'DBS.RegisterReco',
+		 DBSUpdate => 'DBS.RegisterMerged',
 		 Dataset => $input->{Dataset},
 		 Version => $input->{Version},
 		 PsetHash => $input->{PsetHash},
+		 DataType => $input->{DataType},
 		 RECOLFNs => $lfn,
 		 GUIDs => $guid,
 		 CheckSums => $input->{checksum},
 		 Sizes => $input->{size},
 		 NbEvents => $input->{events},
+		 Parents => [],
 		);
+
+	foreach my $w ( @{$input->{work}} )
+	  {
+	    push(@{$g{Parents}}, $w->{Parent});
+	  }
+
 	$self->Log( \%g );
       }
     else

@@ -126,27 +126,14 @@ sub connection_error_handler
   $kernel->delay( reconnect => $retry );
 }
 
-#sub FlushQueue
-#{
-#  my $self = shift;
-#  my $heap = shift;
-#  while ( $_ = shift @{$self->{Queue}} )
-#  {
-#    $self->Debug("Draining queue: ",$_,"\n");
-#    $heap->{server}->put($_);
-#  }
-#}
-
 sub send
 {
   my ( $self, $heap, $ref ) = @_;
   if ( !ref($ref) ) { $ref = \$ref; }
   if ( $heap->{connected} && $heap->{server} )
   {
-#    $self->FlushQueue($heap);
     $heap->{server}->put( $ref );
   }
-#  else { push @{$self->{Queue}}, $ref; }
 }
 
 sub Log
@@ -186,26 +173,6 @@ sub server_input {
     # not used yet
     my $priority = defined $hash_ref->{priority} ? $hash_ref->{priority} : 99;
 
-    # send message to logger
-    my %loghash1 = (
-		    MergeID => $hash_ref->{id},
-		    Sources => [],
-		   );
-    foreach my $w ( @{$hash_ref->{work}} )
-      {
-	push (@{$loghash1{Sources}}, $w->{PFNs});
-      }
-    $heap->{Self}->Log( \%loghash1 );
-
-    # send another message to logger (for MonaLisa)
-    my %loghash2 = (
-		    MonaLisa => 1,
-		    Cluster => $T0::System{Name},
-		    Node => $heap->{Node},
-		    IdleTime => $heap->{WorkStarted} - $heap->{WorkRequested},
-		   );
-    $heap->{Self}->Log( \%loghash2 );
-
     # keep list of local temporary files for each merge job
     $heap->{outputfile} = 'merge_' . $hash_ref->{id} . '.root';
     $heap->{jobreport} = 'merge_' . $hash_ref->{id} . '.jobreport';
@@ -225,6 +192,7 @@ sub server_input {
 	    $hash_ref->{Dataset} = $w->{Dataset} unless defined $hash_ref->{Dataset};
 	    $hash_ref->{Version} = $w->{Version} unless defined $hash_ref->{Version};
 	    $hash_ref->{PsetHash} = $w->{PsetHash} unless defined $hash_ref->{PsetHash};
+	    $hash_ref->{DataType} = $w->{DataType} unless defined $hash_ref->{DataType};
 
 	    $hash_ref->{inputevents} += $w->{NbEvents};
 
@@ -233,9 +201,39 @@ sub server_input {
 	    # extract SvcClass (assumes they are the same for all input files)
 	    # to fix this Rfcp.pm needs to be changed to allow for different SvcClass
 	    # direct FastMerge.pm merging doesn't support multiple SvcClass
-	    $heap->{InputSvcClass} = $w->{SvcClass} unless defined $heap->{InputSvcClass};
-	    $heap->{OutputSvcClass} = $w->{SvcClass} unless defined $heap->{OutputSvcClass};
+	    $hash_ref->{InputSvcClass} = $w->{SvcClass} unless defined $hash_ref->{InputSvcClass};
+	    $hash_ref->{OutputSvcClass} = $w->{SvcClass} unless defined $hash_ref->{OutputSvcClass};
 	  }
+
+	# send message to logger
+	my %loghash1 = (
+			ForceMerge => '0',
+			MergeID => $hash_ref->{id},
+			work => [],
+		       );
+	foreach my $w ( @{$hash_ref->{work}} )
+	  {
+	    my %workhash = (
+			    PFNs => $w->{PFNs},
+			    NbEvents => $w->{NbEvents},
+			    SvcClass => $w->{SvcClass},
+			    Dataset => $w->{Dataset},
+			    Version => $w->{Version},
+			    PsetHash => $w->{PsetHash},
+			    DataType => $w->{DataType},
+			   );
+	    push (@{$loghash1{work}}, \%workhash);
+	  }
+	$heap->{Self}->Log( \%loghash1 );
+
+	# send another message to logger (for MonaLisa)
+	my %loghash2 = (
+			MonaLisa => 1,
+			Cluster => $T0::System{Name},
+			Node => $heap->{Node},
+			IdleTime => $heap->{WorkStarted} - $heap->{WorkRequested},
+		       );
+	$heap->{Self}->Log( \%loghash2 );
       }
     else
       {
@@ -245,20 +243,20 @@ sub server_input {
       }
 
     my %rfcphash = (
-		    svcclass => $heap->{InputSvcClass},
+		    svcclass => $hash_ref->{InputSvcClass},
 		    session => $session,
 		    callback => 'rfcp_done',
-		    timeout => 1200,
-		    retries => 5,
+		    timeout => 3600,
+		    retries => 2,
 		    files => []
 		   );
 
     my %mergehash = (
-		     svcclass => $heap->{InputSvcClass},
+		     svcclass => $hash_ref->{InputSvcClass},
 		     session => $session,
 		     callback => 'merge_done',
-		     timeout => 1200,
-		     retries => 0,
+		     timeout => 3600,
+		     retries => 1,
 		     sources => [],
 		     target => 'file://' . $heap->{outputfile},
 		     jobreport => $heap->{jobreport},
@@ -400,17 +398,16 @@ sub rfcp_done {
 	}
     }
 
-  if ( $status == 0 )
-    {
-      $heap->{Self}->Debug("Merge started\n");
-      T0::Merge::FastMerge->new($heap->{MergeHash});
-    }
-  else
+  if ( $status != 0 )
     {
       $heap->{HashRef}->{status} = $status;
       $heap->{HashRef}->{reason} = 'stagein failed';
       $kernel->yield('job_done');
+      return;
     }
+
+  $heap->{Self}->Debug("Merge started\n");
+  T0::Merge::FastMerge->new($heap->{MergeHash});
 }
 
 sub merge_done {
@@ -418,86 +415,83 @@ sub merge_done {
 
   $heap->{Self}->Debug("Merge done\n");
 
-  if ( $hash_ref->{status} == 0 )
-    {
-      # record checksum and size of outputfile
-      my @temp = split( ' ', qx { cksum $heap->{outputfile} } );
-      $heap->{HashRef}->{checksum} = $temp[0];
-      $heap->{HashRef}->{size} = $temp[1];
-
-      #
-      # Kludge: get events and size from EdmCollUtil
-      #
-      my $edmCollUtilOutput = qx {EdmCollUtil --file file://$heap->{outputfile} 2> /dev/null};
-
-      if ( $edmCollUtilOutput =~ m%($heap->{outputfile}) \( (\d+) events, (\d+) bytes \)%g )
-	{
-	  $heap->{HashRef}->{events} = $2;
-	}
-
-      # compare to input events
-      # just print out warning for now
-      if ( $heap->{HashRef}->{events} != $heap->{HashRef}->{inputevents} )
-	{
-	  $heap->{Self}->Quiet("wrong event count, expected " . $heap->{HashRef}->{inputevents} . ", got " . $heap->{HashRef}->{events} . "\n");
-	  #$heap->{HashRef}->{status} = 999;
-	  #$heap->{HashRef}->{reason} = 'wrong event count, expected ' . $heap->{HashRef}->{inputevents} . ', got ' . $heap->{HashRef}->{events};
-	  #$kernel->yield('job_done');
-	}
-
-      #
-      # parse job report and output catalog
-      #
-      my $guid = undef;
-      my $twig = XML::Twig->new(
-				twig_roots   => {
-						 #'TotalEvents' => sub { my ($t,$elt)= @_; $heap->{HashRef}->{events} = $elt->text; $t->purge; },
-						 'File' => sub { my ($t,$elt)= @_; $guid = $elt->{'att'}->{'ID'}; $t->purge; },
-						}
-			       );
-      #$twig->parsefile( $heap->{jobreport} );
-      $twig->parsefile( $heap->{outputcatalog} );
-
-      if ( defined $guid )
-	{
-	  my %rfcphash = (
-			  svcclass => $heap->{Self}->{OutputSvcClass},
-			  session => $session,
-			  callback => 'stageout_done',
-			  timeout => 1200,
-			  retries => 5,
-			  files => []
-			 );
-
-	  $heap->{StageoutOutputfile} = $heap->{TargetDir} . '/' . $guid . '.root';
-	  push(@{ $rfcphash{files} }, { source => $heap->{outputfile}, target => $heap->{StageoutOutputfile} } );
-
-	  if ( defined $heap->{LogDir} )
-	    {
-	      $heap->{StageoutJobReport} = $heap->{LogDir} . '/' . 'FrameworkJobReport.' . $guid . '.xml';
-	      push(@{ $rfcphash{files} }, { source => $heap->{jobreport}, target => $heap->{StageoutJobReport} } );
-	    }
-	  else
-	    {
-	      $heap->{StageoutJobReport} = '';
-	    }
-
-	  $heap->{Self}->Debug("Stageout started\n");
-	  T0::Copy::Rfcp->new(\%rfcphash);
-	}
-      else
-	{
-	  $heap->{HashRef}->{status} = 999;
-	  $heap->{HashRef}->{reason} = 'could not extract GUID from merge $heap->{outputcatalog}';
-	  $kernel->yield('job_done');
-	}
-    }
-  else
+  if ( $hash_ref->{status} != 0 )
     {
       $heap->{HashRef}->{status} = $hash_ref->{status};
       $heap->{HashRef}->{reason} = 'merge failed';
       $kernel->yield('job_done');
+      return;
     }
+
+  # record checksum and size of outputfile
+  my @temp = split( ' ', qx { cksum $heap->{outputfile} } );
+  $heap->{HashRef}->{checksum} = $temp[0];
+  $heap->{HashRef}->{size} = $temp[1];
+
+  #
+  # Kludge: get events and size from EdmCollUtil
+  #
+  my $edmCollUtilOutput = qx {EdmCollUtil --file file://$heap->{outputfile} 2> /dev/null};
+
+  if ( $edmCollUtilOutput =~ m%($heap->{outputfile}) \( (\d+) events, (\d+) bytes \)%g )
+    {
+      $heap->{HashRef}->{events} = $2;
+    }
+
+  # compare to input events
+  # just print out warning for now
+  if ( $heap->{HashRef}->{events} != $heap->{HashRef}->{inputevents} )
+    {
+      $heap->{HashRef}->{status} = 999;
+      $heap->{HashRef}->{reason} = 'wrong event count, expected ' . $heap->{HashRef}->{inputevents} . ', got ' . $heap->{HashRef}->{events};
+      $kernel->yield('job_done');
+      return;
+    }
+
+  #
+  # parse job report and output catalog
+  #
+  my $guid = undef;
+  my $twig = XML::Twig->new(
+			    twig_roots   => {
+					     #'TotalEvents' => sub { my ($t,$elt)= @_; $heap->{HashRef}->{events} = $elt->text; $t->purge; },
+					     'File' => sub { my ($t,$elt)= @_; $guid = $elt->{'att'}->{'ID'}; $t->purge; },
+					    }
+			   );
+  #$twig->parsefile( $heap->{jobreport} );
+  $twig->parsefile( $heap->{outputcatalog} );
+
+  if ( not defined $guid )
+    {
+      $heap->{HashRef}->{status} = 999;
+      $heap->{HashRef}->{reason} = 'could not extract GUID from merge $heap->{outputcatalog}';
+      $kernel->yield('job_done');
+      return;
+    }
+
+  my %rfcphash = (
+		  svcclass => $heap->{HashRef}->{OutputSvcClass},
+		  session => $session,
+		  callback => 'stageout_done',
+		  timeout => 3600,
+		  retries => 3,
+		  files => []
+		 );
+
+  $heap->{StageoutOutputfile} = $heap->{TargetDir} . '/' . $guid . '.root';
+  push(@{ $rfcphash{files} }, { source => $heap->{outputfile}, target => $heap->{StageoutOutputfile} } );
+  if ( defined $heap->{LogDir} )
+    {
+      $heap->{StageoutJobReport} = $heap->{LogDir} . '/' . 'FrameworkJobReport.' . $guid . '.xml';
+      push(@{ $rfcphash{files} }, { source => $heap->{jobreport}, target => $heap->{StageoutJobReport} } );
+    }
+  else
+    {
+      $heap->{StageoutJobReport} = '';
+    }
+
+  $heap->{Self}->Debug("Stageout started\n");
+  T0::Copy::Rfcp->new(\%rfcphash);
 }
 
 sub stageout_done {
@@ -523,16 +517,13 @@ sub stageout_done {
 	}
     }
 
-  if ( $status == 0 )
-    {
-      $kernel->yield('job_done');
-    }
-  else
+  if ( $status != 0 )
     {
       $heap->{HashRef}->{status} = $status;
       $heap->{HashRef}->{reason} = 'stageout failed';
-      $kernel->yield('job_done');
     }
+
+  $kernel->yield('job_done');
 }
 
 sub job_done
