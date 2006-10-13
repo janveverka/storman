@@ -210,7 +210,7 @@ sub merge_submit {
 
       # send notification to DBS updater
       my %g = (
-	       DBSUpdate => 'DBS.RegisterMerged',
+	       DBSUpdate => 'DBS.RegisterMerge',
 	       Dataset => $work->{Dataset},
 	       Version => $work->{Version},
 	       PsetHash => $work->{PsetHash},
@@ -611,7 +611,7 @@ sub client_input
 
 	# sent notification to DBS updater
 	my %g = (
-		 DBSUpdate => 'DBS.RegisterMerged',
+		 DBSUpdate => 'DBS.RegisterMerge',
 		 Dataset => $input->{Dataset},
 		 Version => $input->{Version},
 		 PsetHash => $input->{PsetHash},
