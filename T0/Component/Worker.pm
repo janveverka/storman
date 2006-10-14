@@ -612,6 +612,7 @@ $DB::single=$debug_me;
       $h{Files}{$g} = delete $h{Files}{$f};
       map { $h{Files}{$g}{$_} = $x->{$g}{$_} } keys %{$x->{$g}};
       $stream = $h{Files}{$g}{Module};
+      $stream =~ s%_%%g; # Eliminate illegal characters
 
 #    %g = ( 'File'	=> $h{File},
 #	   'Target'	=> $dir );
