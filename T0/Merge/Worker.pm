@@ -193,6 +193,7 @@ sub server_input {
 	    $hash_ref->{Version} = $w->{Version} unless defined $hash_ref->{Version};
 	    $hash_ref->{PsetHash} = $w->{PsetHash} unless defined $hash_ref->{PsetHash};
 	    $hash_ref->{DataType} = $w->{DataType} unless defined $hash_ref->{DataType};
+	    $hash_ref->{Stream} = $w->{Stream} unless defined $hash_ref->{Stream};
 
 	    $hash_ref->{inputevents} += $w->{NbEvents};
 
@@ -221,6 +222,8 @@ sub server_input {
 			    Version => $w->{Version},
 			    PsetHash => $w->{PsetHash},
 			    DataType => $w->{DataType},
+			    Stream => $w->{Stream},
+			    Parent => $w->{Parent},
 			   );
 	    push (@{$loghash1{work}}, \%workhash);
 	  }
