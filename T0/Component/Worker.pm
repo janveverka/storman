@@ -595,7 +595,6 @@ sub job_done
     $vsn = $h{Version};
     $vsn =~ s%_%%g;
 
-$DB::single=$debug_me;
     foreach $file ( keys %{$x} )
     {
       my ($a,@a,$cmd,$pfn,$lfn,$key);
@@ -712,7 +711,6 @@ $DB::single=$debug_me;
 
       if ( -f $h{dir} . '/FrameworkJobReport.xml' )
       {
-$DB::single=$debug_me;
         $cmd = 'rfcp ' . $h{dir} . '/FrameworkJobReport.xml ' . $dir . '/FrameworkJobReport.' . $h{Parent}{GUIDs} . '.xml';
         Print $cmd,"\n";
         open RFCP, "$cmd |" or Croak "$cmd: $!\n";
@@ -723,12 +721,13 @@ $DB::single=$debug_me;
   }
 
 # Kludges for now to get rid of the output and input...
-  if ( -f $h{File} )
+$DB::single=$debug_me;
+  my $xx = basename $h{Parent}{PFNs};
+  if ( -f $xx )
   {
-    $self->Verbose("Deleting ",$h{File},"\n");
-    unlink $h{File};
+    $self->Verbose("Deleting ",$xx,"\n");
+    unlink $xx;
   }
-  if ( defined($h{dir}) && defined($h{File}) && -f $h{dir} . '/' . $h{File} ) { unlink $h{dir} . '/' . $h{File} };
 # </kludge>
 
   $self->Quiet("Send: JobDone: work=$h{pid}, status=$h{status}, priority=$h{priority}\n");
