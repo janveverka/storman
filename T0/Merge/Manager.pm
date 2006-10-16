@@ -210,11 +210,13 @@ sub merge_submit {
 
       # send notification to DBS updater
       my %g = (
-	       DBSUpdate => 'DBS.RegisterMerge',
+	       DBSUpdate => 'DBS.RegisterMerged',
+	       T0Name => $T0::System{Name},
 	       Dataset => $work->{Dataset},
 	       Version => $work->{Version},
 	       PsetHash => $work->{PsetHash},
 	       DataType => $work->{DataType},
+	       Stream => $work->{Stream},
 	       RECOLFNs => $work->{RECOLFNs},
 	       GUIDs => $work->{GUIDs},
 	       CheckSums => $work->{CheckSums},
@@ -235,11 +237,14 @@ sub process_file
 
   if ( not defined $work->{SvcClass} )
     {
-      print "SvcClass missing in input notification\n";
       $work->{SvcClass} = 't0export';
     }
 
   my $dataset = $work->{Dataset};
+  if ( defined $work->{Stream} )
+    {
+      $dataset .= '_' . $work->{Stream};
+    }
   my $datatype = $work->{DataType};
   my $version = $work->{Version};
   my $psethash = $work->{PsetHash};
@@ -398,9 +403,9 @@ sub SetState
   return if $self->{State} eq $input->{SetState};
   $kernel->yield( 'FSM_' . $input->{SetState}, $input );
 
-# This is also a but ugly... :-(
-  $input->{command} = 'SetState';
-  $kernel->yield('broadcast', [ $input, 0 ] );
+# Workers don't maintain state
+#  $input->{command} = 'SetState';
+#  $kernel->yield('broadcast', [ $input, 0 ] );
 }
 
 sub FSM_Abort
@@ -415,7 +420,7 @@ sub FSM_MergeNow
 {
   my ( $self, $kernel, $heap ) = @_[ OBJECT, KERNEL, HEAP ];
   Print "I am in FSM_MergeNow. I only empty the queue.\n";
-  $kernel->yield('merge_timeout',('1'));
+  $kernel->yield('merge_timeout',(1));
 }
 
 sub FSM_MergePause
@@ -611,11 +616,13 @@ sub client_input
 
 	# sent notification to DBS updater
 	my %g = (
-		 DBSUpdate => 'DBS.RegisterMerge',
+		 DBSUpdate => 'DBS.RegisterMerged',
+		 T0Name => $T0::System{Name},
 		 Dataset => $input->{Dataset},
 		 Version => $input->{Version},
 		 PsetHash => $input->{PsetHash},
 		 DataType => $input->{DataType},
+		 Stream => $input->{Stream},
 		 RECOLFNs => $lfn,
 		 GUIDs => $guid,
 		 CheckSums => $input->{checksum},
