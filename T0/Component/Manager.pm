@@ -299,15 +299,15 @@ sub GatherStatistics
   {
     if ( m%Run:\s+(\d+)\s+Event:\s+(\d+)% ) { $h{run} = $1; $h{nev} = $2; }
   }
-  if ( defined($h{nev}) && defined($input->{NEvents}) )
+  if ( defined($h{nev}) && defined($input->{NbEvents}) )
   {
-    if ( $h{nev} != $input->{NEvents} )
+    if ( $h{nev} != $input->{NbEvents} )
     {
-      Print "nev != NEvents: ",$h{nev},' ',$input->{NEvents},"\n";
+      Print "nev != NbEvents: ",$h{nev},' ',$input->{NbEvents},"\n";
     }
-    $h{nev} = $input->{NEvents};
+    $h{nev} = $input->{NbEvents};
   }
-  $h{nev}  = $input->{NEvents};
+  $h{nev}  = $input->{NbEvents};
   $h{size} = $input->{RecoSize};
   push @{$self->{stats}}, \%h;
 }
@@ -615,7 +615,7 @@ $DB::single=$debug_me;
 		Sizes      => $input->{Files}->{basename $input->{RecoFile}}->{Size},
 		GUIDs	   => $guid,
 		Dataset	   => $input->{Channel} . $input->{DatasetNumber},
-		NbEvents   => $input->{NEvents},
+		NbEvents   => $input->{NbEvents},
 		RECOLFNs   => $lfn,
 		PFNs	   => $input->{RecoFile},
 		WNLocation => $input->{host} . ':' .

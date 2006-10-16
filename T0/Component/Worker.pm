@@ -219,14 +219,14 @@ sub got_child_stdout {
   {
     next if $heap->{events}{$run}{$evt}++;
 #   push @{$heap->{stdout}}, $stdout;
-    my $nevt = ++$work->{NEvents};
+    my $nevt = ++$work->{NbEvents};
     my $freq = $heap->{self}->{ReportFrequency} || 50;
     if ( $nevt == 1 || $nevt == 2 || $nevt == 5 or ($nevt%$freq) == 0 )
     {
       my $file = $work->{dir} .'/' . $work->{RecoFile};
       my $size = (stat($file))[7] / 1024 / 1024;
-      $heap->{self}->Quiet('NEvents ',$work->{NEvents},' RecoSize ',$size,"\n");
-      $heap->{self}->{Dashboard}->Send( 'NEvents', $work->{NEvents},
+      $heap->{self}->Quiet('NbEvents ',$work->{NbEvents},' RecoSize ',$size,"\n");
+      $heap->{self}->{Dashboard}->Send( 'NEvents', $work->{NbEvents},
 					'RecoSize', $size );
     }
   }
@@ -579,10 +579,10 @@ sub job_done
 #  }
 #  else { $h{RecoSize} = 0; }
 
-  $h{NEvents} = GetEventsFromJobReport;
+  $h{NbEvents} = GetEventsFromJobReport;
   my $x = GetRootFileInfo;
   $self->{Dashboard}->Stop($h{status},	$h{reason},
-			   'NEvents',	$h{NEvents},
+			   'NEvents',	$h{NbEvents},
 			   'RecoSize',	$h{RecoSize});
 
   $self->Debug(T0::Util::strhash(\%h),"\n");
@@ -722,10 +722,10 @@ $DB::single=$debug_me;
   }
 
 # Kludges for now to get rid of the output and input...
-  if ( $h{File} )
+  if ( -f $h{File} )
   {
-    my $xx = $h{dir} . '/' . basename $h{File};
-    -f $xx && unlink $xx;
+    $self->Verbose("Deleting ",$h{File},"\n");
+    unlink $h{File};
   }
   if ( defined($h{dir}) && defined($h{File}) && -f $h{dir} . '/' . $h{File} ) { unlink $h{dir} . '/' . $h{File} };
 # </kludge>
