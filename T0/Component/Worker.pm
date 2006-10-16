@@ -647,6 +647,7 @@ $DB::single=$debug_me;
       $lfn = $pfn;
       $lfn =~ s%^.*/store%/store%;
       my %u = (
+		T0Name		=> $T0::System{Name},
 		Sizes		=> $h{Files}{$g}{Size},
 		CheckSums	=> $h{Files}{$g}{Checksum},
 		DataType	=> $self->{DataType},
