@@ -264,16 +264,17 @@ sub check_rate
   $i = $size = $nev = 0;
   while ( $_ = shift @{$self->{stats}} )
   {
-    $size += $_->{size};
+#   $size += $_->{size};
     $nev  += $_->{nev};
     $i++;
   }
-  $size = int($size*100/1024/1024)/100;
+# $size = int($size*100/1024/1024)/100;
 
   $Stats{TotalEvents} += $nev;
-  $Stats{TotalVolume} += $size;
+# $Stats{TotalVolume} += $size;
 
-  Print "TotalEvents = $Stats{TotalEvents}, TotalVolume = $Stats{TotalVolume}\n";
+# Print "TotalEvents = $Stats{TotalEvents}, TotalVolume = $Stats{TotalVolume}\n";
+  Print "TotalEvents = $Stats{TotalEvents}\n";
   $self->Debug("$size MB, $nev events in $s seconds, $i readings\n");
   %h = (     MonaLisa	 => 1,
 	     Cluster	 => $T0::System{Name},
@@ -282,7 +283,7 @@ sub check_rate
 	     RecoVolume  => $size,
              Readings	 => $i,
 	     TotalEvents => $Stats{TotalEvents},
-	     TotalVolume => $Stats{TotalVolume},
+#	     TotalVolume => $Stats{TotalVolume},
 	     QueueLength => $self->{Queue}->get_item_count(),
 	     NReco	 => scalar keys %{$self->{queues}},
 	     NActive	 => scalar keys %{$self->{_queue}},
@@ -308,7 +309,9 @@ sub GatherStatistics
     $h{nev} = $input->{NbEvents};
   }
   $h{nev}  = $input->{NbEvents};
-  $h{size} = $input->{RecoSize};
+# $h{size} = $input->{Sizes};
+# return unless ( defined($h{nev}) && defined($h{size}) );
+  return unless ( defined($h{nev}) );
   push @{$self->{stats}}, \%h;
 }
 
@@ -584,53 +587,53 @@ sub client_input
 #   Check rate statistics from the first client onwards...
     if ( !$self->{client_count}++ ) { $kernel->yield( 'check_rate' ); }
 
-    if ( $input->{RecoFile} )
-    {
-      my %h = (	MonaLisa	=> 1,
-		Cluster		=> $T0::System{Name},
-		Node		=> $self->{Node},
-		QueueLength	=> $self->{Queue}->get_item_count(),
-		NReco		=> scalar keys %{$self->{queues}},
-		NActive		=> scalar keys %{$self->{_queue}},
-	      );
-      if ( exists($self->{_queue}{$id}{Start}) )
-      {
-        $h{Duration} = time - $self->{_queue}{$id}{Start};
-      }
-      $self->Log( \%h );
-$DB::single=$debug_me;
-      my $guid = $input->{RecoFile};
-      $guid =~ s%^.*/%%;
-      $guid =~ s%\..*$%%;
-      my $lfn = $input->{RecoFile};
-      $lfn =~ s%^/castor/cern.ch/cms%%;
-      $lfn =~ s%//%/%g;
-      my %g = ( RecoReady  => 'DBS.RegisterReco',
-		T0Name	   => $T0::System{Name},
-		SizesA	   => $input->{RecoSize},
-		SizesB	   => int($input->{RecoSize} * 1024 * 1024 + 0.4),
-		PsetHash   => $input->{PsetHash},
-		Version    => $input->{Version},
-		CheckSums  => $input->{Files}->{basename $input->{RecoFile}}->{Checksum},
-		Sizes      => $input->{Files}->{basename $input->{RecoFile}}->{Size},
-		GUIDs	   => $guid,
-		Dataset	   => $input->{Channel} . $input->{DatasetNumber},
-		NbEvents   => $input->{NbEvents},
-		RECOLFNs   => $lfn,
-		PFNs	   => $input->{RecoFile},
-		WNLocation => $input->{host} . ':' .
-			      $input->{dir}  . '/',
-      		RecoSize   => $input->{RecoSize},
-		status	   => $status,
-	      );
-      foreach ( qw / DataType SvcClass / )
-      {
-        if ( defined($input->{$_}) ) { $g{$_} = $input->{$_}; }
-      }
-      if ( $status ) { $g{RecoFailed} = delete $g{RecoReady}; }
-      $self->Log( \%g );
-      $self->GatherStatistics($input);
-    }
+#    if ( $input->{RecoFile} )
+#    {
+#      my %h = (	MonaLisa	=> 1,
+#		Cluster		=> $T0::System{Name},
+#		Node		=> $self->{Node},
+#		QueueLength	=> $self->{Queue}->get_item_count(),
+#		NReco		=> scalar keys %{$self->{queues}},
+#		NActive		=> scalar keys %{$self->{_queue}},
+#	      );
+#      if ( exists($self->{_queue}{$id}{Start}) )
+#      {
+#        $h{Duration} = time - $self->{_queue}{$id}{Start};
+#      }
+#      $self->Log( \%h );
+#$DB::single=$debug_me;
+#      my $guid = $input->{RecoFile};
+#      $guid =~ s%^.*/%%;
+#      $guid =~ s%\..*$%%;
+#      my $lfn = $input->{RecoFile};
+#      $lfn =~ s%^/castor/cern.ch/cms%%;
+#      $lfn =~ s%//%/%g;
+#      my %g = ( RecoReady  => 'DBS.RegisterReco',
+#		T0Name	   => $T0::System{Name},
+#		SizesA	   => $input->{RecoSize},
+#		SizesB	   => int($input->{RecoSize} * 1024 * 1024 + 0.4),
+#		PsetHash   => $input->{PsetHash},
+#		Version    => $input->{Version},
+#		CheckSums  => $input->{Files}->{basename $input->{RecoFile}}->{Checksum},
+#		Sizes      => $input->{Files}->{basename $input->{RecoFile}}->{Size},
+#		GUIDs	   => $guid,
+#		Dataset	   => $input->{Channel} . $input->{DatasetNumber},
+#		NbEvents   => $input->{NbEvents},
+#		RECOLFNs   => $lfn,
+#		PFNs	   => $input->{RecoFile},
+#		WNLocation => $input->{host} . ':' .
+#			      $input->{dir}  . '/',
+#      		RecoSize   => $input->{RecoSize},
+#		status	   => $status,
+#	      );
+#      foreach ( qw / DataType SvcClass / )
+#      {
+#        if ( defined($input->{$_}) ) { $g{$_} = $input->{$_}; }
+#      }
+#      if ( $status ) { $g{RecoFailed} = delete $g{RecoReady}; }
+#      $self->Log( \%g );
+#    }
+    $self->GatherStatistics($input);
     $self->CleanupReco($id);
   }
 
