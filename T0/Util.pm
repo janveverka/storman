@@ -265,6 +265,7 @@ sub GetRootFileInfo
     foreach ( @a)
     {
       ($pfn = $_->{PFN}) =~ s%^[^:]*:%%;
+      $pfn =~ s%^\.\/%%;
       $h{$pfn}{NbEvents} = $_->{TotalEvents};
       $h{$pfn}{Module}	 = $_->{ModuleLabel};
 #     $h{$pfn}{Branches} = $_->{Branches};
@@ -277,6 +278,7 @@ sub GetRootFileInfo
     foreach ( @b )
     {
       ($pfn = $_->{physical}{pfn}{name}) =~ s%^[^:]*:%%;
+      $pfn =~ s%^\.\/%%;
       $h{$pfn}{ID} = $_->{ID};
     }
 
