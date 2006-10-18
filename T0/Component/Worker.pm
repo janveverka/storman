@@ -627,6 +627,8 @@ sub job_done
 #     Primary dataset...
       my $pvsn = $h{Parent}{Version};
       $pvsn =~ s%_%%g;
+      $pvsn = $vsn unless $pvsn;
+      $h{Parent}{Channel} = $h{Parent}{Parent}{Channel} unless defined $h{Parent}{Channel};
       $h{Channel} = $h{Parent}{Channel} unless defined $h{Channel};
       $lfndir = '/CSA06-' . $pvsn . '-os-' . $h{Channel} . '-0/';
 #     Tier...
