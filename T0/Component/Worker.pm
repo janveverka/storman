@@ -38,6 +38,7 @@ sub _init
   my %h = @_;
   map { $self->{$_} = $h{$_}; } keys %h;
   defined($self->{Name}) or Croak "Shamed, unnamed, I die...\n";
+ ($self->{Node} = $self->{Name} ) =~ s%::.*$%%;
   $self->ReadConfig();
   $self->{Host} = hostname();
   $self->{Name} .= '-' . $self->{Host} . '-' . $$;
@@ -570,6 +571,7 @@ sub job_done
     $h{$_} = $heap->{Work}->{$h{pid}}->{Setup}->{$_};
   }
   $h{SvcClass} = $h{OutputSvcClass}; # explicit change of key name.
+  $h{Parent}{Dataset} = $h{Parent}{Channel} . $h{Parent}{DatasetNumber} unless $h{Parent}{Dataset};
   $h{Dataset} = $h{Parent}{Dataset} unless $h{Dataset};
 
 #  $h{RecoSize} = 0;
@@ -603,6 +605,7 @@ sub job_done
 	     'TargetMode' => 'RoundRobin' );
       $dir = SelectTarget( \%g );
       $f = $file;
+      $f =~ s%^\.\/%%;
       $i = $x->{$file}{ID};
       $g = $i . '.root';
       $x->{$g} = delete $x->{$f};
@@ -622,7 +625,10 @@ sub job_done
 #   for details...
 #
 #     Primary dataset...
-      $lfndir = '/CSA06-' . $vsn . '-os-' . $h{Dataset} . '-0/';
+      my $pvsn = $h{Parent}{Version};
+      $pvsn =~ s%_%%g;
+      $h{Channel} = $h{Parent}{Channel} unless defined $h{Channel};
+      $lfndir = '/CSA06-' . $pvsn . '-os-' . $h{Channel} . '-0/';
 #     Tier...
       $lfndir .= $self->{DataType};
 #     Processing Name...
@@ -711,6 +717,12 @@ sub job_done
 
       if ( -f $h{dir} . '/FrameworkJobReport.xml' )
       {
+        if ( ! defined $h{Parent}{GUIDs} )
+        {
+          my $guid = basename $h{Parent}{File};
+          $guid =~ s%.root%%;
+          $h{Parent}{GUIDs} = $guid;
+        }
         $cmd = 'rfcp ' . $h{dir} . '/FrameworkJobReport.xml ' . $dir . '/FrameworkJobReport.' . $h{Parent}{GUIDs} . '.xml';
         Print $cmd,"\n";
         open RFCP, "$cmd |" or Croak "$cmd: $!\n";
@@ -722,6 +734,7 @@ sub job_done
 
 # Kludges for now to get rid of the output and input...
 $DB::single=$debug_me;
+  $h{Parent}{PFNs} = $h{Parent}{File} unless defined $h{Parent}{PFNs};
   my $xx = basename $h{Parent}{PFNs};
   if ( -f $xx )
   {
