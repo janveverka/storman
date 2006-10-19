@@ -58,6 +58,7 @@ sub _init
 				      send_work => 'send_work',
 				      send_setup => 'send_setup',
 				      send_start => 'send_start',
+				      job_done => 'job_done',
 				      file_changed => 'file_changed',
 				      broadcast	=> 'broadcast',
 				     ],
@@ -111,8 +112,8 @@ sub start_task
   $heap->{Self} = $self;
 
   # initalize some parameters
-  $heap->{TotalEvents} = 0;
-  $heap->{TotalVolume} = 0;
+  $self->{TotalEvents} = 0;
+  $self->{TotalVolume} = 0;
 
   $self->Debug($self->{Name}," has started...\n");
   $self->Log($self->{Name}," has started...\n");
@@ -122,6 +123,8 @@ sub start_task
   $kernel->state( 'file_changed', $self );
   $kernel->state( 'broadcast', $self );
   $kernel->state( 'SetState', $self );
+
+  $kernel->state( 'job_done', $self );
 
   $kernel->state( 'FSM_MergeNow',	$self );
   $kernel->state( 'FSM_MergePause',	$self );
@@ -194,7 +197,8 @@ sub merge_submit {
   if ( scalar @{$worklist} > 1 )
     {
       my $dataset = $worklist->[0]->{Dataset};
-      my $datatype =$worklist->[0]->{DataType};
+      my $datatype = $worklist->[0]->{DataType};
+      my $stream = $worklist->[0]->{Stream};
       my $version = $worklist->[0]->{Version};
       my $psethash = $worklist->[0]->{PsetHash};
 
@@ -202,7 +206,7 @@ sub merge_submit {
 
       my $id = $heap->{Self}->{Queue}->enqueue($priority,$worklist);
 
-      $self->Quiet("Queue Merge $id for Dataset $dataset, DataType $datatype, Version $version and PSetHash $psethash\n");
+      $self->Quiet("Queue Merge $id for Dataset $dataset, DataType $datatype, Stream $stream, Version $version and PSetHash $psethash\n");
     }
   elsif ( scalar @{$worklist} == 1 )
     {
@@ -217,6 +221,7 @@ sub merge_submit {
 	       PsetHash => $work->{PsetHash},
 	       DataType => $work->{DataType},
 	       Stream => $work->{Stream},
+	       PFNs => $work->{PFNs},
 	       RECOLFNs => $work->{RECOLFNs},
 	       GUIDs => $work->{GUIDs},
 	       CheckSums => $work->{CheckSums},
@@ -587,61 +592,7 @@ sub client_input
 
   if ( $command =~ m%JobDone% )
   {
-    if ( $input->{status} == 0 )
-      {
-	$self->Quiet("JobDone: Merge id = $input->{id} succeeded, events = $input->{events}, size = $input->{size}, time = $input->{time}\n");
-
-	# update totals
-	$heap->{TotalEvents} += $input->{events};
-	$heap->{TotalVolume} += $input->{size};
-
-	my %h = (
-		 MonaLisa	 => 1,
-		 Cluster	 => $T0::System{Name},
-		 Node	 => $self->{Node},
-		 TotalEvents => $heap->{TotalEvents},
-		 TotalVolume => $heap->{TotalVolume},
-		 QueueLength => $self->{Queue}->get_item_count(),
-		 NMerge	 => scalar keys %{$self->{clients}},
-		);
-	$self->Log( \%h );
-
-	my $lfn = $input->{mergefile};
-	$lfn =~ s%^/castor/cern.ch/cms%%;
-	$lfn =~ s%//%/%g;
-
-	my $guid = $input->{mergefile};
-	$guid =~ s%^.*/%%;
-	$guid =~ s%\..*$%%;
-
-	# sent notification to DBS updater
-	my %g = (
-		 DBSUpdate => 'DBS.RegisterMerged',
-		 T0Name => $T0::System{Name},
-		 Dataset => $input->{Dataset},
-		 Version => $input->{Version},
-		 PsetHash => $input->{PsetHash},
-		 DataType => $input->{DataType},
-		 Stream => $input->{Stream},
-		 RECOLFNs => $lfn,
-		 GUIDs => $guid,
-		 CheckSums => $input->{checksum},
-		 Sizes => $input->{size},
-		 NbEvents => $input->{events},
-		 Parents => [],
-		);
-
-	foreach my $w ( @{$input->{work}} )
-	  {
-	    push(@{$g{Parents}}, $w->{Parent});
-	  }
-
-	$self->Log( \%g );
-      }
-    else
-      {
-	$self->Quiet("JobDone: Merge id = $input->{id} failed, status = $input->{status}, reason = $input->{reason}\n");
-      }
+    $kernel->yield('job_done', ($input));
   }
 
   if ( $command =~ m%Quit% )
@@ -652,6 +603,77 @@ sub client_input
                );
     $heap->{client}->put( \%text );
   }
+}
+
+sub job_done {
+  my ( $self, $kernel, $heap, $session, $input ) = @_[ OBJECT, KERNEL, HEAP, SESSION, ARG0 ];
+
+  if ( $input->{status} == 0 )
+    {
+      $self->Quiet("JobDone: Merge id = $input->{id} succeeded, events = $input->{events}, size = $input->{size}, time = $input->{time}\n");
+
+      # update totals
+      $self->{TotalEvents} += $input->{events};
+      $self->{TotalVolume} += $input->{size};
+
+      # update per stream totals
+      my $events_stream = 'Evt_' . $input->{Stream};
+      $self->{$events_stream} = 0 unless exists $self->{$events_stream};
+      $self->{$events_stream} += $input->{events};
+      my $volume_stream = 'Vol_' . $input->{Stream};
+      $self->{$volume_stream} = 0 unless exists $self->{$volume_stream};
+      $self->{$volume_stream} += $input->{size};
+
+      my %h = (
+	       MonaLisa	 => 1,
+	       Cluster	 => $T0::System{Name},
+	       Node	 => $self->{Node},
+	       TotalEvents => $self->{TotalEvents},
+	       TotalVolume => $self->{TotalVolume},
+	       $events_stream => $self->{$events_stream},
+	       $volume_stream => $self->{$volume_stream},
+	       QueueLength => $self->{Queue}->get_item_count(),
+	       NMerge	 => scalar keys %{$self->{clients}},
+	      );
+      $self->Log( \%h );
+
+      my $lfn = $input->{mergefile};
+      $lfn =~ s%^/castor/cern.ch/cms%%;
+      $lfn =~ s%//%/%g;
+
+      my $guid = $input->{mergefile};
+      $guid =~ s%^.*/%%;
+      $guid =~ s%\..*$%%;
+
+      # sent notification to DBS updater
+      my %g = (
+	       DBSUpdate => 'DBS.RegisterMerged',
+	       T0Name => $T0::System{Name},
+	       Dataset => $input->{Dataset},
+	       Version => $input->{Version},
+	       PsetHash => $input->{PsetHash},
+	       DataType => $input->{DataType},
+	       Stream => $input->{Stream},
+	       PFNs => $input->{mergefile},
+	       RECOLFNs => $lfn,
+	       GUIDs => $guid,
+	       CheckSums => $input->{checksum},
+	       Sizes => $input->{size},
+	       NbEvents => $input->{events},
+	       Parents => [],
+	      );
+
+      foreach my $w ( @{$input->{work}} )
+	{
+	  push(@{$g{Parents}}, $w->{Parent});
+	}
+
+      $self->Log( \%g );
+    }
+  else
+    {
+      $self->Quiet("JobDone: Merge id = $input->{id} failed, status = $input->{status}, reason = $input->{reason}\n");
+    }
 }
 
 1;
