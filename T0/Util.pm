@@ -11,7 +11,8 @@ $VERSION = 1.00;
 @ISA = qw/ Exporter /;
 @EXPORT = qw/ Print dump_ref profile_flat profile_table bin_table uuid
 	      reroute_event check_host SelectTarget MapTarget GetChannel
-	      UuidOfFile GetEventsFromJobReport GetRootFileInfo /;
+	      UuidOfFile GetEventsFromJobReport GetRootFileInfo
+	      SetProductMap IsRequiredProduct /;
 
 my ($debug,$quiet,$verbose,$i,@queue);
 
@@ -299,6 +300,35 @@ sub GetRootFileInfo
   return undef if $@;
 
   return \%h;
+}
+
+sub SetProductMap
+{
+  my ($t,$k);
+  undef %T0::System::Product::Map;
+
+  foreach $t ( keys %{$T0::System{ProductMap}} )
+  {
+    foreach $k ( keys %{$T0::System{ProductMap}{$t}} )
+    {
+      foreach ( @{$T0::System{ProductMap}{$t}{$k}} )
+      {
+        $T0::System::Product::Map{$t}{$k}{$_}++;
+      }
+    }
+  }
+}
+
+sub IsRequiredProduct
+{
+# For a given datatier and input channel, all products are allowed unless
+# a list restricts it.
+  my ($type,$input,$output) = @_;
+  return 1 unless defined($type) && defined($input) && defined($output);
+  return 1 unless defined $T0::System::Product::Map{$type};
+  return 1 unless defined $T0::System::Product::Map{$type}{$input};
+  return 1 if     defined $T0::System::Product::Map{$type}{$input}{$output};
+  return 0;
 }
 
 1;

@@ -259,60 +259,95 @@ sub check_rate
   $self->{StatisticsInterval} = 60 unless defined($self->{StatisticsInterval});
   $kernel->delay_set( 'check_rate', $self->{StatisticsInterval} );
 
-  my ($i,$size,$nev,$s,%h);
+  my ($i,$size,$nev,$s,%g,$channel);
+$DB::single=$debug_me;
   $s = $self->{StatisticsInterval};
-  $i = $size = $nev = 0;
   while ( $_ = shift @{$self->{stats}} )
   {
-#   $size += $_->{size};
-    $nev  += $_->{nev};
-    $i++;
+    $channel = $_->{channel};
+    $g{$channel}{size} += $_->{size};
+    $g{$channel}{nev}  += $_->{nev};
+    $g{$channel}{readings}++;;
   }
-# $size = int($size*100/1024/1024)/100;
 
-  $Stats{TotalEvents} += $nev;
-# $Stats{TotalVolume} += $size;
+  $size = $nev = 0;
+  foreach $channel ( sort keys %g )
+  {
+    my %h;
+    $size = int($g{$channel}{size}*100/1024/1024)/100;
+    $nev  = $g{$channel}{nev};
+    $i    = $g{$channel}{readings};
 
-# Print "TotalEvents = $Stats{TotalEvents}, TotalVolume = $Stats{TotalVolume}\n";
-  Print "TotalEvents = $Stats{TotalEvents}\n";
-  $self->Debug("$size MB, $nev events in $s seconds, $i readings\n");
-  %h = (     MonaLisa	 => 1,
+    $Stats{TotalEvents} += $nev;
+    $Stats{TotalVolume} += $size;
+
+    Print "Channel = $channel, Events = $nev, Volume = $size\n";
+    $self->Debug("$size MB, $nev events in $s seconds, $i readings\n");
+    %h = (   MonaLisa	 => 1,
 	     Cluster	 => $T0::System{Name},
-             Node	 => $self->{Node},
+             Node	 => $self->{Node} . '_' . $channel,
              Events	 => $nev,
 	     RecoVolume  => $size,
              Readings	 => $i,
+         );
+    $self->Log( \%h );
+  }
+  Print "TotalEvents = $Stats{TotalEvents}, TotalVolume = $Stats{TotalVolume}\n";
+  my %h = (  MonaLisa	 => 1,
+	     Cluster	 => $T0::System{Name},
+             Node	 => $self->{Node},
 	     TotalEvents => $Stats{TotalEvents},
-#	     TotalVolume => $Stats{TotalVolume},
+	     TotalVolume => $Stats{TotalVolume},
 	     QueueLength => $self->{Queue}->get_item_count(),
 	     NReco	 => scalar keys %{$self->{queues}},
 	     NActive	 => scalar keys %{$self->{_queue}},
-       );
+           );
   $self->Log( \%h );
 }
 
 sub GatherStatistics
 {
   my ($self,$input) = @_;
-  my ($nev,%h);
+  my ($nev);
 
-  foreach ( @{$input->{stderr}} )
+# Use $input->{Channel} to separate the counts...
+$DB::single=$debug_me;
+
+#  foreach ( @{$input->{stderr}} )
+#  {
+#    if ( m%Run:\s+(\d+)\s+Event:\s+(\d+)% ) { $h{run} = $1; $h{nev} = $2; }
+#  }
+#  if ( defined($h{nev}) && defined($input->{NbEvents}) )
+#  {
+#    if ( $h{nev} != $input->{NbEvents} )
+#    {
+#      Print "nev != NbEvents: ",$h{nev},' ',$input->{NbEvents},"\n";
+#    }
+#    $h{nev} = $input->{NbEvents};
+#  }
+
+  if ( exists($input->{Files}) )
   {
-    if ( m%Run:\s+(\d+)\s+Event:\s+(\d+)% ) { $h{run} = $1; $h{nev} = $2; }
-  }
-  if ( defined($h{nev}) && defined($input->{NbEvents}) )
-  {
-    if ( $h{nev} != $input->{NbEvents} )
+#   If I get an array, handle each stream separately
+    foreach ( keys %{$input->{Files}} )
     {
-      Print "nev != NbEvents: ",$h{nev},' ',$input->{NbEvents},"\n";
+      my %g;
+      $g{channel} = $input->{Files}->{$_}->{Module};
+      $g{size}	  = $input->{Files}->{$_}->{Size};
+      $g{nev}	  = $input->{Files}->{$_}->{NbEvents};
+      push @{$self->{stats}}, \%g;
     }
-    $h{nev} = $input->{NbEvents};
   }
-  $h{nev}  = $input->{NbEvents};
-# $h{size} = $input->{Sizes};
+  else
+  {
+    my %h;
+    $h{channel}	= $input->{Channel};
+    $h{nev}	= $input->{NbEvents};
+    $h{size}	= $input->{Sizes};
 # return unless ( defined($h{nev}) && defined($h{size}) );
-  return unless ( defined($h{nev}) );
-  push @{$self->{stats}}, \%h;
+    return unless ( defined($h{nev}) );
+    push @{$self->{stats}}, \%h;
+  }
 }
 
 sub Log
@@ -580,8 +615,8 @@ sub client_input
   {
     my $work     = $input->{work};
     my $status   = $input->{status};
-    my $priority = $input->{work}{priority};
-    my $id       = $input->{id};
+#   my $priority = $input->{work}{priority};
+    my $id       = $input->{Parent}{id};
     $self->Quiet("JobDone: work=",T0::Util::strhash($work),", id=$id, status=$status\n");
 
 #   Check rate statistics from the first client onwards...

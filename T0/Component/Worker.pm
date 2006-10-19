@@ -129,7 +129,8 @@ sub ReadConfig
     Croak "\"CfgTemplate\" has no \".tmpl\" suffix...\n";
   }
 
-  map { $self->{Channels}->{$_} = 1; } @{$T0::System{Channels}}
+  map { $self->{Channels}->{$_} = 1; } @{$T0::System{Channels}};
+  SetProductMap;
 }
 
 sub server_error { Print $hdr," Server error\n"; }
@@ -608,13 +609,27 @@ sub job_done
       $f =~ s%^\.\/%%;
       $i = $x->{$file}{ID};
       $g = $i . '.root';
+
+      $h{Parent}{Channel} = $h{Parent}{Parent}{Channel} unless defined $h{Parent}{Channel};
+      $h{Channel} = $h{Parent}{Channel} unless defined $h{Channel};
+      $stream = $x->{$f}{Module};
+      $stream =~ s%_%%g; # Eliminate illegal characters
+      if ( !IsRequiredProduct(
+				$self->{DataType},
+				$h{Channel},
+				$stream
+			     )
+	 )
+      {
+        delete $x->{$f};
+	unlink $f;
+        next;
+      }
       $x->{$g} = delete $x->{$f};
       $x->{$g}{OriginalFile} = $f;
       rename $f, $g;
       $h{Files}{$g} = delete $h{Files}{$f};
       map { $h{Files}{$g}{$_} = $x->{$g}{$_} } keys %{$x->{$g}};
-      $stream = $h{Files}{$g}{Module};
-      $stream =~ s%_%%g; # Eliminate illegal characters
 
 #    %g = ( 'File'	=> $h{File},
 #	   'Target'	=> $dir );
@@ -628,8 +643,6 @@ sub job_done
       my $pvsn = $h{Parent}{Version};
       $pvsn =~ s%_%%g;
       $pvsn = $vsn unless $pvsn;
-      $h{Parent}{Channel} = $h{Parent}{Parent}{Channel} unless defined $h{Parent}{Channel};
-      $h{Channel} = $h{Parent}{Channel} unless defined $h{Channel};
       $lfndir = '/CSA06-' . $pvsn . '-os-' . $h{Channel} . '-0/';
 #     Tier...
       $lfndir .= $self->{DataType};
@@ -653,6 +666,7 @@ sub job_done
       $pfn = $dir .'/' . $g;
       $lfn = $pfn;
       $lfn =~ s%^.*/store%/store%;
+      delete $h{Parent}{Parent};
       my %u = (
 		T0Name		=> $T0::System{Name},
 		Sizes		=> $h{Files}{$g}{Size},
@@ -705,10 +719,12 @@ sub job_done
            'Target'	=> $dir );
 
     $dir .= $lfndir;
-    open RFMKDIR, "rfmkdir -p $dir |" or warn "rfmkdir $dir: $!\n";
-    while ( <RFMKDIR> ) {}
-    close RFMKDIR; # Don't check for errors, I will have one if the dir exists!
-#   $dir = MapTarget( \%g, $self->{Channels} );
+    if ( ! $known_dirs{$dir}++ )
+    {
+      open RFMKDIR, "rfmkdir -p $dir |" or warn "rfmkdir $dir: $!\n";
+      while ( <RFMKDIR> ) {}
+      close RFMKDIR; # No check for errors, I will have one if the dir exists
+    }
     if ( defined($dir) && defined($h{dir}) && defined($h{log}) && -f $h{dir} . '/' . $h{log} )
     {
       my $cmd = 'rfcp ' . $h{dir} . '/' . $h{log} . ' ' . $dir;
