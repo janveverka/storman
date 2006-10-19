@@ -12,7 +12,7 @@ $VERSION = 1.00;
 @EXPORT = qw/ Print dump_ref profile_flat profile_table bin_table uuid
 	      reroute_event check_host SelectTarget MapTarget GetChannel
 	      UuidOfFile GetEventsFromJobReport GetRootFileInfo
-	      SetProductMap IsRequiredProduct /;
+	      SetProductMap IsRequiredProduct IsRequiredSource /;
 
 my ($debug,$quiet,$verbose,$i,@queue);
 
@@ -328,6 +328,16 @@ sub IsRequiredProduct
   return 1 unless defined $T0::System::Product::Map{$type};
   return 1 unless defined $T0::System::Product::Map{$type}{$input};
   return 1 if     defined $T0::System::Product::Map{$type}{$input}{$output};
+  return 0;
+}
+
+sub IsRequiredSource
+{
+# For a given datatier and input channel, is anything of interest?
+  my ($type,$input) = @_;
+  return 1 unless defined($type) && defined($input);
+  return 1 unless defined $T0::System::Product::Map{$type};
+  return 1 if     defined $T0::System::Product::Map{$type}{$input};
   return 0;
 }
 
