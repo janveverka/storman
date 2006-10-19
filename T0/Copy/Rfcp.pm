@@ -2,6 +2,7 @@ use strict;
 use warnings;
 package T0::Copy::Rfcp;
 use POE qw( Wheel::Run Filter::Line );
+use File::Basename;
 
 our (@ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION);
 
@@ -127,6 +128,7 @@ sub start_wheel {
   my ( $kernel, $heap, $file ) = @_[ KERNEL, HEAP, ARG0 ];
 
   $ENV{STAGE_SVCCLASS} = $heap->{svcclass} if ( defined $heap->{svcclass} );
+  $ENV{STAGER_TRACE} = 3;
 
   my $task = POE::Wheel::Run->new(
 				  Program => [ "rfcp", $file->{source} , $file->{target} ],
@@ -176,7 +178,7 @@ sub monitor_task {
 
 sub got_task_stdout {
   my ( $kernel, $heap, $stdout, $task_id ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
-#  print "RFCP STDOUT: $stdout\n";
+  print "RFCP STDOUT: $stdout\n";
 }
 
 sub got_task_stderr {
@@ -228,6 +230,22 @@ sub cleanup_task {
 	      $heap->{Self}->Debug("Retry count at " . $file->{retries} . " , retrying\n");
 
 	      $file->{retries}--;
+
+	      # check for existence of directory (if status is 256)
+	      #
+	      # FIXME: parse rfstat output to check if it's really a directory
+	      #
+	      if ( $status == 256 )
+		{
+		  my $targetdir = dirname( $file->{target} );
+
+		  my @temp = qx { rfstat $targetdir 2> /dev/null };
+
+		  if ( scalar @temp == 0 )
+		    {
+		      qx { rfmkdir -p $targetdir };
+		    }
+		}
 
 	      if ( exists $file->{retry_backoff} )
 		{
