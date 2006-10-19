@@ -197,7 +197,12 @@ sub server_input {
 
 	    $hash_ref->{inputevents} += $w->{NbEvents};
 
-	    $heap->{TargetDir} = dirname( $w->{PFNs} ) unless defined $heap->{TargetDir};
+	    unless ( defined $hash_ref->{TargetDir} )
+	      {
+		$hash_ref->{TargetDir} = dirname( $w->{PFNs} );
+		$hash_ref->{TargetDir} =~ s%unmerged%%;
+		$hash_ref->{TargetDir} =~ s%//%/%g;
+	      }
 
 	    # extract SvcClass (assumes they are the same for all input files)
 	    # to fix this Rfcp.pm needs to be changed to allow for different SvcClass
@@ -481,7 +486,7 @@ sub merge_done {
 		  files => []
 		 );
 
-  $heap->{StageoutOutputfile} = $heap->{TargetDir} . '/' . $guid . '.root';
+  $heap->{StageoutOutputfile} = $heap->{HashRef}->{TargetDir} . '/' . $guid . '.root';
   push(@{ $rfcphash{files} }, { source => $heap->{outputfile}, target => $heap->{StageoutOutputfile} } );
   if ( defined $heap->{LogDir} )
     {
