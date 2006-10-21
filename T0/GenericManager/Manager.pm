@@ -109,6 +109,10 @@ sub InputPending
 
   my ($priority, $id);
   $priority = 99;
+  if ( $self->{Prioritise} eq 'LIFO' )
+  {
+    $priority = -time;
+  }
   $work->{work} = $self->{Application};
   $id = $self->{Queue}->enqueue($priority,$work);
   $self->Quiet("Task $id is queued for ",$work->{File},"\n");
