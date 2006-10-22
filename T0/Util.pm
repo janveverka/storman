@@ -156,12 +156,13 @@ sub GetChannel
   my ($file,$channels) = @_;
 
 # This relies on a naming convention, /path/(CSA06-(\d+)-os-)$channel/$file,
-# and substitutes 'CHANNEL' in the target dir accordingly.
 # The '/$file' is optional.
   $_ = $file;
-  s%^.*/([^/]+/[^/]+$)%$1%;
-  s%^CSA06-(\d+)-os-%%;
-  s%/[^/]*$%%;
+# s%^.*/([^/]+/[^/]+$)%$1%;
+# s%^CSA06-(\d+)-os-%%;
+# s%/[^/]*$%%;
+  m%/CSA06-\d+-os-([^-]+)-%;
+  $_ = $1;
 
   return $_ if ! defined($channels);
   return $_ if exists $channels->{$_};
@@ -189,7 +190,15 @@ sub ReadConfig
 
   $file = $this->{Config} unless $file;
   defined($file) && -f $file or return;
-  do "$file" or Croak "$file: problem...? $!\n";
+  eval
+  {
+    do "$file";
+  };
+  if ( $@ )
+  {
+    carp "ReadConfig: $file: $@\n";
+    return;
+  }
 
   no strict 'refs';
   if ( ! $hash )
@@ -246,7 +255,11 @@ sub GetEventsFromJobReport
   {
     $t = $p->XMLin( $file );
   };
-  return undef if $@;
+  if ( $@ )
+  {
+    carp "GetEventsFromJobReport: $@\n";
+    return undef;
+  }
   return $t->{InputFile}{EventsRead};
 }
 
@@ -297,7 +310,11 @@ sub GetRootFileInfo
       close POOLID or die "close pool_extractFileIdentifier $pfn: $!\n";
     }
   };
-  return undef if $@;
+  if ( $@ )
+  {
+    carp "GetRootFileInfo: $@\n";
+    return undef;
+  }
 
   return \%h;
 }
