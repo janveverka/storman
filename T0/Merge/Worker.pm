@@ -333,6 +333,11 @@ sub server_input {
     my $setup = $hash_ref->{setup};
     $heap->{Self}->{Debug} && dump_ref($setup);
     map { $self->{$_} = $setup->{$_} } keys %$setup;
+
+    if ( $heap->{State} eq 'Running' )
+      {
+	$kernel->yield('get_work');
+      }
     return;
   }
 
