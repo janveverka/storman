@@ -128,7 +128,6 @@ sub start_wheel {
   my ( $kernel, $heap, $file ) = @_[ KERNEL, HEAP, ARG0 ];
 
   $ENV{STAGE_SVCCLASS} = $heap->{svcclass} if ( defined $heap->{svcclass} );
-  $ENV{STAGER_TRACE} = 3;
 
   my $task = POE::Wheel::Run->new(
 				  Program => [ "rfcp", $file->{source} , $file->{target} ],
@@ -179,11 +178,21 @@ sub monitor_task {
 sub got_task_stdout {
   my ( $kernel, $heap, $stdout, $task_id ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
   print "RFCP STDOUT: $stdout\n";
+
+#  my $file = $heap->{file}->{$task_id};
+#  open(LOGFILE, '>>' . basename($file->{source}) . '.log');
+#  print LOGFILE "$stdout\n";
+#  close(LOGFILE);
 }
 
 sub got_task_stderr {
-  my ( $stderr, $task_id ) = @_[ ARG0, ARG1 ];
+  my ( $kernel, $heap, $stderr, $task_id ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
   print "RFCP STDERR: $stderr\n";
+
+#  my $file = $heap->{file}->{$task_id};
+#  open(LOGFILE, '>>' . basename($file->{source}) . '.log');
+#  print LOGFILE "$stderr\n";
+#  close(LOGFILE);
 }
 
 sub got_task_close {
