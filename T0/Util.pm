@@ -161,7 +161,7 @@ sub GetChannel
 # s%^.*/([^/]+/[^/]+$)%$1%;
 # s%^CSA06-(\d+)-os-%%;
 # s%/[^/]*$%%;
-  m%/CSA06-\d+-os-([^-]+)-%;
+  m%/CSA06-\d+-os-([^-/]+)%;
   $_ = $1;
 
   return $_ if ! defined($channels);
