@@ -629,9 +629,9 @@ sub job_done {
 	       Cluster	 => $T0::System{Name},
 	       Node	 => $self->{Node},
 	       TotalEvents => $self->{TotalEvents},
-	       TotalVolume => $self->{TotalVolume},
+	       TotalVolume => $self->{TotalVolume} / (1024*1024),
 	       $events_stream => $self->{$events_stream},
-	       $volume_stream => $self->{$volume_stream},
+	       $volume_stream => $self->{$volume_stream}  / (1024*1024),
 	       QueueLength => $self->{Queue}->get_item_count(),
 	       NMerge	 => scalar keys %{$self->{clients}},
 	      );
