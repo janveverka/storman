@@ -145,8 +145,16 @@ sub RecoIsPending
 {
   my ( $self, $kernel, $heap, $work ) = @_[ OBJECT, KERNEL, HEAP, ARG0 ];
 
-  my ($priority, $id);
+  my ($f, $priority, $id);
   $priority = 99;
+  $f = $work->{File};
+  foreach ( keys %{$self->{Priorities}} )
+  {
+    if ( $f =~ m%$_% )
+    {
+      $priority = $self->{Priorities}{$_};
+    }
+  }
   $work->{work} = $self->{Application};
 
   $id = $self->{Queue}->enqueue($priority,$work);
