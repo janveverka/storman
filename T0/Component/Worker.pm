@@ -675,7 +675,7 @@ sub job_done
 		PFNs		=> $pfn,
 		RECOLFNs	=> $lfn,
 		File		=> $g,
-		WNLocation	=> $h{dir},
+		WNLocation	=> $h{host} . ':' . $h{dir},
 		Version		=> $h{Version},
 		PsetHash	=> $h{PsetHash},
 		Stream		=> $stream,
