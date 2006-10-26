@@ -71,7 +71,7 @@ sub start_task {
   $heap->{Self} = $self;
   $heap->{Channel} = $self->{Channel};
   $heap->{Directory} = $self->{Directory};
-  $heap->{InputFile} = $self->{InputFile};
+  $heap->{LFNList} = $self->{LFNList};
   $heap->{MinAge} = $self->{MinAge};
   $heap->{SleepTime} = $self->{SleepTime};
   $heap->{Rate} = $self->{Rate};
@@ -110,7 +110,7 @@ sub start_task {
 					  Interval        => $self->{ConfigRefresh},
 					 );
 
-  if ( defined $heap->{InputFile} )
+  if ( defined $heap->{LFNList} )
     {
       $kernel->yield('start_lfnlist');
     }
@@ -126,7 +126,7 @@ sub start_lfnlist {
   my %inputhash = (
 		   Session => $session,
 		   Callback => 'lfnlist_done',
-		   InputFile => $heap->{InputFile},
+		   LFNList => $heap->{LFNList},
 		   MinAge => $heap->{MinAge},
 		   Files => {
 			     Status => \%fileStatusList,
@@ -188,7 +188,7 @@ sub config_changed {
 
   $heap->{Channel} = $heap->{Self}->{Channel};
   $heap->{Directory} = $heap->{Self}->{Directory};
-  $heap->{InputFile} = $heap->{Self}->{InputFile};
+  $heap->{LFNList} = $heap->{Self}->{LFNList};
   $heap->{MinAge} = $heap->{Self}->{MinAge};
   $heap->{SleepTime} = $heap->{Self}->{SleepTime};
   $heap->{Rate} = $heap->{Self}->{Rate};

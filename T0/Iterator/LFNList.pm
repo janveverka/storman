@@ -50,7 +50,7 @@ sub start_tasks {
   $kernel->sig( CHLD => "got_sigchld" );
 
   my $task = POE::Wheel::Run->new(
-				  Program => [ "cat", $hash_ref->{InputFile} ],
+				  Program => [ "cat", $hash_ref->{LFNList} ],
 				  StdoutFilter => POE::Filter::Line->new(),
 				  StdoutEvent  => "got_task_stdout",
 				  StderrEvent  => "got_task_stderr",
