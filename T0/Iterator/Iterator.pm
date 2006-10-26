@@ -4,6 +4,7 @@ package T0::Iterator::Iterator;
 use POE;
 use T0::Logger::Sender;
 use T0::FileWatcher;
+use T0::Iterator::LFNList;
 use T0::Iterator::Rfdir;
 use T0::Util;
 use DB_File;
@@ -51,7 +52,9 @@ sub new {
   $self->{Session} = POE::Session->create(
 					  inline_states => {
 							    _start => \&start_task,
+							    start_lfnlist => \&start_lfnlist,
 							    start_rfdir => \&start_rfdir,
+							    lfnlist_done => \&lfnlist_done,
 							    rfdir_done => \&rfdir_done,
 							    config_changed => \&config_changed,
 							    inject_file => \&inject_file
@@ -66,7 +69,9 @@ sub start_task {
 
   # save parameters
   $heap->{Self} = $self;
+  $heap->{Channel} = $self->{Channel};
   $heap->{Directory} = $self->{Directory};
+  $heap->{InputFile} = $self->{InputFile};
   $heap->{MinAge} = $self->{MinAge};
   $heap->{SleepTime} = $self->{SleepTime};
   $heap->{Rate} = $self->{Rate};
@@ -105,7 +110,34 @@ sub start_task {
 					  Interval        => $self->{ConfigRefresh},
 					 );
 
-  $kernel->yield('start_rfdir');
+  if ( defined $heap->{InputFile} )
+    {
+      $kernel->yield('start_lfnlist');
+    }
+  elsif ( defined $heap->{Directory} )
+    {
+      $kernel->yield('start_rfdir');
+    }
+}
+
+sub start_lfnlist {
+  my ( $kernel, $heap, $session ) = @_[ KERNEL, HEAP, SESSION ];
+
+  my %inputhash = (
+		   Session => $session,
+		   Callback => 'lfnlist_done',
+		   InputFile => $heap->{InputFile},
+		   MinAge => $heap->{MinAge},
+		   Files => {
+			     Status => \%fileStatusList,
+			     Size => \%fileSizeList,
+			     Date => \%fileDateList
+			    },
+		  );
+
+  my $rfdir = T0::Iterator::LFNList->new(\%inputhash);
+
+  $kernel->yield('inject_file');
 }
 
 sub start_rfdir {
@@ -128,6 +160,12 @@ sub start_rfdir {
   $kernel->yield('inject_file');
 }
 
+sub lfnlist_done {
+  my ( $kernel, $heap ) = @_[ KERNEL, HEAP ];
+
+  $heap->{WaitForData} = 0;
+}
+
 sub rfdir_done {
   my ( $kernel, $heap ) = @_[ KERNEL, HEAP ];
 
@@ -148,7 +186,9 @@ sub config_changed {
 
   T0::Util::ReadConfig( $heap->{Self} );
 
+  $heap->{Channel} = $heap->{Self}->{Channel};
   $heap->{Directory} = $heap->{Self}->{Directory};
+  $heap->{InputFile} = $heap->{Self}->{InputFile};
   $heap->{MinAge} = $heap->{Self}->{MinAge};
   $heap->{SleepTime} = $heap->{Self}->{SleepTime};
   $heap->{Rate} = $heap->{Self}->{Rate};
@@ -273,11 +313,13 @@ sub inject_file {
       $heap->{Self}->Quiet("$prefix $file, $size, $date\n");
     }
 
+  my $channel = defined $heap->{Channel} ? $heap->{Channel} : T0::Util::GetChannel($file);
+
   my %t = (
 	   $heap->{Notify} => $file,
 	   Size => $size,
 	   Date => $date,
-	   Channel => T0::Util::GetChannel($file),
+	   Channel => $channel,
 	   DatasetNumber => $datasetNumber,
 	  );
   $kernel->post( $heap->{CallbackSession}, $heap->{CallbackMethod}, ( \%t ) );
