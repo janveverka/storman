@@ -753,11 +753,14 @@ sub job_done
 # Kludges for now to get rid of the output and input...
 $DB::single=$debug_me;
   $h{Parent}{PFNs} = $h{Parent}{File} unless defined $h{Parent}{PFNs};
-  my $xx = basename $h{Parent}{PFNs};
-  if ( -f $xx )
+  if ( defined($h{Parent}{PFNs}) )
   {
-    $self->Verbose("Deleting ",$xx,"\n");
-    unlink $xx;
+    my $xx = basename $h{Parent}{PFNs};
+    if ( -f $xx )
+    {
+      $self->Verbose("Deleting ",$xx,"\n");
+      unlink $xx;
+    }
   }
 # </kludge>
 
