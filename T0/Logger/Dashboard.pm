@@ -25,7 +25,7 @@ sub _init
   my $self = shift;
 
   $self->{Name} = $Dashboard::Name;
-  $self->{DashboardHost} = 'lxarda05.cern.ch';
+  $self->{DashboardHost} = 'lxarda12.cern.ch:18884';
   $self->{apmon}->{sys_monitoring} = 0;
   $self->{apmon}->{general_info}   = 0;
   $self->{MaxMsgRate}  = 120;

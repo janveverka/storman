@@ -23,7 +23,7 @@ sub _init
   my $self = shift;
 
   $self->{Name} = $Monalisa::Name;
-  $self->{Host} = 'lxarda05.cern.ch';
+  $self->{Host} = 'lxarda12.cern.ch:18884';
   $self->{apmon}->{sys_monitoring} = 0;
   $self->{apmon}->{general_info}   = 0;
 
