@@ -121,6 +121,13 @@ sub started
   $kernel->state( 'rotate_logfile',   $self );
   $kernel->state( 'set_rotate_alarm', $self );
   $kernel->yield( 'set_rotate_alarm' );
+
+$DB::single=1;
+  foreach my $xx ( @{$self->{Subscriptions}} )
+  {
+    $self->Quiet("Subscribing: ", T0::Util::strhash($xx),"\n");
+    $self->Subscribe( $xx->{Client}, $xx );
+  }
 }
 
 sub FileChanged
