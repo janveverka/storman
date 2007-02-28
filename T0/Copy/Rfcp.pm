@@ -59,6 +59,9 @@ sub start_tasks {
   # keep count on outstanding rfcp wheels
   $heap->{wheel_count} = 0;
 
+  # store output of child processes
+  $heap->{output} = [];
+
   # before spawning wheels, register signal handler
   $kernel->sig( CHLD => "got_sigchld" );
 
@@ -145,7 +148,7 @@ sub start_wheel {
   # spawn monitoring thread
   if ( exists $file->{timeout} )
     {
-      $kernel->delay_set('monitor_task',$file->{timeout},($task->ID,0));
+      $file->{alarm_id} = $kernel->delay_set('monitor_task',$file->{timeout},($task->ID,0));
     }
 }
 
@@ -154,6 +157,10 @@ sub monitor_task {
 
   if ( exists $heap->{task}->{ $task_id } )
     {
+      my $file = $heap->{file}->{$task_id};
+
+      delete $file->{alarm_id};
+
       if ( $force_kill == 0 )
 	{
 #	  print "Task $task_id still active, kill it\n";
@@ -177,7 +184,9 @@ sub monitor_task {
 
 sub got_task_stdout {
   my ( $kernel, $heap, $stdout, $task_id ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
-  print "RFCP STDOUT: $stdout\n";
+#  print "RFCP STDOUT: $stdout\n";
+
+  push( @{ $heap->{output} }, "RFCP STDOUT: " . $stdout . "\n");
 
 #  my $file = $heap->{file}->{$task_id};
 #  open(LOGFILE, '>>' . basename($file->{source}) . '.log');
@@ -187,7 +196,9 @@ sub got_task_stdout {
 
 sub got_task_stderr {
   my ( $kernel, $heap, $stderr, $task_id ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
-  print "RFCP STDERR: $stderr\n";
+#  print "RFCP STDERR: $stderr\n";
+
+  push( @{ $heap->{output} }, "RFCP STDERR: " . $stderr);
 
 #  my $file = $heap->{file}->{$task_id};
 #  open(LOGFILE, '>>' . basename($file->{source}) . '.log');
@@ -225,6 +236,11 @@ sub cleanup_task {
       delete $heap->{task}->{$task_id};
       delete $heap->{file}->{$task_id};
 
+      if ( exists $file->{alarm_id} )
+	{
+	  $kernel->alarm_remove( $file->{alarm_id} );
+	}
+
       $heap->{wheel_count}--;
 
       # update status in caller hash
@@ -232,6 +248,11 @@ sub cleanup_task {
 
       if ( $status != 0 )
 	{
+	  foreach my $line ( @{ $heap->{output} } )
+	    {
+	      print $line . "\n";
+	    }
+
 	  $heap->{Self}->Debug("Rfcp of $file failed with status $status\n");
 
 	  if ( $file->{retries} > 0 )
