@@ -8,6 +8,7 @@ use Sys::Hostname;
 use File::Basename;
 use Cwd;
 use T0::Util;
+use T0::GenericManager::WorkerParser; 
 
 our (@ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION);
 my $debug_me=1;
@@ -189,7 +190,7 @@ sub server_input {
 
     $self->{MaxTasks}--;
     $work     = $input->{work};
-    map { $cmd .= ' --' . $_ . ' ' . $work->{$_} if m%^[A-Z]% } keys %$work;
+    map { $cmd .= ' --' . $_ . '=' . $work->{$_} if m%^[A-Z]% } keys %$work;
     $self->Quiet("Execute $cmd\n");
     $kernel->sig( CHLD => "got_sigchld" );
     delete $heap->{stdout};
@@ -281,6 +282,23 @@ sub job_done
 
   map { $h{$_} = $heap->{Work}->{$h{pid}}->{work}->{$_}; }
 		keys %{$heap->{Work}->{$h{pid}}->{work}};
+
+##########################################################################################
+# Hacked by Pavel - parsing output and sending a notification
+  
+  if (defined $self->{ParseOutput} && $self->{ParseOutput}) {
+
+    my %m;
+    my $s = join(' ********* ',@{$heap->{stdout}});
+    
+    map {print "$_\n"} @{$heap->{stdout}};
+    #print "$s\n";
+
+    T0::GenericManager::WorkerParser::parse_output(\%m, $s);
+    $self->Log(\%m);
+
+  }; 
+##########################################################################################
 
   $self->Quiet("Send: JobDone: work=$h{pid}, status=$h{status}, priority=$h{priority}\n");
   $h{priority} && $self->Log("JobDone: status=$h{status} priority=$h{priority}");
