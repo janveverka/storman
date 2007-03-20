@@ -423,6 +423,9 @@ sub job_done {
   if ( $input->{status} == 0 )
     {
       $self->Quiet("JobDone: Copy id = $input->{id} succeeded\n");
+
+      $input->{work}->{OnlineFile} = 't0input.available';
+      $self->Log($input->{work});
     }
   else
     {

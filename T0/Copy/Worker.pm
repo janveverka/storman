@@ -154,7 +154,6 @@ sub server_input {
     $heap->{HashRef} = $hash_ref;
 
     my $work = $hash_ref->{work};
-    $heap->{Work} = $hash_ref->{work};
 
     # nothing went wrong yet
     $hash_ref->{status} = 0;
@@ -163,13 +162,13 @@ sub server_input {
     $heap->{WorkStarted} = time;
 
     # send another message to logger (for MonaLisa)
-    my %loghash2 = (
-		    MonaLisa => 1,
-		    Cluster => $T0::System{Name},
-		    Node => $heap->{Node},
-		    IdleTime => $heap->{WorkStarted} - $heap->{WorkRequested},
-		   );
-    $heap->{Self}->Log( \%loghash2 );
+    my %loghash = (
+		   MonaLisa => 1,
+		   Cluster => $T0::System{Name},
+		   Node => $heap->{Node},
+		   IdleTime => $heap->{WorkStarted} - $heap->{WorkRequested},
+		  );
+    $heap->{Self}->Log( \%loghash );
 
     my %rfcphash = (
 		    svcclass => $hash_ref->{SvcClass},
@@ -189,7 +188,17 @@ sub server_input {
 
     $heap->{Self}->Debug("Copy " . $hash_ref->{id} . " added " . $work->{PFN} . "\n");
 
-    push(@{ $rfcphash{files} }, { source => $work->{PFN}, target => $heap->{TargetDir} } );
+    my $sourcefile;
+    if ( defined $work->{PATHNAME} )
+      {
+	$sourcefile = $work->{PATHNAME} . '/' . $work->{PFN};
+      }
+    else
+      {
+	$sourcefile = $work->{PFN};
+      }
+
+    push(@{ $rfcphash{files} }, { source => $sourcefile, target => $heap->{TargetDir} } );
 
     $heap->{Self}->Debug("Copy " . $hash_ref->{id} . " started\n");
 
@@ -299,11 +308,11 @@ sub job_done
       $heap->{HashRef}->{time} = time - $heap->{WorkStarted};
 
       # send message to logger
-      my %loghash1 = (
-		      CopyID => $heap->{HashRef}->{id},
-		      Status => $heap->{HashRef}->{status},
-		     );
-      $heap->{Self}->Log( \%loghash1 );
+#      my %loghash1 = (
+#		      CopyID => $heap->{HashRef}->{id},
+#		      Status => $heap->{HashRef}->{status},
+#		     );
+#      $heap->{Self}->Log( \%loghash1 );
 
       # send another message to logger (for MonaLisa)
       my %loghash2 = (
@@ -319,11 +328,11 @@ sub job_done
       $heap->{Self}->Verbose("Copy " . $heap->{HashRef}->{id} . " failed\n");
 
       # send message to logger
-      my %loghash1 = (
-		      CopyID => $heap->{HashRef}->{id},
-		      Status => $heap->{HashRef}->{status},
-		     );
-      $heap->{Self}->Log( \%loghash1 );
+#      my %loghash1 = (
+#		      CopyID => $heap->{HashRef}->{id},
+#		      Status => $heap->{HashRef}->{status},
+#		     );
+#      $heap->{Self}->Log( \%loghash1 );
     }
 
   # send report back to manager
