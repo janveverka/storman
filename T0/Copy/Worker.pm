@@ -9,6 +9,7 @@ use File::Basename;
 use XML::Twig;
 use T0::Util;
 use T0::Copy::Rfcp;
+use T0::Copy::RfcpLite;
 
 our (@ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION);
 
@@ -57,7 +58,7 @@ sub new
 				 server_input => 'server_input',
 				 connected => 'connected',
 				 connection_error_handler => 'connection_error_handler',
-				 rfcp_done => 'rfcp_done',
+				 copy_done => 'copy_done',
 				 job_done => 'job_done',
 				 get_work => 'get_work',
 				]
@@ -173,7 +174,7 @@ sub server_input {
     my %rfcphash = (
 		    svcclass => $hash_ref->{SvcClass},
 		    session => $session,
-		    callback => 'rfcp_done',
+		    callback => 'copy_done',
 		    timeout => 3600,
 		    retries => 0,
 		    files => []
@@ -202,7 +203,7 @@ sub server_input {
 
     $heap->{Self}->Debug("Copy " . $hash_ref->{id} . " started\n");
 
-    T0::Copy::Rfcp->new(\%rfcphash);
+    T0::Copy::RfcpLite->new(\%rfcphash);
 
     return;
   }
@@ -275,7 +276,7 @@ sub get_work
   $self->send( $heap, \%text );
 }
 
-sub rfcp_done {
+sub copy_done {
   my ( $kernel, $heap, $hash_ref ) = @_[ KERNEL, HEAP, ARG0 ];
 
   my $status = 0;
@@ -347,6 +348,7 @@ sub job_done
     {
       Print "Shutting down...\n";
       $kernel->yield('shutdown');
+      exit;
     }
 }
 
