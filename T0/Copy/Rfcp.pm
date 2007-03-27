@@ -46,7 +46,7 @@ sub start_tasks {
   # remember hash reference
   $heap->{inputhash} = $hash_ref;
 
-  # remember refercne to myself
+  # remember reference to myself
   $heap->{Self} = $self;
 
   # remember SvcClass
@@ -64,6 +64,8 @@ sub start_tasks {
 
   # before spawning wheels, register signal handler
   $kernel->sig( CHLD => "got_sigchld" );
+
+  $ENV{STAGE_SVCCLASS} = $heap->{svcclass} if ( defined $heap->{svcclass} );
 
   # spawn wheels
   foreach my $file ( @{ $hash_ref->{files} } )
@@ -130,14 +132,16 @@ sub start_tasks {
 sub start_wheel {
   my ( $kernel, $heap, $file ) = @_[ KERNEL, HEAP, ARG0 ];
 
-  $ENV{STAGE_SVCCLASS} = $heap->{svcclass} if ( defined $heap->{svcclass} );
+  my $program = 'rfcp';
+#  my $program = 'echo';
+  my @arguments = qw( $file->{source} $file->{target} );
 
   my $task = POE::Wheel::Run->new(
-				  Program => [ "rfcp", $file->{source} , $file->{target} ],
+				  Program => $program,
+				  ProgramArgs => \@arguments,
 				  StdoutFilter => POE::Filter::Line->new(),
 				  StdoutEvent  => "got_task_stdout",
 				  StderrEvent  => "got_task_stderr",
-				  CloseEvent   => "got_task_close",
 				 );
 
   $heap->{task}->{ $task->ID } = $task;
@@ -183,10 +187,10 @@ sub monitor_task {
 }
 
 sub got_task_stdout {
-  my ( $kernel, $heap, $stdout, $task_id ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
+#  my ( $kernel, $heap, $stdout, $task_id ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
 #  print "RFCP STDOUT: $stdout\n";
 
-  push( @{ $heap->{output} }, "RFCP STDOUT: " . $stdout . "\n");
+#  push( @{ $heap->{output} }, "RFCP STDOUT: " . $stdout . "\n");
 
 #  my $file = $heap->{file}->{$task_id};
 #  open(LOGFILE, '>>' . basename($file->{source}) . '.log');
@@ -195,19 +199,15 @@ sub got_task_stdout {
 }
 
 sub got_task_stderr {
-  my ( $kernel, $heap, $stderr, $task_id ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
+#  my ( $kernel, $heap, $stderr, $task_id ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
 #  print "RFCP STDERR: $stderr\n";
 
-  push( @{ $heap->{output} }, "RFCP STDERR: " . $stderr);
+#  push( @{ $heap->{output} }, "RFCP STDERR: " . $stderr);
 
 #  my $file = $heap->{file}->{$task_id};
 #  open(LOGFILE, '>>' . basename($file->{source}) . '.log');
 #  print LOGFILE "$stderr\n";
 #  close(LOGFILE);
-}
-
-sub got_task_close {
-  my ( $kernel, $heap, $task_id ) = @_[ KERNEL, HEAP, ARG0 ];
 }
 
 sub got_sigchld {
@@ -217,13 +217,13 @@ sub got_sigchld {
     {
       my $task_id = $heap->{pid}->{$child_pid};
 
+      delete $heap->{pid}->{$child_pid};
+
       if ( exists $heap->{task}->{ $task_id } )
 	{
 	  $kernel->yield('cleanup_task',($task_id,$status));
 	}
     }
-
-  return 0;
 }
 
 sub cleanup_task {
@@ -248,10 +248,10 @@ sub cleanup_task {
 
       if ( $status != 0 )
 	{
-	  foreach my $line ( @{ $heap->{output} } )
-	    {
-	      print $line . "\n";
-	    }
+#	  foreach my $line ( @{ $heap->{output} } )
+#	    {
+#	      print $line . "\n";
+#	    }
 
 	  $heap->{Self}->Debug("Rfcp of $file failed with status $status\n");
 
@@ -297,6 +297,18 @@ sub cleanup_task {
       if ( $heap->{wheel_count} == 0 )
 	{
 	  $kernel->post( $heap->{session}, $heap->{callback}, $heap->{inputhash} );
+
+	  delete $heap->{inputhash};
+	  delete $heap->{Self};
+	  delete $heap->{svcclass};
+	  delete $heap->{session};
+	  delete $heap->{callback};
+	  delete $heap->{wheel_count};
+	  delete $heap->{output};
+
+	  delete $heap->{task};
+	  delete $heap->{file};
+	  delete $heap->{pid};
 	}
     }
 }
