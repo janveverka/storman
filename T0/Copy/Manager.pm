@@ -425,6 +425,7 @@ sub job_done {
       $self->Quiet("JobDone: Copy id = $input->{id} succeeded\n");
 
       $input->{work}->{OnlineFile} = 't0input.available';
+      $input->{work}->{DAQFileStatusUpdate} = 't0input.copied';
       $self->Log($input->{work});
     }
   else
