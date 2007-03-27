@@ -151,6 +151,15 @@ sub RecoIsPending
 
   $id = $self->{Queue}->enqueue($priority,$work);
   $self->Quiet("Reco $id is queued for ",$work->{File},"\n");
+
+  my %h = ( MonaLisa	=> 1,
+	    Cluster	=> $T0::System{Name},
+	    Node	=> $self->{Node},
+	    QueueLength	=> $self->{Queue}->get_item_count(),
+	    NReco	=> scalar keys %{$self->{queues}},
+	    NActive	=> scalar keys %{$self->{_queue}},
+	  );
+  $self->Log( \%h );
 }
 
 sub SetRecoTimer
