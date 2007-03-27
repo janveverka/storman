@@ -426,12 +426,16 @@ sub job_done {
 
       $input->{work}->{OnlineFile} = 't0input.available';
       $input->{work}->{DAQFileStatusUpdate} = 't0input.copied';
-      $self->Log($input->{work});
     }
   else
     {
       $self->Quiet("JobDone: Copy id = $input->{id} failed, status = $input->{status}\n");
+
+      $input->{work}->{OnlineFile} = 't0input.not_available';
+      $input->{work}->{DAQFileStatusUpdate} = 't0input.copy_failed';
     }
+
+    $self->Log($input->{work});
 }
 
 1;

@@ -302,8 +302,12 @@ sub client_input
         $self->Debug("$i : ",join(' ',%{$g->{$i}}),"\n");
         if ( $input->{$k} =~ m%^$g->{$i}->{Value}$% )
         {
-          $self->Debug(" Value matches!\n");
-          $self->{Filter}{$k}{$i}{Logger}->Send($input);
+          $self->Debug(" Value matches\n");
+          if (defined $input && defined ($self->{Filter}{$k}{$i}{Logger})) {
+	    $self->{Filter}{$k}{$i}{Logger}->Send($input);
+	  } else {
+	    $self->Debug("Input is not defined for $i\n");
+	  };
         }
       }
     }
