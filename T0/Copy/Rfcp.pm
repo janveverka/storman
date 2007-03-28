@@ -132,9 +132,23 @@ sub start_tasks {
 sub start_wheel {
   my ( $kernel, $heap, $file ) = @_[ KERNEL, HEAP, ARG0 ];
 
-  my $program = 'rfcp';
-#  my $program = 'echo';
-  my @arguments = qw( $file->{source} $file->{target} );
+#  $file->{original}->{status} = 0;
+
+#  $kernel->post( $heap->{session}, $heap->{callback}, $heap->{inputhash} );
+
+#  delete $heap->{inputhash};
+#  delete $heap->{Self};
+#  delete $heap->{svcclass};
+#  delete $heap->{session};
+#  delete $heap->{callback};
+#  delete $heap->{wheel_count};
+#  delete $heap->{output};
+
+#  return;
+
+#  my $program = 'rfcp';
+  my $program = 'echo';
+  my @arguments = ( $file->{source} $file->{target} );
 
   my $task = POE::Wheel::Run->new(
 				  Program => $program,
