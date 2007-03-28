@@ -203,7 +203,7 @@ sub server_input {
 
     $heap->{Self}->Debug("Copy " . $hash_ref->{id} . " started\n");
 
-    T0::Copy::RfcpLite->new(\%rfcphash);
+    T0::Copy::Rfcp->new(\%rfcphash);
 
     return;
   }
@@ -279,13 +279,12 @@ sub get_work
 sub copy_done {
   my ( $kernel, $heap, $hash_ref ) = @_[ KERNEL, HEAP, ARG0 ];
 
-  my $status = 0;
   foreach my $file ( @{ $hash_ref->{files} } )
     {
       if ( $file->{status} != 0 )
 	{
 	  $heap->{Self}->Debug("rfcp " . $file->{source} . " " . $file->{target} . " returned " . $file->{status} . "\n");
-	  $heap->{HashRef}->{status} = $status;
+	  $heap->{HashRef}->{status} = $file->{status};
 	  last;
 	}
     }
