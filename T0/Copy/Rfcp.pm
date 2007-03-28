@@ -146,9 +146,9 @@ sub start_wheel {
 
 #  return;
 
-  my $program = 'rfcp';
-#  my $program = 'echo';
-  my @arguments = ( $file->{source} $file->{target} );
+#  my $program = 'rfcp';
+  my $program = 'echo';
+  my @arguments = ( $file->{source}, $file->{target} );
 
   my $task = POE::Wheel::Run->new(
 				  Program => $program,
