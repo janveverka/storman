@@ -65,7 +65,18 @@ sub start_tasks {
   # before spawning wheels, register signal handler
   $kernel->sig( CHLD => "got_sigchld" );
 
-  $ENV{STAGE_SVCCLASS} = $heap->{svcclass} if ( defined $heap->{svcclass} );
+  if ( defined $heap->{svcclass} )
+    {
+      $ENV{STAGE_SVCCLASS} = $heap->{svcclass};
+    }
+  else
+    {
+      $heap->{Self}->Quiet("SvcClass not set, use t0input!\n");
+      $ENV{STAGE_SVCCLASS} = 't0input';
+    }
+
+  $ENV{STAGER_TRACE} = 3;
+  $ENV{RFIO_TRACE} = 3;
 
   # spawn wheels
   foreach my $file ( @{ $hash_ref->{files} } )
@@ -201,27 +212,27 @@ sub monitor_task {
 }
 
 sub got_task_stdout {
-#  my ( $kernel, $heap, $stdout, $task_id ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
+  my ( $kernel, $heap, $stdout, $task_id ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
 #  print "RFCP STDOUT: $stdout\n";
 
 #  push( @{ $heap->{output} }, "RFCP STDOUT: " . $stdout . "\n");
 
-#  my $file = $heap->{file}->{$task_id};
-#  open(LOGFILE, '>>' . basename($file->{source}) . '.log');
-#  print LOGFILE "$stdout\n";
-#  close(LOGFILE);
+  my $file = $heap->{file}->{$task_id};
+  open(LOGFILE, '>>' . basename($file->{source}) . '.log');
+  print LOGFILE "$stdout\n";
+  close(LOGFILE);
 }
 
 sub got_task_stderr {
-#  my ( $kernel, $heap, $stderr, $task_id ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
+  my ( $kernel, $heap, $stderr, $task_id ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
 #  print "RFCP STDERR: $stderr\n";
 
 #  push( @{ $heap->{output} }, "RFCP STDERR: " . $stderr);
 
-#  my $file = $heap->{file}->{$task_id};
-#  open(LOGFILE, '>>' . basename($file->{source}) . '.log');
-#  print LOGFILE "$stderr\n";
-#  close(LOGFILE);
+  my $file = $heap->{file}->{$task_id};
+  open(LOGFILE, '>>' . basename($file->{source}) . '.log');
+  print LOGFILE "$stderr\n";
+  close(LOGFILE);
 }
 
 sub got_sigchld {
@@ -267,11 +278,11 @@ sub cleanup_task {
 #	      print $line . "\n";
 #	    }
 
-	  $heap->{Self}->Debug("Rfcp of $file failed with status $status\n");
+	  $heap->{Self}->Quiet("Rfcp of $file failed with status $status\n");
 
 	  if ( $file->{retries} > 0 )
 	    {
-	      $heap->{Self}->Debug("Retry count at " . $file->{retries} . " , retrying\n");
+	      $heap->{Self}->Quiet("Retry count at " . $file->{retries} . " , retrying\n");
 
 	      $file->{retries}--;
 
@@ -290,6 +301,28 @@ sub cleanup_task {
 		      qx { rfmkdir -p $targetdir };
 		    }
 		}
+
+	      #
+              # remove target file if it exists
+              #
+              my $deleteBeforeRetry = 1;
+              if ( $deleteBeforeRetry == 1 )
+                {
+                  $heap->{Self}->Quiet("Deleting file before retrying\n");
+
+                  my $targetfile = $file->{target} . '/' . basename( $file->{source} );
+
+                  if ( $targetfile =~ m/^\/castor/ )
+                    {
+                      qx {stager_rm -M $targetfile};
+                      qx {nsrm $targetfile};
+                    }
+                  else
+                    {
+                      qx {rfrm $targetfile};
+                    }
+                }
+
 
 	      if ( exists $file->{retry_backoff} )
 		{

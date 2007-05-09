@@ -136,6 +136,46 @@ sub Log
   $logger->Send(@_) if defined $logger;
 }
 
+sub prepare_work
+{
+  my ($self, $work) = @_;
+
+  # just to be sure
+  $work->{dataset} = $work->{Dataset} if ( defined $work->{Dataset} );
+
+  # deciding what parameters set to apply according to the dataset
+  my $dsparams;
+  if ( exists($work->{dataset}) && exists($self->{DatasetPathConfiguration}->{$work->{dataset}}) ){
+    $dsparams = $self->{DatasetPathConfiguration}->{$work->{dataset}};
+  } else {
+    $dsparams = $self->{DatasetPathConfiguration}->{default};
+  };
+
+  # feed parameters into work hash
+  map{ $work->{$_} = $dsparams->{$_} } keys %$dsparams;
+
+  # doesn't work 'cause CODE is not storable in Filter component
+  # $work->{TargetDir} .= $work->{GetDirSuffix}->($work);
+
+  # If day-by-day new directories are needed...
+  if ( $work->{SplitByDay} )
+    {
+      my ($day,$month,$year) = (localtime(time))[3,4,5];
+
+      $day = $day < 10 ? $day = "0".$day : $day;
+
+      $month += 1;
+      $month = $month < 10 ? $month = "0".$month : $month;
+
+      $year += 1900;
+
+      $work->{TargetDir} .= "/" . $year . $month . $day;
+    }
+
+  return $work
+};
+
+
 sub _server_input { reroute_event( (caller(0))[3], @_ ); }
 sub server_input {
   my ( $self, $kernel, $heap, $session, $hash_ref ) = @_[ OBJECT, KERNEL, HEAP, SESSION, ARG0 ];
@@ -159,6 +199,9 @@ sub server_input {
     # nothing went wrong yet
     $hash_ref->{status} = 0;
 
+    # Preparing....
+    $work = prepare_work($self, $work);
+
     # mark start time
     $heap->{WorkStarted} = time;
 
@@ -172,20 +215,21 @@ sub server_input {
     $heap->{Self}->Log( \%loghash );
 
     my %rfcphash = (
-		    svcclass => $hash_ref->{SvcClass},
+		    svcclass => $work->{SvcClass},
 		    session => $session,
 		    callback => 'copy_done',
-		    timeout => 3600,
-		    retries => 0,
+		    timeout => $work->{TimeOut},
+		    retries => $work->{Retry},
+  		    retry_backoff => $work->{RetryBackoff},
 		    files => []
 		   );
 
-#    while ( my ($key, $value) = each(%{$work}) ) {
-#      if ( defined $value )
-#	{
-#	  print "$key => $value\n";
-#	}
-#    }
+    while ( my ($key, $value) = each(%{$work}) ) {
+      if ( defined $value )
+	{
+	  print "$key => $value\n";
+	}
+    }
 
     $heap->{Self}->Debug("Copy " . $hash_ref->{id} . " added " . $work->{PFN} . "\n");
 
@@ -199,7 +243,7 @@ sub server_input {
 	$sourcefile = $work->{PFN};
       }
 
-    push(@{ $rfcphash{files} }, { source => $sourcefile, target => $heap->{TargetDir} } );
+    push(@{ $rfcphash{files} }, { source => $sourcefile, target => $work->{TargetDir} } );
 
     $heap->{Self}->Debug("Copy " . $hash_ref->{id} . " started\n");
 
