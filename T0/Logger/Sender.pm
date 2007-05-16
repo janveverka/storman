@@ -146,9 +146,14 @@ sub server_error { Print $hdr," Server error\n"; }
 sub _connection_error_handler { reroute_event( (caller(0))[3], @_ ); }
 sub connection_error_handler
 {
-  my ( $self, $kernel ) = @_[ OBJECT, KERNEL ];
+  my ( $self, $kernel, $heap ) = @_[ OBJECT, KERNEL, HEAP ];
 
   return if $self->{OnError}(@_);
+
+  # Stop reconnecting  if the sender is shutting down
+  if($heap->{shutdown} == 1){
+      return;
+  }
 
   my $retry = $self->{RetryInterval};
   defined($retry) && $retry>0 || return;
