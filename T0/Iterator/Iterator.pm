@@ -82,6 +82,8 @@ sub start_task {
   $heap->{CallbackMethod} = $self->{CallbackMethod};
   $heap->{SizeTable} = $self->{SizeTable};
   $heap->{Notify} = $self->{Notify};
+  $heap->{SenderWatcher} = $self->{SenderWatcher};
+  $heap->{Sender} = $self->{Sender};
 
   $heap->{WaitForData} = 1;
   $heap->{WaitForDataInterval} = 1;
@@ -215,6 +217,7 @@ sub inject_file {
       $heap->{Self}->Quiet("Reached maximum file count, exiting\n");
 
       $heap->{Watcher}->RemoveClient($session);
+      $heap->{SenderWatcher}->RemoveObject($heap->{Sender});
 
       if ( defined $heap->{Persistent} )
 	{
@@ -223,10 +226,12 @@ sub inject_file {
 	}
       delete $heap->{Self}->{Session};
 
-      #return 1;
+      $kernel->post( $heap->{CallbackSession}, 'shutdown');
+      
+      return 1;
 
       # for now just exit
-      exit 0;
+      #exit 0;
     }
 
   # loop over files, find first uninjected
@@ -277,6 +282,7 @@ sub inject_file {
 	  $heap->{Self}->Quiet("No more data, not waiting anymore\n");
 
 	  $heap->{Watcher}->RemoveClient($session);
+	  $heap->{SenderWatcher}->RemoveObject($heap->{Sender});
 
 	  if ( defined $heap->{Persistent} )
 	    {
@@ -285,10 +291,12 @@ sub inject_file {
 	    }
 	  delete $heap->{Self}->{Session};
 
-	  #return 1;
+	  $kernel->post( $heap->{CallbackSession}, 'shutdown'); 
+	  	  
+	  return 1;
 
 	  # for now just exit
-	  exit 0;
+	  #exit 0;
 	}
     }
 
@@ -331,8 +339,14 @@ sub inject_file {
     $heap->{Self}->Verbose("Set interval=",$heap->{Interval}," for ",$heap->{Rate}," MB/sec\n");
   }
 
-  if ( defined $heap->{Interval} ) { $kernel->delay_set( 'inject_file', $heap->{Interval} ); }
-  else { $kernel->yield( 'inject_file' ); }
+  if ( defined $heap->{Interval} ) 
+  { 
+      $kernel->delay_set( 'inject_file', $heap->{Interval} ); 
+  }
+  else 
+  { 
+      $kernel->yield( 'inject_file' ); 
+  }
   return 1;
 }
 
