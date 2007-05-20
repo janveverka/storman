@@ -420,22 +420,36 @@ sub client_input
 sub job_done {
   my ( $self, $kernel, $heap, $session, $input ) = @_[ OBJECT, KERNEL, HEAP, SESSION, ARG0 ];
 
+
+#  while ( my ($key, $value) = each(%$input) ) {
+#        print "Inside JobDone: $key => $value\n";
+#    }
+
+  my %loghash = (
+                 FILENAME => $input->{work}->{FILENAME},
+                 STOP_TIME => $input->{work}->{STOP_TIME},
+                 T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},
+                );
+
   if ( $input->{status} == 0 )
     {
       $self->Quiet("JobDone: CopyCheck id = $input->{id} succeeded\n");
 
-      $input->{work}->{OnlineFile} = 't0input.available';
-      $input->{work}->{DAQFileStatusUpdate} = 't0input.checked';
+      $loghash{DAQFileStatusUpdate} = 't0input.checked';
     }
   else
     {
       $self->Quiet("JobDone: CopyCheck id = $input->{id} failed, status = $input->{status}\n");
 
-      $input->{work}->{OnlineFile} = 't0input.not_available';
-      $input->{work}->{DAQFileStatusUpdate} = 't0input.check_failed';
+      $loghash{DAQFileStatusUpdate} = 't0input.check_failed';
     }
 
-    $self->Log($input->{work});
+  if ( exists $input->{work}->{Resent} )
+    {
+      $loghash{Resent} = $input->{work}->{Resent};
+    }
+
+  $self->Log( \%loghash );
 }
 
 1;

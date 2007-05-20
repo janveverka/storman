@@ -58,7 +58,6 @@ sub new
 				 server_input => 'server_input',
 				 connected => 'connected',
 				 connection_error_handler => 'connection_error_handler',
-# TO BE REMOVED			 copy_done => 'copy_done',
 				 job_done => 'job_done',
 				 get_work => 'get_work',
 				]
@@ -149,148 +148,71 @@ sub server_input {
     $kernel->delay_set( 'get_work', 10 );
     return;
   }
-  
+
   if ( $command =~ m%DoThis% )
   {
+    $heap->{HashRef} = $hash_ref;
 
-########### SvcClass checked at process_file function inside manager.pm module ####################
-#      if ( exists $work->{SvcClass} )
-#      {
-#	  $ENV{STAGE_SVCCLASS} = $work->{SvcClass};
-#      }
-#      else
-#      {
-#	  $ENV{STAGE_SVCCLASS} = 't0input';
-#      }
+    my $work = $hash_ref->{work};
+    my $pfn = $work->{PFN};
 
-      $heap->{HashRef} = $hash_ref;
+    # SvcClass checked in Manager already
+    $ENV{STAGE_SVCCLASS} = $work->{SvcClass};
 
-      my $work = $hash_ref->{work};
-      my $pfn = $work->{PFN};
-      
-      # nothing went wrong yet
-      $hash_ref->{status} = 0;
-      
-      # mark start time
-      $heap->{WorkStarted} = time;
+    # nothing went wrong yet
+    $hash_ref->{status} = 0;
 
-      
-      # check if file exists
-      my @stats = qx {rfstat $pfn};
-      
-      if ( $? != 0 )
+    # mark start time
+    $heap->{WorkStarted} = time;
+
+    # check if file exists
+    my @stats = qx {rfstat $pfn};
+
+    if ( $? != 0 )
       {
-	  print "Rfstat failed, output follows\n";
-	  foreach my $stat ( @stats )
+	print "Rfstat failed, output follows\n";
+	foreach my $stat ( @stats )
 	  {
-	      print "RFSTAT: " . $stat . "\n";
+	    print "RFSTAT: " . $stat . "\n";
 	  }
-	  $hash_ref->{status} = 1;
+	$hash_ref->{status} = 1;
       }
-      else
+    else
       {
-	  foreach my $stat ( @stats )
+	foreach my $stat ( @stats )
 	  {
-	      if ( $stat =~ /^Size/)
+	    if ( $stat =~ /^Size/)
 	      {
-		  chomp($stat);
-		  my ($dummy,$size) = split (" : ",$stat);
-		  
-		  if ( $size == $work->{SIZE} )
+		chomp($stat);
+		my ($dummy,$size) = split (" : ",$stat);
+
+		if ( $size == $work->{FILESIZE} )
 		  {
-		      $heap->{Self}->Quiet("File size matches.\n");
+		    $heap->{Self}->Quiet("File size matches.\n");
+
+		    # delete file
+		    if ( $pfn =~ m/^\/castor/ )
+		      {
+			#qx {stager_rm -M $pfn};
+			#qx {nsrm $pfn};
+		      }
+		    else
+		      {
+			#qx {rfrm $pfn};
+		      }
 		  }
-		  else
+		else
 		  {
-		      $heap->{Self}->Quiet("File size doesn't match.\n");
-		      $hash_ref->{status} = 1;
+		    $heap->{Self}->Quiet("File size doesn't match.\n");
+		    $hash_ref->{status} = 1;
 		  }
 	      }
 	  }
       }
-      
-      
-      my %loghash = (
-		     PFN => $work->{PFN},
-		     STOP_TIME => $work->{STOP_TIME},
-		     T0FirstKnownTime => $work->{T0FirstKnownTime},
-		     );
-      
-      if ( $hash_ref->{status} == 0 )
-      {
-	  $loghash{DAQFileStatusUpdate} = 't0input.checked';
-      }
-      else
-      {
-	  $loghash{DAQFileStatusUpdate} = 't0input.check_failed';
-      }
-      
-      if ( exists $work->{Resent} )
-      {
-	  $loghash{Resent} = $work->{Resent};
-      }
-      
-      $heap->{Self}->Log( \%loghash );
 
       $kernel->yield('job_done');
-      
+
       return;
-######################################### TO BE CHANGED ########################################################
-#    $heap->{HashRef} = $hash_ref;
-
-#    my $work = $hash_ref->{work};
-
-    # nothing went wrong yet
-#    $hash_ref->{status} = 0;
-
-    # mark start time
-#    $heap->{WorkStarted} = time;
-
-    # send another message to logger (for MonaLisa)
-#    my %loghash = (
-#		   MonaLisa => 1,
-#		   Cluster => $T0::System{Name},
-#		   Node => $heap->{Node},
-#		   IdleTime => $heap->{WorkStarted} - $heap->{WorkRequested},
-#		  );
-#    $heap->{Self}->Log( \%loghash );
-
-#    my %rfcphash = (
-#		    svcclass => $hash_ref->{SvcClass},
-#		    session => $session,
-#		    callback => 'copy_done',
-#		    timeout => 3600,
-#		    retries => 0,
-#		    files => []
-#		   );
-
-#    while ( my ($key, $value) = each(%{$work}) ) {
-#      if ( defined $value )
-#	{
-#	  print "$key => $value\n";
-#	}
-#    }
-
-#    $heap->{Self}->Debug("Copy " . $hash_ref->{id} . " added " . $work->{PFN} . "\n");
-
-#    my $sourcefile;
-#    if ( defined $work->{PATHNAME} )
-#      {
-#	$sourcefile = $work->{PATHNAME} . '/' . $work->{PFN};
-#      }
-#    else
-#      {
-#	$sourcefile = $work->{PFN};
-#      }
-
-#    push(@{ $rfcphash{files} }, { source => $sourcefile, target => $heap->{TargetDir} } );
-
-#    $heap->{Self}->Debug("Copy " . $hash_ref->{id} . " started\n");
-
-#    T0::Copy::Rfcp->new(\%rfcphash);
-
-#    return;
-######################################### TO BE CHANGED ########################################################
   }
 
   if ( $command =~ m%Setup% )
@@ -362,68 +284,9 @@ sub get_work
 }
 
 
-######################################### TO BE REMOVED ########################################################
-#sub copy_done {
-#  my ( $kernel, $heap, $hash_ref ) = @_[ KERNEL, HEAP, ARG0 ];
-
-#  foreach my $file ( @{ $hash_ref->{files} } )
-#    {
-#      if ( $file->{status} != 0 )
-#	{
-#	  $heap->{Self}->Debug("rfcp " . $file->{source} . " " . $file->{target} . " returned " . $file->{status} . "\n");
-#	  $heap->{HashRef}->{status} = $file->{status};
-#	  last;
-#	}
-#    }
-
-#  $kernel->yield('job_done');
-#}
-######################################### TO BE REMOVED ########################################################
-
 sub job_done
 {
   my ( $self, $heap, $kernel ) = @_[ OBJECT, HEAP, KERNEL ];
-
-######################################### TO BE REMOVED ########################################################
-  #
-  # should we remove target file if the copy failed ?
-  #
-
-#  if ( $heap->{HashRef}->{status} == 0 )
-#    {
-#      $heap->{Self}->Verbose("Copy " . $heap->{HashRef}->{id} . " succeeded\n");
-
-      # record copy time
-#      $heap->{HashRef}->{time} = time - $heap->{WorkStarted};
-
-      # send message to logger
-#      my %loghash1 = (
-#		      CopyID => $heap->{HashRef}->{id},
-#		      Status => $heap->{HashRef}->{status},
-#		     );
-#      $heap->{Self}->Log( \%loghash1 );
-
-      # send another message to logger (for MonaLisa)
-#      my %loghash2 = (
-#		      MonaLisa => 1,
-#		      Cluster => $T0::System{Name},
-#		      Node => $heap->{Node},
-#		      CopyTime => $heap->{HashRef}->{time},
-#		     );
-#      $heap->{Self}->Log( \%loghash2 );
-#    }
-#  else
-#    {
-#      $heap->{Self}->Verbose("Copy " . $heap->{HashRef}->{id} . " failed\n");
-
-      # send message to logger
-#      my %loghash1 = (
-#		      CopyID => $heap->{HashRef}->{id},
-#		      Status => $heap->{HashRef}->{status},
-#		     );
-#      $heap->{Self}->Log( \%loghash1 );
-#    }
-######################################### TO BE REMOVED ########################################################
 
   # send report back to manager
   $heap->{HashRef}->{command} = 'JobDone';
