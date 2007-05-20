@@ -425,7 +425,7 @@ sub job_done {
 #        print "Inside JobDone: $key => $value\n";
 #    }
 
-  my %loghash = (
+  my %loghash1 = (
                  FILENAME => $input->{work}->{FILENAME},
                  STOP_TIME => $input->{work}->{STOP_TIME},
                  T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},
@@ -435,21 +435,37 @@ sub job_done {
     {
       $self->Quiet("JobDone: CopyCheck id = $input->{id} succeeded\n");
 
-      $loghash{DAQFileStatusUpdate} = 't0input.checked';
+      $loghash1{DAQFileStatusUpdate} = 't0input.checked';
+
+      if ( $input->{work}->{TYPE} == 'streamer' )
+	{
+	  my %loghash2 = (
+			  DBSUpdate => 1,
+			  RUNNUMBER => $input->{work}->{RUNNUMBER},
+			  LUMISECTION => $input->{work}->{LUMISECTION},
+			  LFN => $input->{work}->{LFN},
+			  NEVENTS => $input->{work}->{NEVENTS},
+			  START_TIME => $input->{work}->{START_TIME},
+			  STOP_TIME => $input->{work}->{STOP_TIME},
+			  DATASET => $input->{work}->{DATASET},
+			  STREAM => $input->{work}->{STREAM},
+			 );
+	  $self->Log( \%loghash2 );
+	}
     }
   else
     {
       $self->Quiet("JobDone: CopyCheck id = $input->{id} failed, status = $input->{status}\n");
 
-      $loghash{DAQFileStatusUpdate} = 't0input.check_failed';
+      $loghash1{DAQFileStatusUpdate} = 't0input.check_failed';
     }
 
   if ( exists $input->{work}->{Resent} )
     {
-      $loghash{Resent} = $input->{work}->{Resent};
+      $loghash1{Resent} = $input->{work}->{Resent};
     }
 
-  $self->Log( \%loghash );
+  $self->Log( \%loghash1 );
 }
 
 1;
