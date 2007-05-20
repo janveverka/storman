@@ -75,7 +75,6 @@ sub start_task {
   $heap->{Self} = $self;
 
   # put some parameters on heap
-  $heap->{TargetDir} = $self->{TargetDir};
   $heap->{Node} = $self->{Node};
 
   #initialize some parameters
@@ -140,13 +139,10 @@ sub prepare_work
 {
   my ($self, $work) = @_;
 
-  # just to be sure
-  $work->{dataset} = $work->{Dataset} if ( defined $work->{Dataset} );
-
   # deciding what parameters set to apply according to the dataset
   my $dsparams;
-  if ( exists($work->{dataset}) && exists($self->{DatasetPathConfiguration}->{$work->{dataset}}) ){
-    $dsparams = $self->{DatasetPathConfiguration}->{$work->{dataset}};
+  if ( exists($work->{DATASET}) && exists($self->{DatasetPathConfiguration}->{$work->{DATASET}}) ){
+    $dsparams = $self->{DatasetPathConfiguration}->{$work->{DATASET}};
   } else {
     $dsparams = $self->{DatasetPathConfiguration}->{default};
   };
@@ -202,6 +198,14 @@ sub server_input {
     # Preparing....
     $work = prepare_work($self, $work);
 
+    # source file
+    my $sourcefile = $work->{PATHNAME} . '/' . $work->{FILENAME};
+
+    # target file
+    $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
+    my $targetfile = $work->{PFN};
+    delete $work->{TargetDir};
+
     # mark start time
     $heap->{WorkStarted} = time;
 
@@ -231,19 +235,9 @@ sub server_input {
 	}
     }
 
-    $heap->{Self}->Debug("Copy " . $hash_ref->{id} . " added " . $work->{PFN} . "\n");
+    $heap->{Self}->Debug("Copy " . $hash_ref->{id} . " added " . basename($sourcefile) . "\n");
 
-    my $sourcefile;
-    if ( defined $work->{PATHNAME} )
-      {
-	$sourcefile = $work->{PATHNAME} . '/' . $work->{PFN};
-      }
-    else
-      {
-	$sourcefile = $work->{PFN};
-      }
-
-    push(@{ $rfcphash{files} }, { source => $sourcefile, target => $work->{TargetDir} } );
+    push(@{ $rfcphash{files} }, { source => $sourcefile, target => $targetfile } );
 
     $heap->{Self}->Debug("Copy " . $hash_ref->{id} . " started\n");
 
@@ -339,10 +333,6 @@ sub copy_done {
 sub job_done
 {
   my ( $self, $heap, $kernel ) = @_[ OBJECT, HEAP, KERNEL ];
-
-  #
-  # should we remove target file if the copy failed ?
-  #
 
   if ( $heap->{HashRef}->{status} == 0 )
     {
