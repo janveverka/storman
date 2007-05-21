@@ -449,6 +449,7 @@ sub job_done {
 			  STOP_TIME => $input->{work}->{STOP_TIME},
 			  DATASET => $input->{work}->{DATASET},
 			  STREAM => $input->{work}->{STREAM},
+			  FILESIZE => $input->{work}->{FILESIZE},
 			  CHECKSUM => $input->{work}->{CHECKSUM},
 			 );
 	  $self->Log( \%loghash2 );
