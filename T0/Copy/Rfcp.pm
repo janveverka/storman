@@ -75,9 +75,6 @@ sub start_tasks {
       $ENV{STAGE_SVCCLASS} = 't0input';
     }
 
-  $ENV{STAGER_TRACE} = 3;
-  $ENV{RFIO_TRACE} = 3;
-
   # spawn wheels
   foreach my $file ( @{ $hash_ref->{files} } )
     {
@@ -143,23 +140,13 @@ sub start_tasks {
 sub start_wheel {
   my ( $kernel, $heap, $file ) = @_[ KERNEL, HEAP, ARG0 ];
 
-#  $file->{original}->{status} = 0;
-
-#  $kernel->post( $heap->{session}, $heap->{callback}, $heap->{inputhash} );
-
-#  delete $heap->{inputhash};
-#  delete $heap->{Self};
-#  delete $heap->{svcclass};
-#  delete $heap->{session};
-#  delete $heap->{callback};
-#  delete $heap->{wheel_count};
-#  delete $heap->{output};
-
-#  return;
-
   my $program = 'rfcp';
-#  my $program = 'echo';
   my @arguments = ( $file->{source}, $file->{target} );
+
+  $heap->{Self}->Quiet("Start copy from $file->{source} to $file->{target}\n");
+
+  $ENV{STAGER_TRACE} = 3;
+  $ENV{RFIO_TRACE} = 3;
 
   my $task = POE::Wheel::Run->new(
 				  Program => $program,
@@ -290,36 +277,42 @@ sub cleanup_task {
 	      #
 	      # FIXME: parse rfstat output to check if it's really a directory
 	      #
+	      my $createdTargetDirectory = 0;
 	      if ( $status == 256 )
 		{
 		  my $targetdir = dirname( $file->{target} );
 
-		  my @temp = qx { rfstat $targetdir 2> /dev/null };
+		  $heap->{Self}->Quiet("Checking if directory $targetdir exists\n");
+
+		  my @temp = qx { unset STAGER_TRACE ; unset RFIO_TRACE ; rfstat $targetdir 2> /dev/null };
 
 		  if ( scalar @temp == 0 )
 		    {
+		      $heap->{Self}->Quiet("Creating directory $targetdir\n");
 		      qx { rfmkdir -p $targetdir };
+		      $createdTargetDirectory = 1;
 		    }
 		}
 
 	      #
               # remove target file if it exists
+	      # only if I didn't create the target
+	      # directory in the previous step
+	      #
+	      # FIXME need a config option for this
               #
-              my $deleteBeforeRetry = 1;
-              if ( $deleteBeforeRetry == 1 )
+              if ( $createdTargetDirectory == 0 )
                 {
                   $heap->{Self}->Quiet("Deleting file before retrying\n");
 
-                  my $targetfile = $file->{target} . '/' . basename( $file->{source} );
-
-                  if ( $targetfile =~ m/^\/castor/ )
+                  if ( $file->{target} =~ m/^\/castor/ )
                     {
-                      qx {stager_rm -M $targetfile};
-                      qx {nsrm $targetfile};
+                      qx {stager_rm -M $file->{target} 2> /dev/null};
+                      qx {nsrm $file->{target} 2> /dev/null};
                     }
                   else
                     {
-                      qx {rfrm $targetfile};
+                      qx {rfrm $file->{target} 2> /dev/null};
                     }
                 }
 
