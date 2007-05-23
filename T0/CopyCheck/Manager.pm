@@ -437,7 +437,7 @@ sub job_done {
 
       $loghash1{DAQFileStatusUpdate} = 't0input.checked';
 
-      if ( $input->{work}->{TYPE} == 'streamer' )
+      if ( $input->{work}->{TYPE} == 'streamer' and defined $input->{work}->{LFN})
 	{
 	  my %loghash2 = (
 			  DBSUpdate => 1,
