@@ -1,4 +1,4 @@
-buse strict;
+use strict;
 use warnings;
 package T0::CopyCheck::Worker;
 use POE;
