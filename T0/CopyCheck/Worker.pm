@@ -8,8 +8,7 @@ use Sys::Hostname;
 use File::Basename;
 use XML::Twig;
 use T0::Util;
-#use T0::Copy::Rfcp;
-#use T0::Copy::RfcpLite;
+
 
 our (@ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION);
 
@@ -60,6 +59,7 @@ sub new
 				 connection_error_handler => 'connection_error_handler',
 				 job_done => 'job_done',
 				 get_work => 'get_work',
+				 check_file => 'check_file',
 				]
 	],
   );
@@ -135,6 +135,102 @@ sub Log
   $logger->Send(@_) if defined $logger;
 }
 
+
+
+########################################################################################
+# Call rfstat and check the file.
+# RfstatRetries is the number of retries in case of receiving error from rfstat command.
+# RfstatBackoff is the delay between tries.
+# If DeleteAfterCheck is set the files will be removed on success check.
+########################################################################################
+sub check_file {
+  my ( $self, $kernel, $heap, $session ) = @_[ OBJECT, KERNEL, HEAP, SESSION ];
+
+  my $hash_ref = $heap->{HashRef};
+  my $work = $hash_ref->{work};
+  my $pfn = $work->{PFN};
+
+  # nothing went wrong yet
+  $hash_ref->{status} = 0;
+
+
+  # check if file exists
+  my @stats = qx {rfstat $pfn};
+  
+  if ( $? != 0 )
+  {
+      $self->Quiet("Rfstat failed, output follows\n");
+      foreach my $stat ( @stats )
+      {
+	  $self->Quiet("RFSTAT: " . $stat . "\n");
+      }
+
+      # Check if we have to retry the command after the fail
+      if ( defined($self->{RfstatRetriesOnThisFile}) && $self->{RfstatRetriesOnThisFile}>0 )
+      {
+	  $self->Quiet("Retrying rfstat on $pfn...\n");
+	  $self->{RfstatRetriesOnThisFile}--;
+
+	  if ( defined($self->{RfstatRetryBackoff}) )
+	  {
+	      $kernel->delay_set('check_file', $self->{RfstatRetryBackoff});
+	  }
+	  else
+	  {
+	      $kernel->yield('check_file');
+	  }	  
+	  return;
+      }
+      # Without more retries status is set
+      else
+      {
+	  $self->Quiet("No more retries rfstat on $pfn...\n");
+	  $hash_ref->{status} = 1;	  
+      }
+  }
+  else
+  {
+      foreach my $stat ( @stats )
+      {
+	  if ( $stat =~ /^Size/)
+	  {
+	      chomp($stat);
+	      my ($dummy,$size) = split (" : ",$stat);
+	      
+	      if ( $size == $work->{FILESIZE} )
+	      {
+		  $heap->{Self}->Quiet($pfn, " size matches.\n");
+		  
+		  # delete file if DeleteAfterCheck flag is set
+		  if (defined($self->{DeleteAfterCheck}) && $self->{DeleteAfterCheck} == 1)
+		  {
+		      if ( $pfn =~ m/^\/castor/ )
+		      {
+			  qx {stager_rm -M $pfn};
+			  qx {nsrm $pfn};
+		      }
+		      else
+		      {
+			  qx {rfrm $pfn};
+		      }
+		      
+		      $heap->{Self}->Quiet($pfn, " deleted.\n");
+		  }
+	      }
+	      else
+	      {
+		  $heap->{Self}->Quiet($pfn, " size doesn't match.\n");
+		  $hash_ref->{status} = 1;
+	      }
+	  }
+      }
+  }
+  
+  $kernel->yield('job_done');
+  
+}
+
+
 sub _server_input { reroute_event( (caller(0))[3], @_ ); }
 sub server_input {
   my ( $self, $kernel, $heap, $session, $hash_ref ) = @_[ OBJECT, KERNEL, HEAP, SESSION, ARG0 ];
@@ -153,66 +249,20 @@ sub server_input {
   {
     $heap->{HashRef} = $hash_ref;
 
-    my $work = $hash_ref->{work};
-    my $pfn = $work->{PFN};
-
     # SvcClass checked in Manager already
-    $ENV{STAGE_SVCCLASS} = $work->{SvcClass};
-
-    # nothing went wrong yet
-    $hash_ref->{status} = 0;
+    $ENV{STAGE_SVCCLASS} = $heap->{HashRef}->{work}->{SvcClass};
 
     # mark start time
     $heap->{WorkStarted} = time;
 
-    # check if file exists
-    my @stats = qx {rfstat $pfn};
+    if ( defined($self->{RfstatRetries}) )
+    {
+	$self->{RfstatRetriesOnThisFile} = $self->{RfstatRetries};
+    }
+    
+    $kernel->yield('check_file');
 
-    if ( $? != 0 )
-      {
-	print "Rfstat failed, output follows\n";
-	foreach my $stat ( @stats )
-	  {
-	    print "RFSTAT: " . $stat . "\n";
-	  }
-	$hash_ref->{status} = 1;
-      }
-    else
-      {
-	foreach my $stat ( @stats )
-	  {
-	    if ( $stat =~ /^Size/)
-	      {
-		chomp($stat);
-		my ($dummy,$size) = split (" : ",$stat);
-
-		if ( $size == $work->{FILESIZE} )
-		  {
-		    $heap->{Self}->Quiet("File size matches.\n");
-
-		    # delete file
-		    if ( $pfn =~ m/^\/castor/ )
-		      {
-			#qx {stager_rm -M $pfn};
-			#qx {nsrm $pfn};
-		      }
-		    else
-		      {
-			#qx {rfrm $pfn};
-		      }
-		  }
-		else
-		  {
-		    $heap->{Self}->Quiet("File size doesn't match.\n");
-		    $hash_ref->{status} = 1;
-		  }
-	      }
-	  }
-      }
-
-      $kernel->yield('job_done');
-
-      return;
+    return;
   }
 
   if ( $command =~ m%Setup% )
