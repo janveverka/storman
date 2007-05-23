@@ -1,4 +1,4 @@
-use strict;
+buse strict;
 use warnings;
 package T0::CopyCheck::Worker;
 use POE;
@@ -202,7 +202,7 @@ sub check_file {
 		  $heap->{Self}->Quiet($pfn, " size matches.\n");
 		  
 		  # delete file if DeleteAfterCheck flag is set
-		  if (defined($self->{DeleteAfterCheck}) && $self->{DeleteAfterCheck} == 1)
+		  if (defined($work->{DeleteAfterCheck}) && $work->{DeleteAfterCheck} == 1)
 		  {
 		      if ( $pfn =~ m/^\/castor/ )
 		      {
