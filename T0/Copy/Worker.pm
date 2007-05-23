@@ -150,11 +150,17 @@ sub prepare_work
   # feed parameters into work hash
   map{ $work->{$_} = $dsparams->{$_} } keys %$dsparams;
 
-  # doesn't work 'cause CODE is not storable in Filter component
-  # $work->{TargetDir} .= $work->{GetDirSuffix}->($work);
+  if ( $work->{CreateLFN} )
+    {
+      my $run = $work->{RUNNUMBER};
 
-  # If day-by-day new directories are needed...
-  if ( $work->{SplitByDay} )
+      my $lfndir = sprintf("/store/data/%s/%03d/%03d/%03d", $work->{DATASET},
+			   $run/1000000, ($run%1000000)/1000, $run%1000);
+
+      $work->{TargetDir} .= $lfndir;
+      $work->{LFN} = $lfndir . "/" . $work->{FILENAME};
+    }
+  elsif ( $work->{SplitByDay} )
     {
       my ($day,$month,$year) = (localtime(time))[3,4,5];
 
@@ -167,8 +173,6 @@ sub prepare_work
 
       $work->{TargetDir} .= "/" . $year . $month . $day;
     }
-
-  return $work
 };
 
 
@@ -196,7 +200,7 @@ sub server_input {
     $hash_ref->{status} = 0;
 
     # Preparing....
-    $work = prepare_work($self, $work);
+    prepare_work($self, $work);
 
     # source file
     my $sourcefile = $work->{PATHNAME} . '/' . $work->{FILENAME};
