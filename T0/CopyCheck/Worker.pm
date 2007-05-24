@@ -197,8 +197,11 @@ sub check_file {
 	      chomp($stat);
 	      my ($dummy,$size) = split (" : ",$stat);
 	      
-	      if ( $size == $work->{FILESIZE} )
+	      #if ( $size == $work->{FILESIZE} )
+              if ( $size >= $work->{FILESIZE} and $size > 0 )
 	      {
+                  $work->{FILESIZE} = $size;
+
 		  $heap->{Self}->Quiet($pfn, " size matches.\n");
 		  
 		  # delete file if DeleteAfterCheck flag is set
