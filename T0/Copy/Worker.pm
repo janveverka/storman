@@ -154,7 +154,7 @@ sub prepare_work
     {
       my $run = $work->{RUNNUMBER};
 
-      my $lfndir = sprintf("/store/data/%s/%03d/%03d/%03d", $work->{DATASET},
+      my $lfndir = sprintf("/store/data/%s/%s/%03d/%03d/%03d", $work->{DATASET}, $work->{STREAM},
 			   $run/1000000, ($run%1000000)/1000, $run%1000);
 
       $work->{TargetDir} .= $lfndir;
