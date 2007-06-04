@@ -267,7 +267,17 @@ sub cleanup_task {
 
 	  $heap->{Self}->Quiet("Rfcp of $file failed with status $status\n");
 
-	  if ( $file->{retries} > 0 )
+	  # first check if the source file exists
+	  #
+	  # FIXME should only be run after the first failure
+	  #
+	  my @statinput = qx { unset STAGER_TRACE ; unset RFIO_TRACE ; rfstat $file->{source} 2> /dev/null };
+	  if ( scalar @statinput == 0 )
+	    {
+	      $heap->{Self}->Quiet("Source file " . $file->{source} . "does not exist\n");
+	    }
+	  # then check if we should retry
+	  elsif ( $file->{retries} > 0 )
 	    {
 	      $heap->{Self}->Quiet("Retry count at " . $file->{retries} . " , retrying\n");
 
@@ -284,9 +294,9 @@ sub cleanup_task {
 
 		  $heap->{Self}->Quiet("Checking if directory $targetdir exists\n");
 
-		  my @temp = qx { unset STAGER_TRACE ; unset RFIO_TRACE ; rfstat $targetdir 2> /dev/null };
+		  my @statoutput = qx { unset STAGER_TRACE ; unset RFIO_TRACE ; rfstat $targetdir 2> /dev/null };
 
-		  if ( scalar @temp == 0 )
+		  if ( scalar @statoutput == 0 )
 		    {
 		      $heap->{Self}->Quiet("Creating directory $targetdir\n");
 		      qx { rfmkdir -p $targetdir };
