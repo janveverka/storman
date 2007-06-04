@@ -226,12 +226,10 @@ sub inject_file {
 	}
       delete $heap->{Self}->{Session};
 
-      $kernel->post( $heap->{CallbackSession}, 'shutdown');
+      $kernel->post( $heap->{CallbackSession}, 'forceShutdown');
       
       return 1;
 
-      # for now just exit
-      #exit 0;
     }
 
   # loop over files, find first uninjected
@@ -291,12 +289,10 @@ sub inject_file {
 	    }
 	  delete $heap->{Self}->{Session};
 
-	  $kernel->post( $heap->{CallbackSession}, 'shutdown'); 
-	  	  
+	  $kernel->post( $heap->{CallbackSession}, 'forceShutdown'); 
+	  
 	  return 1;
 
-	  # for now just exit
-	  #exit 0;
 	}
     }
 
