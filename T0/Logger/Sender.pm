@@ -58,6 +58,7 @@ sub _init
 			       connected => 'connected',
 		connection_error_handler => 'connection_error_handler',
 				    send => 'send',
+		           forceShutdown => 'forceShutdown',
 		 ],
 	],
     Args => [ $self ],
@@ -151,9 +152,11 @@ sub connection_error_handler
   return if $self->{OnError}(@_);
 
   # Stop reconnecting  if the sender is shutting down
-  if($heap->{shutdown} == 1){
+  if($heap->{forceShutdown} == 1){
+      $self->Debug("No reconnections while shutting down.\n");
       return;
   }
+  
 
   my $retry = $self->{RetryInterval};
   defined($retry) && $retry>0 || return;
@@ -195,6 +198,9 @@ sub connected
   $self->{Session} = $session->ID;
   $self->{Retries} = 0;
 
+  #It will be set to one when we will want to shutdown the component, calling forceShutdown function
+  $heap->{forceShutdown} = 0;
+
   $self->Debug("handle_connect: from server: $input\n");
   my %text = (  'text'   => 'I live...',
                 'client' => $self->{Name},
@@ -223,4 +229,13 @@ sub send
   }
 }
 
+
+#Shutdown the Tcp Client session and avoid reconnections
+sub forceShutdown
+{
+  my ( $self, $kernel, $heap ) = @_[ OBJECT, KERNEL, HEAP ];
+
+  $heap->{forceShutdown} = 1;
+  $kernel->yield('shutdown');
+}
 1;
