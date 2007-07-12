@@ -8,7 +8,7 @@ use Sys::Hostname;
 use File::Basename;
 use XML::Twig;
 use T0::Util;
-use T0::CopyCheck::Rfstat;
+use T0::Castor::Rfstat;
 
 our (@ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION);
 
@@ -59,6 +59,7 @@ sub new
 				 connection_error_handler => 'connection_error_handler',
 				 job_done => 'job_done',
 				 get_work => 'get_work',
+				 check_size => 'check_size',
 				]
 	],
   );
@@ -166,13 +167,13 @@ sub server_input {
     # RfstatRetryBackoff is the delay between tries.
     my %rfstathash = (
 		    session => $session,
-		    callback => 'job_done',
+		    callback => 'check_size',
 		    retries => $self->{RfstatRetries},
   		    retry_backoff => $self->{RfstatRetryBackoff},
-		    hash_job_ref => $hash_ref
+		    PFN => $hash_ref->{work}->{PFN}
 		   );
 
-    T0::CopyCheck::Rfstat->new(\%rfstathash);
+    T0::Castor::Rfstat->new(\%rfstathash);
 
     return;
   }
@@ -264,6 +265,60 @@ sub job_done
       $kernel->yield('shutdown');
       exit;
     }
+}
+
+
+# This function will check that the size of the file is the one specified in FILESIZE variable inside work.
+# If DeleteAfterCheck is set (=1) then the file will be deleted after a succesfull check (just if the size matches).
+sub check_size
+{
+  my ( $self, $heap, $kernel, $rfstat_hash_ref ) = @_[ OBJECT, HEAP, KERNEL, ARG0 ];
+
+  my $work = $heap->{HashRef}->{work};
+
+  #If rfstat didn't end succesfully then we don't check
+  if ($rfstat_hash_ref->{status} == 1)
+    {
+      $kernel->yield('job_done');
+      return;
+    }
+
+
+  #Let's check the size
+  my $pfn = $work->{PFN};
+  my $size = $rfstat_hash_ref->{stats_data}->{'Size (bytes)'};
+
+
+  if ( $size >= $work->{FILESIZE} and $size > 0 )
+    {
+      $work->{FILESIZE} = $size;
+
+      $heap->{Self}->Quiet($pfn, " size matches.\n");
+
+      # delete file if DeleteAfterCheck flag is set
+      if (defined($work->{DeleteAfterCheck}) && $work->{DeleteAfterCheck} == 1)
+	{
+	  if ( $pfn =~ m/^\/castor/ )
+	    {
+	      qx {stager_rm -M $pfn};
+	      qx {nsrm $pfn};
+	    }
+	  else
+	    {
+	      qx {rfrm $pfn};
+	    }
+
+	  $heap->{Self}->Quiet($pfn, " deleted.\n");
+	}
+    }
+  else
+    {
+      $heap->{Self}->Quiet($pfn, " size doesn't match.\n");
+      $work->{status} = 1;
+    }
+
+  $kernel->yield('job_done');
+  return;
 }
 
 1;
