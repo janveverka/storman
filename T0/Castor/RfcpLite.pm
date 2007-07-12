@@ -1,6 +1,6 @@
 use strict;
 use warnings;
-package T0::Copy::RfcpLite;
+package T0::Castor::RfcpLite;
 use POE qw( Wheel::Run Filter::Line );
 use File::Basename;
 
