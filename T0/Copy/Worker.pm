@@ -8,8 +8,7 @@ use Sys::Hostname;
 use File::Basename;
 use XML::Twig;
 use T0::Util;
-use T0::Copy::Rfcp;
-use T0::Copy::RfcpLite;
+use T0::Castor::Rfcp;
 
 our (@ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION);
 
@@ -213,6 +212,19 @@ sub server_input {
     # mark start time
     $heap->{WorkStarted} = time;
 
+    # set DeleteBadFiles option
+    my $deletebadfiles;
+    if(defined($work->{DeleteBadFiles}))
+      {
+	# coming from work hash
+	$deletebadfiles = $work->{DeleteBadFiles};
+      }
+    else
+      {
+	# coming from config file (default option)
+	$deletebadfiles = $heap->{Self}->{DeleteBadFiles};
+      }
+
     # send another message to logger (for MonaLisa)
     my %loghash = (
 		   MonaLisa => 1,
@@ -229,13 +241,14 @@ sub server_input {
 		    timeout => $work->{TimeOut},
 		    retries => $work->{Retry},
   		    retry_backoff => $work->{RetryBackoff},
-		    files => []
+		    delete_bad_files => $deletebadfiles,
+		    files => [],
 		   );
 
     while ( my ($key, $value) = each(%{$work}) ) {
       if ( defined $value )
 	{
-	  print "$key => $value\n";
+	  $self->Debug("$key => $value\n");
 	}
     }
 
@@ -245,7 +258,7 @@ sub server_input {
 
     $heap->{Self}->Debug("Copy " . $hash_ref->{id} . " started\n");
 
-    T0::Copy::Rfcp->new(\%rfcphash);
+    T0::Castor::Rfcp->new(\%rfcphash);
 
     return;
   }
