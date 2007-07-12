@@ -1,6 +1,39 @@
+########################################################################################################
+#
+# Exec rfstat command and return the output as part of the input hash
+#
+########################################################################################################
+#
+# This module has to receive (in the call to new) a hash containing:
+# -session => The session which we will come back to after rfstat.
+# -callback => The function of the session we will call back to. We will send the input hash as argument.
+# -PFN => The complete path of the file we want to check.
+#
+# Optionally:
+# -retries => The number of retries we will do before giving up.
+# -retry_backoff => The number of seconds we will wait before the next try.
+#
+#
+# After finishing the rfstat command the funcion will call back the specified funcion
+# and will add to the input hash the following information:
+# -status => It will be 0 if everything went fine or !=0 if there was something wrong.
+# -stats_data => It's a reference to the stats returned by rfstat command (hash of stats).
+# The keys are the names of each stat and the content is the stat.
+# -stats_fields => It's a reference to the names of each stat(array of names).
+# -stats_number => It's the number of stats we have collected.
+# (The length of status_data and status_field).
+#
+# Example:
+# First element: $input->{stats_data}->{$input->{stats_fields}->[0]}
+# Last element:  $input->{stats_data}->{$input->{stats_fields}->[$input->{stats_number} - 1]}
+# With the name of the field: $input->{stats_data}->{'Size (bytes)'}
+#
+########################################################################################################
+
+
 use strict;
 use warnings;
-package T0::CopyCheck::Rfstat;
+package T0::Castor::Rfstat;
 use POE qw( Wheel::Run Filter::Line );
 use File::Basename;
 
@@ -51,37 +84,36 @@ sub start_tasks {
   # remember the rest of the hash
   $heap->{retries} = $hash_ref->{retries};
   $heap->{retry_backoff} = $hash_ref->{retry_backoff};
+  $heap->{PFN} = $hash_ref->{PFN};
 
 
   # start the job
-  $kernel->yield('start_rfstat',($hash_ref->{hash_job_ref}));
+  $kernel->yield('start_rfstat');
 
 }
 
 sub start_rfstat {
-  my ( $kernel, $heap, $job ) = @_[ KERNEL, HEAP, ARG0 ];
+  my ( $kernel, $heap ) = @_[ KERNEL, HEAP ];
 
-  my $work = $job->{work};
-  my $pfn = $work->{PFN};
+  my $pfn = $heap->{PFN};
 
   # nothing went wrong yet
-  $job->{status} = 0;
+  $heap->{inputhash}->{status} = 0;
+  $heap->{inputhash}->{stats_number} = 0;
 
   # check if file exists
-  my @stats = qx {rfstat $pfn};
+  my @stats = qx {unset STAGER_TRACE ; unset RFIO_TRACE ; rfstat $pfn};
   my $status = $?;
 
-  $kernel->yield('cleanup_task',($job,$status,\@stats));
+  $kernel->yield('cleanup_task',($status,\@stats));
 }
 
 sub cleanup_task {
-  my ( $kernel, $heap, $job, $status, $stats_ref ) = @_[ KERNEL, HEAP, ARG0, ARG1, ARG2 ];
+  my ( $kernel, $heap, $status, $stats_ref ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
 
-  my $work = $job->{work};
-  my $pfn = $work->{PFN};
+  my $pfn = $heap->{PFN};
 
-  my @stats = @$stats_ref;
-
+  my @stats = @{$stats_ref};
 
   if ( $status != 0 )
   {
@@ -99,63 +131,42 @@ sub cleanup_task {
 
 	  if ( defined($heap->{retry_backoff}) )
 	  {
-	      $kernel->delay_set('start_rfstat', $heap->{retry_backoff}, ($job));
+	      $kernel->delay_set('start_rfstat', $heap->{retry_backoff});
 	  }
 	  else
 	  {
-	      $kernel->yield('start_rfstat', ($job));
-	  }	  
+	      $kernel->yield('start_rfstat');
+	  }
 	  return;
       }
       # Without more retries status is set
       else
       {
 	  $heap->{Self}->Quiet("No more retries rfstat on $pfn...\n");
-	  $job->{status} = 1;	  
+	  $heap->{inputhash}->{status} = $status;
       }
   }
+  # Organize the data inside a hash
   else
   {
+      my($index) = 0;
       foreach my $stat ( @stats )
       {
-	  if ( $stat =~ /^Size/)
-	  {
-	      chomp($stat);
-	      my ($dummy,$size) = split (" : ",$stat);
-	      
-	      #if ( $size == $work->{FILESIZE} )
-	      if ( $size >= $work->{FILESIZE} and $size > 0 )
-	      {
-		  $work->{FILESIZE} = $size;
 
-		  $heap->{Self}->Quiet($pfn, " size matches.\n");
-		  
-		  # delete file if DeleteAfterCheck flag is set
-		  if (defined($work->{DeleteAfterCheck}) && $work->{DeleteAfterCheck} == 1)
-		  {
-		      if ( $pfn =~ m/^\/castor/ )
-		      {
-			  qx {stager_rm -M $pfn};
-			  qx {nsrm $pfn};
-		      }
-		      else
-		      {
-			  qx {rfrm $pfn};
-		      }
-		      
-		      $heap->{Self}->Quiet($pfn, " deleted.\n");
-		  }
-	      }
-	      else
-	      {
-		  $heap->{Self}->Quiet($pfn, " size doesn't match.\n");
-		  $job->{status} = 1;
-	      }
-	  }
+	chomp($stat);
+	my ($field,$data) = split (" : ",$stat);
+
+	# Remove spaces at the end
+	$field =~ s/\s+$//;
+
+	$heap->{inputhash}->{stats_fields}->[$index++] = $field;
+	$heap->{inputhash}->{stats_data}->{$field} = $data;
       }
+
+      $heap->{inputhash}->{stats_number} = $index;
   }
 
-  $kernel->post( $heap->{session}, $heap->{callback} );
+  $kernel->post( $heap->{session}, $heap->{callback}, $heap->{inputhash});
 
 
   delete  $heap->{inputhash};
