@@ -151,41 +151,112 @@ sub process_file
 
   my $priority = 99;
 
-  my $id = $heap->{Self}->{Queue}->enqueue($priority,$work);
+  if( defined( $work->{HOSTNAME}  ))
+    {
+      my $id = $self->HostnameQueue($work->{HOSTNAME})->enqueue($priority,$work);;
+      $self->Quiet("Job $id added to ", $work->{HOSTNAME}, " queue\n");
+    }
+  else
+    {
+      my $id = $self->Queue->enqueue($priority,$work);;
+      $self->Quiet("Job $id added to general queue\n");
+    }
 }
 
+# Create 2 private queues (for the hostname and client)
+# Arg1: $client
 sub AddClient
 {
   my $self = shift;
   my $client = shift or Croak "Expected a client name...\n";
-  $self->{clients}->{$client} = POE::Queue::Array->new();
+  my $hostname = $self->{hostnames}->{$client};
+
+  $self->{clientsQueue}->{$client} = POE::Queue::Array->new();
+
+  $self->AddHostname($hostname);
 }
 
+# Create hostname's queue
+# Arg1: $hostname
+sub AddHostname
+{
+  my $self = shift;
+  my $hostname = shift or Croak "Expected a hostname...\n";
+
+  if( !defined( $self->{hostnamesQueue}->{$hostname} ) )
+    {
+      $self->{hostnamesQueue}->{$hostname} = POE::Queue::Array->new();
+    }
+}
+
+# Remove the hostname and client private queues
+# Arg1: $client
 sub RemoveClient
 {
   my $self = shift;
-  my $client = shift or Croak "Expected a client name...\n";
-  delete $self->{clients}->{$client};
+  my $client = shift or Croak "Expected a hostname...\n";
+  my $hostname = $self->{hostnames}->{$client};
+
+  delete $self->{clientsQueue}->{$client};
+
+
+  # Remove the hostname queue only if there are no more clients using it.
+  my $lastone = 1;
+
+  foreach my $client_iter ( keys(%{$self->{hostnames}}) )
+    {
+      if( ($client_iter != $client) && ($self->{hostnames}->{$client_iter} == $hostname))
+	{
+	  $lastone = 0;
+	}
+    }
+
+  if( $lastone == 1 )
+    {
+      delete $self->{hostnamesQueue}->{$hostname};
+    }
 }
 
+# Return the hostname's private queue
+# Arg1: $hostname
+sub HostnameQueue
+{
+  my $self = shift;
+  my $hostname = shift;
+
+  return undef unless defined($hostname);
+  if( !defined($self->{hostnamesQueue}->{$hostname}) )
+    {
+      $self->AddHostname($hostname);
+    }
+  return $self->{hostnamesQueue}->{$hostname};
+}
+
+# Return the client's private queue
+# Arg1: $client
+sub ClientQueue
+{
+  my $self = shift;
+  my $client = shift;
+
+  return undef unless defined($client);
+  if( !defined($self->{clientsQueue}->{$client}) )
+    {
+      $self->AddClient($client);
+    }
+  return $self->{clientsQueue}->{$client};
+}
+
+# Return the general queue
 sub Queue
 {
   my $self = shift;
-  my $client = shift;
-  return undef unless defined($client);
-  if ( ! defined($self->{clients}->{$client}) )
-  {
-    $self->AddClient($client);
-  }
-  return $self->{clients}->{$client};
-}
 
-sub Clients
-{
-  my $self = shift;
-  my $client = shift;
-  if ( defined($client) ) { return $self->{clients}->{$client}; }
-  return keys %{$self->{clients}};
+  if( !defined($self->{Queue}) )
+    {
+      $self->{Queue} = POE::Queue::Array->new();
+    }
+  return $self->{Queue};
 }
 
 sub Log
@@ -195,6 +266,8 @@ sub Log
   defined $logger && $logger->Send(@_);
 }
 
+# Send a work to every client (to their private queues)
+# Arg1: [$work,$priority]
 sub broadcast
 {
   my ( $self, $args ) = @_[ OBJECT, ARG0 ];
@@ -202,12 +275,11 @@ sub broadcast
   $work = $args->[0];
   $priority = $args->[1] || 0;
 
-  $self->Quiet("broadcasting... ",$work,"\n");
-
-  foreach ( $self->Clients )
+  $self->Quiet("Broadcasting... ",$work,"\n");
+  foreach ( keys %{$self->{clientsQueue}} )
   {
-    $self->Quiet("Send: work=\"",$work,"\", priority=",$priority," to $_\n");
-    $self->Clients($_)->enqueue($priority,$work);
+    my $id = $self->ClientQueue($_)->enqueue($priority,$work);
+    $self->Quiet("Job $id added to ", $_, " queue\n");
   }
 }
 
@@ -312,63 +384,76 @@ sub send_start
 sub send_work
 {
   my ( $self, $kernel, $heap ) = @_[ OBJECT, KERNEL, HEAP ];
-  my ($client,%text,$size,$target);
+  my ($client,$hostname,%text,$size,$target);
   my ($priority, $id, $work) = ( undef, undef, undef );
 
   $client = $heap->{client_name};
-  if ( ! defined($client) )
+  $hostname = $heap->{hostname};
+
+  if ( !defined($client) || !defined($hostname) )
   {
-    $self->Quiet("send_work: undefined client!\n");
+    $self->Quiet("send_work: undefined client or hostname!\n");
     return;
   }
 
-  # If there's any client-specific stuff in the queue, send that.
-  # Otherwise tell the client to wait
-  ($priority, $id, $work) = $self->Queue($client)->dequeue_next(); # if $q;
+
+  # Check client's queue
+#  ($priority, $id, $work) = $self->ClientQueue($client)->dequeue_next();
   if ( defined $id )
     {
-      $self->Quiet("Queued work: ",$work->{command},"\n");
-      if ( ref($work) eq 'HASH' )
-	{
-	  %text = (
-		   'client'	=> $client,
-		   'priority'	=> $priority,
-		   'interval'	=> $self->{Worker}->{Interval},
-		  );
-	  map { $text{$_} = $work->{$_} } keys %$work;
-	  $heap->{client}->put( \%text );
-	  return;
-	}
-      Croak "Why was $work not a hashref for $client?\n";
-      $heap->{idle} = 0;
+      $self->Debug("Job $id taken from client's queue.\n");
+      $self->Quiet("Send: New config job ",$id," to $client\n");
+      %text = (
+	       'command'  => 'NewConfig',
+	       'client'	  => $client,
+	       'priority' => $priority,
+	       'work'	  => $work,
+	       'id'       => $id,
+	      );
+      $heap->{client}->put( \%text );
+
       return;
     }
 
+  # Check hostname's queue
   if ( $self->{State} eq 'Running' )
     {
-      ($priority, $id, $work) = $self->{Queue}->dequeue_next();
-      if ( defined $id )
-	{
-	  $self->Quiet("Send: Copy job ",$id," to $client\n");
-	  %text = (
-		   'command'	=> 'DoThis',
-		   'client'	=> $client,
-		   'priority'	=> $priority,
-		   'work'	=> $work,
-		   'id'         => $id,
-		  );
-	  $heap->{client}->put( \%text );
+      ($priority, $id, $work) = $self->HostnameQueue($hostname)->dequeue_next();
 
-	  return;
+      # Check general queue
+      if ( !defined($id) )
+	{
+	  ($priority, $id, $work) = $self->Queue->dequeue_next();
+	}
+      else
+	{
+	  $self->Debug("Job $id taken from hostname's queue.\n");
 	}
     }
 
-  %text = ( 'command'	=> 'Sleep',
-	    'client'	=> $client,
-	    'wait'	=> $self->{Backoff} || 10,
-	  );
-  $heap->{client}->put( \%text );
-  return;
+  # Send the copy job
+  if ( defined $id )
+    {
+      $self->Quiet("Send: Copy job ",$id," to $client\n");
+      %text = (
+	       'command'  => 'DoThis',
+	       'client'	  => $client,
+	       'priority' => $priority,
+	       'work'	  => $work,
+	       'id'       => $id,
+	      );
+      $heap->{client}->put( \%text );
+    }
+  # Put to sleep
+  else
+    {
+      $self->Quiet("Send: Sleep to $client\n");
+      %text = ( 'command' => 'Sleep',
+		'client'  => $client,
+		'wait'	  => $self->{Backoff} || 10,
+	      );
+      $heap->{client}->put( \%text );
+    }
 }
 
 sub _client_input { reroute_event( (caller(0))[3], @_ ); }
@@ -385,8 +470,15 @@ sub client_input
   if ( $command =~ m%HelloFrom% )
   {
     Print "New client: $client\n";
+
+    # Store clientname and hostname in the heap
     $heap->{client_name} = $client;
-    $self->AddClient($client);
+    $heap->{hostname} = $input->{hostname};
+
+    # Store relation hostname-clientname in the object
+    $self->{hostnames}->{$heap->{client_name}} = $heap->{hostname};
+
+    $self->AddClient($heap->{client_name});
     $kernel->yield( 'send_setup' );
     $kernel->yield( 'send_start' );
     if ( ! --$self->{MaxClients} )
