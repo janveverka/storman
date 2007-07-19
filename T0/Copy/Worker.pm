@@ -314,6 +314,7 @@ sub connected
   $self->Debug("handle_connect: from server: $hash_ref\n");
   my %text = (  'command'       => 'HelloFrom',
                 'client'        => $self->{Name},
+		'hostname'      => $self->{Host},
              );
   $self->send( $heap, \%text );
 }
