@@ -398,20 +398,27 @@ sub send_work
 
 
   # Check client's queue
-#  ($priority, $id, $work) = $self->ClientQueue($client)->dequeue_next();
+  ($priority, $id, $work) = $self->ClientQueue($client)->dequeue_next();
   if ( defined $id )
     {
       $self->Debug("Job $id taken from client's queue.\n");
       $self->Quiet("Send: New config job ",$id," to $client\n");
-      %text = (
-	       'command'  => 'NewConfig',
-	       'client'	  => $client,
-	       'priority' => $priority,
-	       'work'	  => $work,
-	       'id'       => $id,
-	      );
-      $heap->{client}->put( \%text );
 
+      if ( ref($work) eq 'HASH' )
+	{
+	  %text = (
+		   'client'	=> $client,
+		   'priority'	=> $priority,
+		   'interval'	=> $self->{Worker}->{Interval},
+		  );
+	  map { $text{$_} = $work->{$_} } keys %$work;
+	  $heap->{client}->put( \%text );
+	}
+      else
+	{
+	  Croak "Why was $work not a hashref for $client?\n";
+	  $heap->{idle} = 0;
+	}
       return;
     }
 
