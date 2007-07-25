@@ -451,6 +451,7 @@ sub job_done {
 			  STREAM => $input->{work}->{STREAM},
 			  FILESIZE => $input->{work}->{FILESIZE},
 			  CHECKSUM => $input->{work}->{CHECKSUM},
+			  TYPE => $input->{work}->{TYPE},
 			 );
 	  $self->Log( \%loghash2 );
 	}
