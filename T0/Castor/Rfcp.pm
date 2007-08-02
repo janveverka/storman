@@ -34,7 +34,7 @@ use warnings;
 package T0::Castor::Rfcp;
 use POE qw( Wheel::Run Filter::Line );
 use File::Basename;
-use T0::Castor::Rfstat;
+use T0::Castor::RfstatHelper;
 
 our (@ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION);
 
@@ -61,9 +61,7 @@ sub new
 					 start_wheel => \&start_wheel,
 					 monitor_task => \&monitor_task,
 					 rfcp_exit_handler => \&rfcp_exit_handler,
-					 rfstat_source_callback => \&rfstat_source_callback,
 					 check_target_exists => \&check_target_exists,
-					 rfstat_target_callback => \&rfstat_target_callback,
 					 rfcp_retry_handler => \&rfcp_retry_handler,
 					 wheel_cleanup => \&wheel_cleanup,
 					 got_task_stdout => \&got_task_stdout,
@@ -175,7 +173,7 @@ sub start_tasks {
       $filehash{checked_source} = 0;
 
       # track if the target dir has been created because it was missing
-      $filehash{createdTargetDirectory} = 0;
+      $filehash{checked_target_dir} = 0;
 
       $heap->{wheel_count}++;
       $kernel->yield('start_wheel',(\%filehash));
@@ -283,12 +281,12 @@ sub got_sigchld {
     }
 }
 
-# Cleanup task is divided into 6 functions.
+
 # This process will try to recover from any error.
 # This one check if there has been any problem and if so check if the source file exist.
 sub rfcp_exit_handler {
   my ( $kernel, $heap, $session, $task_id, $status ) = @_[ KERNEL, HEAP, SESSION, ARG0, ARG1 ];
-
+$DB::single = 1;
   if ( exists $heap->{task}->{ $task_id } )
     {
       my $file = $heap->{file}->{$task_id};
@@ -306,28 +304,38 @@ sub rfcp_exit_handler {
       # Something went wrong
       if ( $status != 0 )
 	{
-	  $heap->{Self}->Quiet("Rfcp of $file failed with status $status\n");
+	  $heap->{Self}->Quiet("Rfcp of " . $file->{source} . " failed with status $status\n");
 
 	  # Check if the source file exists just the first time.
 	  if( !$file->{checked_source} )
 	    {
 
-	      my %rfstathash = (
-				session => $session,
-				callback => 'rfstat_source_callback',
-				PFN => $file->{source},
-				task_id => $task_id,
-				rfcp_status => $status,
-			       );
+	      $heap->{Self}->Quiet("Checking if file " . $file->{source} . " exists\n");
+	      my $file_status = T0::Castor::RfstatHelper::checkFileExists( $file->{source} );
 
-	      T0::Castor::Rfstat->new(\%rfstathash);
+	      $file->{checked_source} = 1;
+
+	      # Rfstat failed. Source doesn't exist
+	      # If the source file doesn't exist we have nothing else to do.
+	      if ( $file_status != 0 )
+		{
+		  $heap->{Self}->Quiet("Source file " . $file->{source} . " does not exist\n");
+		  $kernel->yield('wheel_cleanup', ($task_id,$status));
+		}
+	      # Source exists
+	      # If it exists continue with the cleanup.
+	      else
+		{
+		  $heap->{Self}->Quiet("Source file " . $file->{source} . " exists\n");
+		  $kernel->yield('check_target_exists', ($task_id,$status));
+		}
 	    }
 	  else
 	    {
 	      $kernel->yield('check_target_exists',($task_id,$status));
 	    }
 	}
-      # Rfcp made succesfully
+      # rfcp succeeded, just do some cleanup
       else
 	{
 	  $heap->{Self}->Quiet("$file->{source} successfully copied\n");
@@ -336,30 +344,6 @@ sub rfcp_exit_handler {
     }
 }
 
-# Callback from a rfstat call.
-# If the source file doesn't exist we have nothing else to do.
-# If it exists continue with the cleanup.
-sub rfstat_source_callback {
-  my ( $kernel, $heap, $session, $rfstathash ) = @_[ KERNEL, HEAP, SESSION, ARG0 ];
-
-  my $task_id = $rfstathash->{task_id};
-  my $file = $heap->{file}->{$task_id};
-  my $status = $rfstathash->{rfcp_status};
-
-  $file->{checked_source} = 1;
-
-  # Rfstat failed. Source doesn't exist
-  if ( $rfstathash->{status} != 0 )
-    {
-      $heap->{Self}->Quiet("Source file " . $file->{source} . " does not exist\n");
-      $kernel->yield('wheel_cleanup', ($task_id,$status));
-    }
-  # Source exists
-  else
-    {
-      $kernel->yield('check_target_exists', ($task_id,$status));
-    }
-}
 
 # Check for existence of directory (if status is 256 or 512)
 sub check_target_exists {
@@ -367,70 +351,44 @@ sub check_target_exists {
 
   my $file = $heap->{file}->{$task_id};
 
-  if ( $file->{retries} > 0 )
+  if ( ($status == 256 || $status == 512) && ($file->{checked_target_dir} == 0) )
     {
-      # The target doesn't exist (256) or is invalid (512)
-      if ( $status == 256 || $status == 512 )
+      my $targetdir = dirname( $file->{target} );
+      $heap->{Self}->Quiet("Checking if directory $targetdir exists\n");
+      my $dir_status = T0::Castor::RfstatHelper::checkDirExists( $targetdir );
+
+      $file->{checked_target_dir} = 1;
+
+      # The target doesn't exists. Create the directory
+      if ( $dir_status == 1 )
 	{
-	  my $targetdir = dirname( $file->{target} );
-	  $heap->{Self}->Quiet("Checking if directory $targetdir exists\n");
-
-	  my %rfstathash = (
-			    session => $session,
-			    callback => 'rfstat_target_callback',
-			    PFN => $targetdir,
-			    task_id => $task_id,
-			    rfcp_status => $status,
-			   );
-
-	  T0::Castor::Rfstat->new(\%rfstathash);
-
+	  $heap->{Self}->Quiet("Creating directory $targetdir\n");
+	  qx { rfmkdir -p $targetdir };
+	  $kernel->yield('rfcp_retry_handler', ($task_id,$status,1));
 	}
-      # No problems with the target
-      else
+      elsif ($dir_status == 2)
 	{
-	  $kernel->yield('rfcp_retry_handler', ($task_id,$status));
-	}
-    }
-  # There is no more retries to do
-  else
-    {
-      $heap->{Self}->Debug("Retry count at " . $file->{retries} . " , abandoning\n");
-      $kernel->yield('wheel_cleanup', ($task_id,$status));
-    }
-}
-
-# Callback from a rfstat call.
-# If the target dir doesn't exist we create it.
-sub rfstat_target_callback {
-  my ( $kernel, $heap, $session, $rfstathash ) = @_[ KERNEL, HEAP, SESSION, ARG0 ];
-
-  my $task_id = $rfstathash->{task_id};
-  my $file = $heap->{file}->{$task_id};
-  my $status = $rfstathash->{rfcp_status};
-  my $targetdir = $rfstathash->{PFN};
-
-  # The target doesn't exists. Create the directory
-  if ( $rfstathash->{status} != 0 )
-    {
-      $heap->{Self}->Quiet("Creating directory $targetdir\n");
-      qx { rfmkdir -p $targetdir };
-      $file->{createdTargetDirectory} = 1;
-      $kernel->yield('rfcp_retry_handler', ($task_id,$status));
-    }
-  else
-    {
-      # The targetdir is not a dir. Stop the iteration
-      if($rfstathash->{stats_data}->{'Protection'} =~ /^[^d]/ )
-	{
+	  # The targetdir is not a dir. Stop the iteration
 	  $heap->{Self}->Quiet("$targetdir is not a directory\n");
 	  $kernel->yield('wheel_cleanup', ($task_id,$status));
 	}
       # Target exists and it is a directory
-      else
+      elsif ($dir_status == 0)
 	{
-	  $kernel->yield('rfcp_retry_handler', ($task_id,$status));
+	  $heap->{Self}->Quiet("Directory $targetdir exists\n");
+	  $kernel->yield('rfcp_retry_handler', ($task_id,$status,0));
 	}
+    }
+  elsif ( $file->{retries} > 0 )
+    {
+      # no problems with target, regular retry
+      $kernel->yield('rfcp_retry_handler', ($task_id,$status,0));
+    }
+  else
+    {
+      # no more retries
+      $heap->{Self}->Quiet("Retry count at " . $file->{retries} . " , abandoning\n");
+      $kernel->yield('wheel_cleanup', ($task_id,$status));
     }
 }
 
@@ -438,11 +396,12 @@ sub rfstat_target_callback {
 # Remove target file if it exists only if I didn't create the target
 # directory in the previous step
 sub rfcp_retry_handler {
-  my ( $kernel, $heap, $session, $task_id, $status ) = @_[ KERNEL, HEAP, SESSION, ARG0, ARG1 ];
+  my ( $kernel, $heap, $session, $task_id, $status, $createdTargetDir ) = @_[ KERNEL, HEAP, SESSION, ARG0, ARG1, ARG2 ];
 
   my $file = $heap->{file}->{$task_id};
 
-  if ( defined($heap->{delete_bad_files}) && $heap->{delete_bad_files} == 1 && $file->{createdTargetDirectory} == 0 )
+  if ( defined($heap->{delete_bad_files}) && $heap->{delete_bad_files} == 1
+       && $createdTargetDir == 0 )
     {
       $heap->{Self}->Quiet("Deleting file before retrying\n");
 
@@ -459,18 +418,25 @@ sub rfcp_retry_handler {
 
   # Retrying
   $heap->{Self}->Quiet("Retry count at " . $file->{retries} . " , retrying\n");
-  $file->{retries}--;
-  $file->{createdTargetDirectory} = 0;
+  $heap->{wheel_count}++;
 
-  if ( exists $file->{retry_backoff} )
+  # After creating the dir we retry without waiting and without decreasing retries
+  if ( $createdTargetDir == 1 )
     {
-      $heap->{wheel_count}++;
-      $kernel->delay_set('start_wheel',$file->{retry_backoff},($file));
+      $kernel->yield('start_wheel',($file));
     }
   else
     {
-      $heap->{wheel_count}++;
-      $kernel->yield('start_wheel',($file));
+      $file->{retries}--;
+
+      if ( exists $file->{retry_backoff} )
+	{
+	  $kernel->delay_set('start_wheel',$file->{retry_backoff},($file));
+	}
+      else
+	{
+	  $kernel->yield('start_wheel',($file));
+	}
     }
   $kernel->yield('wheel_cleanup', ($task_id,$status));
 }
