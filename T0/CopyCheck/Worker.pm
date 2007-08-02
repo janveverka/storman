@@ -8,7 +8,7 @@ use Sys::Hostname;
 use File::Basename;
 use XML::Twig;
 use T0::Util;
-use T0::Castor::Rfstat;
+use T0::Castor::RfstatLite;
 
 our (@ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION);
 
@@ -165,15 +165,12 @@ sub server_input {
     # Call rfstat and check the file.
     # RfstatRetries is the number of retries in case of receiving error from rfstat command.
     # RfstatRetryBackoff is the delay between tries.
-    my %rfstathash = (
-		    session => $session,
-		    callback => 'check_size',
-		    retries => $self->{RfstatRetries},
-  		    retry_backoff => $self->{RfstatRetryBackoff},
-		    PFN => $hash_ref->{work}->{PFN}
-		   );
 
-    T0::Castor::Rfstat->new(\%rfstathash);
+    my ( $status, $stats_number, $stats_fields, $stats_data ) = 
+      T0::Castor::RfstatLite->new( 
+				  $hash_ref->{work}->{PFN}, $self->{RfstatRetries}, $self->{RfstatRetryBackoff} 
+				 );
+    $kernel->yield('check_size', ($status, $stats_data));
 
     return;
   }
@@ -272,28 +269,31 @@ sub job_done
 # If DeleteAfterCheck is set (=1) then the file will be deleted after a succesfull check (just if the size matches).
 sub check_size
 {
-  my ( $self, $heap, $kernel, $rfstat_hash_ref ) = @_[ OBJECT, HEAP, KERNEL, ARG0 ];
+  my ( $self, $heap, $kernel, $status, $stats_data ) = @_[ OBJECT, HEAP, KERNEL, ARG0, ARG1 ];
 
+  my $hash_ref = $heap->{HashRef};
   my $work = $heap->{HashRef}->{work};
+  my $pfn = $work->{PFN};
+  my $size = $stats_data->{'Size (bytes)'};
+
 
   #If rfstat didn't end succesfully then we don't check
-  if ($rfstat_hash_ref->{status} == 1)
+  if ($status != 0)
     {
+      $heap->{Self}->Quiet("Rfstat failed with ", $pfn, ".\n");
+      $hash_ref->{status} = 1;
       $kernel->yield('job_done');
       return;
     }
 
 
   #Let's check the size
-  my $pfn = $work->{PFN};
-  my $size = $rfstat_hash_ref->{stats_data}->{'Size (bytes)'};
-
-
   if ( $size >= $work->{FILESIZE} and $size > 0 )
     {
       $work->{FILESIZE} = $size;
 
       $heap->{Self}->Quiet($pfn, " size matches.\n");
+      $hash_ref->{status} = 0;
 
       # delete file if DeleteAfterCheck flag is set
       if (defined($work->{DeleteAfterCheck}) && $work->{DeleteAfterCheck} == 1)
@@ -314,7 +314,7 @@ sub check_size
   else
     {
       $heap->{Self}->Quiet($pfn, " size doesn't match.\n");
-      $work->{status} = 1;
+      $hash_ref->{status} = 1;
     }
 
   $kernel->yield('job_done');
