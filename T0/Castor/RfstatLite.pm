@@ -42,9 +42,9 @@ $VERSION = 1.00;
 our $hdr = __PACKAGE__ . ':: ';
 sub Croak   { croak $hdr,@_; }
 sub Carp    { carp  $hdr,@_; }
-sub Verbose { T0::Util::Verbose( (shift)->{Verbose}, @_ ); }
-sub Debug   { T0::Util::Debug(   (shift)->{Debug},   @_ ); }
-sub Quiet   { T0::Util::Quiet(   (shift)->{Quiet},   @_ ); }
+sub Verbose { T0::Util::Verbose( (shift)->{Verbose}, ("RFSTATLITE:\t",@_) ); }
+sub Debug   { T0::Util::Debug(   (shift)->{Debug},   ("RFSTATLITE:\t",@_) ); }
+sub Quiet   { T0::Util::Quiet(   (shift)->{Quiet},   ("RFSTATLITE:\t",@_) ); }
 
 sub new {
 
@@ -65,12 +65,10 @@ sub new {
 
 
   # Run rfstat
-  my @stats = qx {unset STAGER_TRACE ; unset RFIO_TRACE ; rfstat $self->{PFN}};
+  my @stats = qx {unset STAGER_TRACE ; unset RFIO_TRACE ; rfstat $self->{PFN} 2>&1};
   $self->{status} = $?;
 
-  while ( $self->{status} != 0  && ( defined($self->{retries}) && $self->{retries}>0 )) {
-
-    $self->rfstat_failed(\@stats);
+  while ( $self->{status} != 0 && $self->{status} != 256 && ( defined($self->{retries}) && $self->{retries}>0 )) {
 
     $self->Quiet("Retrying rfstat on ", $self->{PFN}, "...\n");
     $self->{retries}--;
@@ -81,18 +79,12 @@ sub new {
     }
 
     # Run rfstat
-    @stats = qx {unset STAGER_TRACE ; unset RFIO_TRACE ; rfstat $self->{PFN}};
+    @stats = qx {unset STAGER_TRACE ; unset RFIO_TRACE ; rfstat $self->{PFN} 2>&1};
     $self->{status} = $?;
   }
 
-  # No more retries
-  if( $self->{status} != 0 ) {
-    $self->rfstat_failed(\@stats);
-    $self->Quiet("No more retries rfstat on ", $self->{PFN}, "...\n");
-  }
-
   # Organize the data inside a hash
-  else {
+  if( $self->{status} == 0 ) {
     my($index) = 0;
 
     foreach my $stat ( @stats ) {
@@ -108,25 +100,12 @@ sub new {
 
     $self->{stats_number} = $index;
   }
+  else {
+    $self->Quiet("Rfstat returned status ", $self->{status}, ", ", $stats[0]);
+  }
 
   # Return the status and stats information
   return ( $self->{status}, $self->{stats_number}, $self->{stats_fields}, $self->{stats_data} );
 }
-
-
-# Print the results of the rfstat
-sub rfstat_failed {
-
-  my $self = shift;
-  my $stats_ref = shift;
-  my @stats = @$stats_ref;
-
-  $self->Quiet("Rfstat failed, output follows\n");
-
-  foreach my $stat ( @stats ) {
-    $self->Quiet("RFSTAT: ", $stat);
-  }
-}
-
 
 1;
