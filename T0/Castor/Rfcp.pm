@@ -45,9 +45,9 @@ $VERSION = 1.00;
 our $hdr = __PACKAGE__ . ':: ';
 sub Croak   { croak $hdr,@_; }
 sub Carp    { carp  $hdr,@_; }
-sub Verbose { T0::Util::Verbose( (shift)->{Verbose}, @_ ); }
-sub Debug   { T0::Util::Debug(   (shift)->{Debug},   @_ ); }
-sub Quiet   { T0::Util::Quiet(   (shift)->{Quiet},   @_ ); }
+sub Verbose { T0::Util::Verbose( (shift)->{Verbose}, ("RFCP:\t", @_) ); }
+sub Debug   { T0::Util::Debug(   (shift)->{Debug},   ("RFCP:\t", @_) ); }
+sub Quiet   { T0::Util::Quiet(   (shift)->{Quiet},   ("RFCP:\t", @_) ); }
 
 sub new
 {
@@ -286,7 +286,7 @@ sub got_sigchld {
 # This one check if there has been any problem and if so check if the source file exist.
 sub rfcp_exit_handler {
   my ( $kernel, $heap, $session, $task_id, $status ) = @_[ KERNEL, HEAP, SESSION, ARG0, ARG1 ];
-$DB::single = 1;
+
   if ( exists $heap->{task}->{ $task_id } )
     {
       my $file = $heap->{file}->{$task_id};
@@ -417,7 +417,6 @@ sub rfcp_retry_handler {
     }
 
   # Retrying
-  $heap->{Self}->Quiet("Retry count at " . $file->{retries} . " , retrying\n");
   $heap->{wheel_count}++;
 
   # After creating the dir we retry without waiting and without decreasing retries
@@ -427,6 +426,7 @@ sub rfcp_retry_handler {
     }
   else
     {
+      $heap->{Self}->Quiet("Retry count at " . $file->{retries} . " , retrying\n");
       $file->{retries}--;
 
       if ( exists $file->{retry_backoff} )
