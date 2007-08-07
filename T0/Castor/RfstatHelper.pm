@@ -20,13 +20,15 @@ $VERSION = 1.00;
 our $hdr = __PACKAGE__ . ':: ';
 sub Croak   { croak $hdr,@_; }
 sub Carp    { carp  $hdr,@_; }
-sub Verbose { T0::Util::Verbose( (shift)->{Verbose}, @_ ); }
-sub Debug   { T0::Util::Debug(   (shift)->{Debug},   @_ ); }
-sub Quiet   { T0::Util::Quiet(   (shift)->{Quiet},   @_ ); }
+sub Verbose { T0::Util::Verbose( (shift)->{Verbose}, ("RFSTATHELPER:\t", @_) ); }
+sub Debug   { T0::Util::Debug(   (shift)->{Debug},   ("RFSTATHELPER:\t", @_) ); }
+sub Quiet   { T0::Util::Quiet(   (shift)->{Quiet},   ("RFSTATHELPER:\t", @_) ); }
 
 
 # Check if the file argument exists
-# Return the status of the rfstatus command
+# Return status:
+# 0 -> Pfn exists.
+# 1 -> Pfn doesn't exists.
 sub checkFileExists {
 
   my $pfn = shift;
@@ -34,7 +36,12 @@ sub checkFileExists {
   my ( $status, $stats_number, $stats_fields, $stats_data ) = 
     T0::Castor::RfstatLite->new( $pfn, 5 );
 
-  return $status;
+  if( $status == 0 ) {
+    return 0;
+  }
+  else {
+    return 1;
+  }
 
 }
 
