@@ -1,8 +1,30 @@
+########################################################################################################
+#
+# Exec rfcp command with all the given files
+#
+########################################################################################################
+#
+# This module has to receive (in the call to new) a hash containing:
+# -source => Path of the source file.
+# -target => Path of the target dir + filename.
+#
+# Optionally:
+# -svcclass =>
+# -retries => The number of retries we will do before giving up.
+# -retry_backoff => The number of seconds we will wait before the next try.
+# -delete_bad_files => If is set (=1) we will delete bad files created after a unsuccessfull rfcp.
+#
+# After finishing the rfcp command will return:
+# -status => It will be 0 if everything went fine or !=0 if there was something wrong.
+#
+########################################################################################################
+
+
 use strict;
 use warnings;
 package T0::Castor::RfcpLite;
-use POE qw( Wheel::Run Filter::Line );
 use File::Basename;
+use T0::Castor::RfstatHelper;
 
 our (@ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION);
 
@@ -13,167 +35,195 @@ $VERSION = 1.00;
 our $hdr = __PACKAGE__ . ':: ';
 sub Croak   { croak $hdr,@_; }
 sub Carp    { carp  $hdr,@_; }
-sub Verbose { T0::Util::Verbose( (shift)->{Verbose}, @_ ); }
-sub Debug   { T0::Util::Debug(   (shift)->{Debug},   @_ ); }
-sub Quiet   { T0::Util::Quiet(   (shift)->{Quiet},   @_ ); }
+sub Verbose { T0::Util::Verbose( (shift)->{Verbose}, ("RFCPLITE:\t", @_) ); }
+sub Debug   { T0::Util::Debug(   (shift)->{Debug},   ("RFCPLITE:\t", @_) ); }
+sub Quiet   { T0::Util::Quiet(   (shift)->{Quiet},   ("RFCPLITE:\t", @_) ); }
 
 sub new
 {
-  my ($class, $hash_ref) = @_;
+  my ($class, $source, $target, $svcclass, $retries, $retry_backoff, $delete_bad_files) = @_;
   my $self = {};
   bless($self, $class);
 
-  POE::Session->create(
-		       inline_states => {
-					 _start => \&start_tasks,
-					 start_rfcp => \&start_rfcp,
-					 cleanup_task => \&cleanup_task,
-					},
-		       args => [ $hash_ref, $self ],
-		      );
+  # Store arguments
+  $self->{source} = $source;
+  $self->{target} = $target;
+  $self->{svcclass} = $svcclass;
+  $self->{retries} = $retries;
+  $self->{retry_backoff} = $retry_backoff;
+  $self->{delete_bad_files} = $delete_bad_files;
 
-  return $self;
-}
+  # Flags
+  $self->{checked_source} = 0;
+  $self->{checked_target_dir} = 0;
 
-sub start_tasks {
-  my ( $kernel, $heap, $hash_ref, $self ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
 
-  # remember hash reference
-  $heap->{inputhash} = $hash_ref;
 
-  # remember reference to myself
-  $heap->{Self} = $self;
-
-  # remember SvcClass
-  $heap->{svcclass} = $hash_ref->{svcclass};
-
-  # put callback session and method on heap
-  $heap->{session} = $hash_ref->{session};
-  $heap->{callback} = $hash_ref->{callback};
-
-  # keep count on outstanding rfcp process
-  $heap->{rfcp_active} = 0;
-
-  $ENV{STAGE_SVCCLASS} = $heap->{svcclass} if ( defined $heap->{svcclass} );
-
-  # execute rfcp processes (in sequence)
-  foreach my $file ( @{ $hash_ref->{files} } )
+  if ( defined $self->{svcclass} )
     {
-      my %filehash = (
-		      original => $file,
-		      source => $file->{source},
-		      target => $file->{target},
-		     );
-
-      # configure number of retries
-      my $retries = undef;
-      if ( exists $file->{retries} )
-	{
-	  $retries = $file->{retries};
-	}
-      elsif ( exists $hash_ref->{retries} )
-	{
-	  $retries = $hash_ref->{retries};
-	}
-      else # set to zero, makes the followup code a little easier
-	{
-	  $retries = 0;
-	}
-
-      $filehash{retries} = $retries;
-
-      # configure retry delay
-      my $retry_backoff = undef;
-      if ( exists $file->{rety_backoff} )
-	{
-	  $retry_backoff = $file->{retry_backoff};
-	}
-      elsif ( exists $hash_ref->{retry_backoff} )
-	{
-	  $retry_backoff = $hash_ref->{retry_backoff};
-	}
-      if ( defined $retry_backoff )
-	{
-	  $filehash{retry_backoff} = $retry_backoff;
-	}
-
-      $heap->{rfcp_active}++;
-      $kernel->yield('start_rfcp',(\%filehash));
+      $ENV{STAGE_SVCCLASS} = $self->{svcclass};
     }
-}
-
-sub start_rfcp {
-  my ( $kernel, $heap, $file ) = @_[ KERNEL, HEAP, ARG0 ];
-
-  qx( rfcp $file->{source} $file->{target} );
-#  qx( echo $file->{source} $file->{target} );
-
-  my $status = $?;
-
-  $kernel->yield('cleanup_task',($file,$status));
-}
-
-sub cleanup_task {
-  my ( $kernel, $heap, $file, $status ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
-
-  $heap->{rfcp_active}--;
-
-  # update status in caller hash
-  $file->{original}->{status} = $status;
-
-  if ( $status != 0 )
+  else
     {
-      $heap->{Self}->Debug("Rfcp of $file failed with status $status\n");
+      $self->Quiet("SvcClass not set, use t0input!\n");
+      $ENV{STAGE_SVCCLASS} = 't0input';
+    }
 
-      if ( $file->{retries} > 0 )
+  $self->start_rfcp();
+
+  return $self->{status};
+}
+
+# Execute rfcp command.
+# Return 1 (retry), 0 (don't retry)
+sub start_rfcp {
+
+  my $self = shift;
+
+  do{
+    $self->Quiet("Start copy from $self->{source} to $self->{target}\n");
+
+    qx( rfcp $self->{source} $self->{target} 2>&1);
+    $self->{status} = $?;
+  }while ($self->rfcp_exit_handler());
+
+}
+
+
+
+# This process will try to recover from any error.
+# This one check if there has been any problem and if so check if the source file exist.
+sub rfcp_exit_handler {
+  my $self = shift;
+
+  # Something went wrong
+  if ( $self->{status} != 0 )
+    {
+      $self->Quiet("Rfcp of " . $self->{source} . " failed with status $self->{status}\n");
+
+      # Check if the source file exists just the first time.
+      if( !$self->{checked_source} )
 	{
-	  $heap->{Self}->Debug("Retry count at " . $file->{retries} . " , retrying\n");
 
-	  $file->{retries}--;
+	  $self->Quiet("Checking if file " . $self->{source} . " exists\n");
+	  my $file_status = T0::Castor::RfstatHelper::checkFileExists( $self->{source} );
 
-	  # check for existence of directory (if status is 256)
-	  #
-	  # FIXME: parse rfstat output to check if it's really a directory
-	  #
-	  if ( $status == 256 )
+	  $self->{checked_source} = 1;
+
+	  # Rfstat failed. Source doesn't exist
+	  # If the source file doesn't exist we have nothing else to do.
+	  if ( $file_status != 0 )
 	    {
-	      my $targetdir = dirname( $file->{target} );
-
-	      my @temp = qx { rfstat $targetdir 2> /dev/null };
-
-	      if ( scalar @temp == 0 )
-		{
-		  qx { rfmkdir -p $targetdir };
-		}
+	      $self->Quiet("Source file " . $self->{source} . " does not exist\n");
+	      return 0;
 	    }
-
-	  if ( exists $file->{retry_backoff} )
-	    {
-	      $heap->{rfcp_active}++;
-	      $kernel->delay_set('start_rfcp',$file->{retry_backoff},($file));
-	    }
+	  # Source exists
+	  # If it exists continue with the cleanup.
 	  else
 	    {
-	      $heap->{rfcp_active}++;
-	      $kernel->yield('start_rfcp',($file));
+	      $self->Quiet("Source file " . $self->{source} . " exists\n");
+	      return $self->check_target_exists();
 	    }
 	}
       else
 	{
-	  $heap->{Self}->Debug("Retry count at " . $file->{retries} . " , abandoning\n");
+	  return $self->check_target_exists();
+	}
+    }
+  # rfcp succeeded.
+  else
+    {
+      $self->Quiet("$self->{source} successfully copied\n");
+      return 0;
+    }
+}
+
+
+# Check for existence of directory (if status is 256 or 512)
+sub check_target_exists {
+  my $self = shift;
+
+  if ( ($self->{status} == 256 || $self->{status} == 512) && ($self->{checked_target_dir} == 0) )
+    {
+      my $targetdir = dirname( $self->{target} );
+      $self->Quiet("Checking if directory $targetdir exists\n");
+      my $dir_status = T0::Castor::RfstatHelper::checkDirExists( $targetdir );
+
+      $self->{checked_target_dir} = 1;
+
+      # The target doesn't exists. Create the directory
+      if ( $dir_status == 1 )
+	{
+	  $self->Quiet("Creating directory $targetdir\n");
+	  qx { rfmkdir -p $targetdir };
+
+	  return $self->rfcp_retry_handler(1);
+	}
+      elsif ($dir_status == 2)
+	{
+	  # The targetdir is not a dir. Stop the iteration
+	  $self->Quiet("$targetdir is not a directory\n");
+	  return 0;
+	}
+      # Target exists and it is a directory
+      elsif ($dir_status == 0)
+	{
+	  $self->Quiet("Directory $targetdir exists\n");
+	  return $self->rfcp_retry_handler(0);
+	}
+    }
+  # no problems with target, regular retry
+  else
+    {
+      return $self->rfcp_retry_handler(0);
+    }
+}
+
+
+# Remove target file if it exists only if I didn't create the target
+# directory in the previous step
+sub rfcp_retry_handler {
+  my $self = shift;
+  my $createdTargetDir = shift;
+
+  if ( defined($self->{delete_bad_files}) && $self->{delete_bad_files} == 1
+       && $createdTargetDir == 0 )
+    {
+      $self->Quiet("Deleting file before retrying\n");
+
+      if ( $self->{target} =~ m/^\/castor/ )
+	{
+	  qx {stager_rm -M $self->{target} 2> /dev/null};
+	  qx {nsrm $self->{target} 2> /dev/null};
+	}
+      else
+	{
+	  qx {rfrm $self->{target} 2> /dev/null};
 	}
     }
 
-  if ( $heap->{rfcp_active} == 0 )
-    {
-      $kernel->post( $heap->{session}, $heap->{callback}, $heap->{inputhash} );
 
-      delete $heap->{inputhash};
-      delete $heap->{Self};
-      delete $heap->{svcclass};
-      delete $heap->{session};
-      delete $heap->{callback};
-      delete $heap->{rfcp_active};
+  # After creating the dir we retry without waiting and without decreasing retries
+  if ( $createdTargetDir == 1 )
+    {
+      return 1;
+    }
+  # Retrying
+  elsif ( $self->{retries} > 0 )
+    {
+      $self->Quiet("Retry count at " . $self->{retries} . " , retrying\n");
+      $self->{retries}--;
+
+      if ( exists $self->{retry_backoff} )
+	{
+	  sleep( $self->{retry_backoff});
+	}
+      return 1;
+    }
+  else
+    {
+      $self->Quiet("Retry count at " . $self->{retries} . " , abandoning\n");
+      return 0;
     }
 }
 
