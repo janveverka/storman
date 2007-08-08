@@ -379,16 +379,10 @@ sub check_target_exists {
 	  $kernel->yield('rfcp_retry_handler', ($task_id,$status,0));
 	}
     }
-  elsif ( $file->{retries} > 0 )
-    {
-      # no problems with target, regular retry
-      $kernel->yield('rfcp_retry_handler', ($task_id,$status,0));
-    }
+  # no problems with target, regular retry
   else
     {
-      # no more retries
-      $heap->{Self}->Quiet("Retry count at " . $file->{retries} . " , abandoning\n");
-      $kernel->yield('wheel_cleanup', ($task_id,$status));
+      $kernel->yield('rfcp_retry_handler', ($task_id,$status,0));
     }
 }
 
@@ -416,16 +410,17 @@ sub rfcp_retry_handler {
 	}
     }
 
-  # Retrying
-  $heap->{wheel_count}++;
-
   # After creating the dir we retry without waiting and without decreasing retries
   if ( $createdTargetDir == 1 )
     {
+      $heap->{wheel_count}++;
       $kernel->yield('start_wheel',($file));
     }
-  else
+  # Retrying
+  elsif ( $file->{retries} > 0 )
     {
+      $heap->{wheel_count}++;
+
       $heap->{Self}->Quiet("Retry count at " . $file->{retries} . " , retrying\n");
       $file->{retries}--;
 
@@ -437,6 +432,11 @@ sub rfcp_retry_handler {
 	{
 	  $kernel->yield('start_wheel',($file));
 	}
+    }
+  # No more retries
+  else
+    {
+      $heap->{Self}->Quiet("Retry count at " . $file->{retries} . " , abandoning\n");
     }
   $kernel->yield('wheel_cleanup', ($task_id,$status));
 }
