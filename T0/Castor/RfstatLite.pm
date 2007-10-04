@@ -63,24 +63,30 @@ sub new {
   $self->{stats_fields} = undef;
   $self->{stats_data} = undef;
 
+  my @stats;
+  my $continue_retry = 1;
 
-  # Run rfstat
-  my @stats = qx {unset STAGER_TRACE ; unset RFIO_TRACE ; rfstat $self->{PFN} 2>&1};
-  $self->{status} = $?;
-
-  while ( $self->{status} != 0 && $self->{status} != 256 && ( defined($self->{retries}) && $self->{retries}>0 )) {
-
-    $self->Quiet("Retrying rfstat on ", $self->{PFN}, "...\n");
-    $self->{retries}--;
-
-    # Sleep before retrying
-    if ( defined($self->{retry_backoff}) ) {
-      sleep( $self->{retry_backoff});
-    }
+  while ( $continue_retry == 1 ) {
 
     # Run rfstat
     @stats = qx {unset STAGER_TRACE ; unset RFIO_TRACE ; rfstat $self->{PFN} 2>&1};
     $self->{status} = $?;
+
+    # Continue retrying
+    if( $self->{status} != 0 && $self->{status} != 256 && ( defined($self->{retries}) && $self->{retries}>0 ) ){
+
+      $self->Quiet("Retrying rfstat on ", $self->{PFN}, "...\n");
+      $self->{retries}--;
+
+      # Sleep before retrying
+      if ( defined($self->{retry_backoff}) ) {
+	sleep( $self->{retry_backoff});
+      }
+    }
+    # Stop retrying
+    else{
+      $continue_retry = 0;
+    }
   }
 
   # Organize the data inside a hash
