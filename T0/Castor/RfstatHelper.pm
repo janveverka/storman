@@ -78,4 +78,35 @@ sub checkDirExists {
     }
 }
 
+
+# Get the size of the given file.
+# Return the size of the file
+# or -1 if something went wrong.
+sub getFileSize {
+
+  my ( $pfn, $retries, $retries_backoff) = @_;
+
+  my ( $status, $stats_number, $stats_fields, $stats_data );
+
+  if ( !defined($retries)){
+    ( $status, $stats_number, $stats_fields, $stats_data ) = 
+      T0::Castor::RfstatLite->new( $pfn, 5 );
+  }
+  elsif ( !defined($retries_backoff)){
+    ( $status, $stats_number, $stats_fields, $stats_data ) = 
+      T0::Castor::RfstatLite->new( $pfn, $retries );
+  }
+  else {
+    ( $status, $stats_number, $stats_fields, $stats_data ) = 
+      T0::Castor::RfstatLite->new( $pfn, $retries, $retries_backoff );
+  }
+
+  if ( $status != 0 ) {
+    return -1;
+  }
+  else{
+    return $stats_data->{'Size (bytes)'};
+  }
+}
+
 1;
