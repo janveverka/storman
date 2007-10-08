@@ -58,7 +58,7 @@ sub checkDirExists {
   my ( $status, $stats_number, $stats_fields, $stats_data ) = 
     T0::Castor::RfstatLite->new( $pfn, 5 );
 
-  # The target doesn't exists. Create the directory
+  # The target doesn't exists.
   if ( $status != 0 )
     {
       return 1;
