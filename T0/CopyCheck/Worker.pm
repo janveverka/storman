@@ -8,7 +8,7 @@ use Sys::Hostname;
 use File::Basename;
 use XML::Twig;
 use T0::Util;
-use T0::Castor::RfstatLite;
+use T0::Castor::RfstatHelper;
 
 our (@ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION);
 
@@ -166,11 +166,10 @@ sub server_input {
     # RfstatRetries is the number of retries in case of receiving error from rfstat command.
     # RfstatRetryBackoff is the delay between tries.
 
-    my ( $status, $stats_number, $stats_fields, $stats_data ) = 
-      T0::Castor::RfstatLite->new( 
-				  $hash_ref->{work}->{PFN}, $self->{RfstatRetries}, $self->{RfstatRetryBackoff} 
-				 );
-    $kernel->yield('check_size', ($status, $stats_data));
+    my $size = T0::Castor::RfstatHelper::getFileSize( 
+						     $hash_ref->{work}->{PFN}, $self->{RfstatRetries}, $self->{RfstatRetryBackoff} 
+						    );
+    $kernel->yield('check_size', ($size));
 
     return;
   }
@@ -269,16 +268,15 @@ sub job_done
 # If DeleteAfterCheck is set (=1) then the file will be deleted after a succesfull check (just if the size matches).
 sub check_size
 {
-  my ( $self, $heap, $kernel, $status, $stats_data ) = @_[ OBJECT, HEAP, KERNEL, ARG0, ARG1 ];
+  my ( $self, $heap, $kernel, $size ) = @_[ OBJECT, HEAP, KERNEL, ARG0 ];
 
   my $hash_ref = $heap->{HashRef};
-  my $work = $heap->{HashRef}->{work};
+  my $work = $hash_ref->{work};
   my $pfn = $work->{PFN};
-  my $size = $stats_data->{'Size (bytes)'};
 
 
   #If rfstat didn't end succesfully then we don't check
-  if ($status != 0)
+  if ($size == -1)
     {
       $heap->{Self}->Quiet("Rfstat failed with ", $pfn, ".\n");
       $hash_ref->{status} = 1;
