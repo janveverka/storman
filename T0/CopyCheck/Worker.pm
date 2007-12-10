@@ -286,7 +286,7 @@ sub check_size
 
 
   #Let's check the size
-  if ( $size >= $work->{FILESIZE} and $size > 0 )
+  if ( $size == $work->{FILESIZE} )
     {
       $work->{FILESIZE} = $size;
 
