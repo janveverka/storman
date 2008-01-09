@@ -158,9 +158,7 @@ sub server_input {
     $ENV{STAGE_SVCCLASS} = $heap->{HashRef}->{work}->{SvcClass};
 
     # mark start time
-    $heap->{WorkStarted} = time;
-
-
+    #$heap->{WorkStarted} = time;
 
     # Call rfstat and check the file.
     # RfstatRetries is the number of retries in case of receiving error from rfstat command.
