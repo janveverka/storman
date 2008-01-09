@@ -151,14 +151,20 @@ sub process_file
 
   my $priority = 99;
 
-  if( defined( $work->{HOSTNAME}  ))
+  if (defined($work->{HOSTNAME}))
     {
-      my $id = $self->HostnameQueue($work->{HOSTNAME})->enqueue($priority,$work);;
-      $self->Quiet("Job $id added to ", $work->{HOSTNAME}, " queue\n");
+      my $hostname=$work->{HOSTNAME};
+
+      delete $work->{HOSTNAME};
+
+      my $id = $self->HostnameQueue($hostname)->enqueue($priority,$work);;
+      $self->Quiet("Job $id added to ", $hostname, " queue\n");
     }
   else
     {
-      my $id = $self->Queue->enqueue($priority,$work);;
+      delete $work->{HOSTNAME} if exists $work->{HOSTNAME};
+
+      my $id = $self->Queue->enqueue($priority,$work);
       $self->Quiet("Job $id added to general queue\n");
     }
 }
