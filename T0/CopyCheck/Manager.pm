@@ -7,6 +7,7 @@ use POE::Component::Server::TCP;
 use POE::Queue::Array;
 use T0::Util;
 use T0::FileWatcher;
+use File::Basename;
 
 our (@ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION);
 
@@ -426,10 +427,10 @@ sub job_done {
 #    }
 
   my %loghash1 = (
-                 FILENAME => $input->{work}->{FILENAME},
-                 STOP_TIME => $input->{work}->{STOP_TIME},
-                 T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},
-                );
+		  FILENAME => basename($input->{work}->{LFN}),
+		  STOP_TIME => $input->{work}->{STOP_TIME},
+		  T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},
+		 );
 
   if ( $input->{status} == 0 )
     {
@@ -455,7 +456,32 @@ sub job_done {
 			  APP_NAME => $input->{work}->{APP_NAME},
 			  APP_VERSION => $input->{work}->{APP_VERSION},
 			 );
+
 	  $self->Log( \%loghash2 );
+
+	  my %loghash3 = (
+			  Tier0Inject => '1',
+			  RUNNUMBER => $input->{work}->{RUNNUMBER},
+			  LUMISECTION => $input->{work}->{LUMISECTION},
+			  LFN => $input->{work}->{LFN},
+			  NEVENTS => $input->{work}->{NEVENTS},
+			  START_TIME => $input->{work}->{START_TIME},
+			  STOP_TIME => $input->{work}->{STOP_TIME},
+			  DATASET => $input->{work}->{DATASET},
+			  STREAM => $input->{work}->{STREAM},
+			  FILESIZE => $input->{work}->{FILESIZE},
+			  CHECKSUM => $input->{work}->{CHECKSUM},
+			  TYPE => $input->{work}->{TYPE},
+			  APP_NAME => $input->{work}->{APP_NAME},
+			  APP_VERSION => $input->{work}->{APP_VERSION},
+			 );
+
+	  if ( exists $input->{work}->{TriggerInfo} )
+	    {
+	      $loghash3{TriggerInfo} = $input->{work}->{TriggerInfo};
+	    }
+
+	  $self->Log( \%loghash3 );
 	}
     }
   else
