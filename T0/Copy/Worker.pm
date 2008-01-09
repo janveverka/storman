@@ -225,6 +225,42 @@ sub server_input {
 	$deletebadfiles = $heap->{Self}->{DeleteBadFiles};
       }
 
+    # check for index file
+    if (defined($work->{INDEX}))
+      {
+	my $indexfile = $work->{PATHNAME} . '/' . $work->{INDEX};
+
+	if (-e $indexfile)
+	  {
+	    #parse index file and extract information
+	    my $output = qx{(. ~hufnagel/w0/releases/CMSSW_1_8_0_pre5/src/runtime.sh ; edmStreamerIndex -i $indexfile) 2> /dev/null};
+
+	    if ( $? == 0 )
+	      {
+		$work->{TriggerInfo} = $output;
+	      }
+	    else
+	      {
+		$heap->{Self}->Quiet("index file not valid, edmStreamerIndex returned $?\n");
+		$heap->{HashRef}->{status} = -1;
+		$kernel->yield('job_done');
+		return;
+	      }
+	  }
+	else
+	  {
+	    $heap->{Self}->Quiet("index file does not exist\n");
+	    $heap->{HashRef}->{status} = -1;
+	    $kernel->yield('job_done');
+	    return;
+	  }
+      }
+
+    # cleanup work hash
+    delete $work->{PATHNAME};
+    delete $work->{FILENAME};
+    delete $work->{INDEX} if exists $work->{INDEX};
+
     # send another message to logger (for MonaLisa)
     my %loghash = (
 		   MonaLisa => 1,
