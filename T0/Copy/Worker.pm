@@ -258,7 +258,7 @@ sub server_input {
 
     # cleanup work hash
     delete $work->{PATHNAME};
-    delete $work->{FILENAME};
+    #delete $work->{FILENAME};
     delete $work->{INDEX} if exists $work->{INDEX};
 
     # send another message to logger (for MonaLisa)
