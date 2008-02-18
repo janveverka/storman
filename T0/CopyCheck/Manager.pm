@@ -427,7 +427,7 @@ sub job_done {
 #    }
 
   my %loghash1 = (
-		  FILENAME => basename($input->{work}->{LFN}),
+		  FILENAME => basename($input->{work}->{PFN}),
 		  STOP_TIME => $input->{work}->{STOP_TIME},
 		  T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},
 		 );
