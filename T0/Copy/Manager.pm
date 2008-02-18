@@ -7,6 +7,7 @@ use POE::Component::Server::TCP;
 use POE::Queue::Array;
 use T0::Util;
 use T0::FileWatcher;
+use File::Basename;
 
 our (@ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION);
 
@@ -525,22 +526,66 @@ sub client_input
 sub job_done {
   my ( $self, $kernel, $heap, $session, $input ) = @_[ OBJECT, KERNEL, HEAP, SESSION, ARG0 ];
 
+  my %loghash1 = (
+		  FILENAME => basename($input->{work}->{PFN}),
+		  STOP_TIME => $input->{work}->{STOP_TIME},
+		  T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},
+		 );
+
   if ( $input->{status} == 0 )
     {
       $self->Quiet("JobDone: Copy id = $input->{id} succeeded\n");
 
-      $input->{work}->{OnlineFile} = 't0input.available';
-      $input->{work}->{DAQFileStatusUpdate} = 't0input.copied';
+      $loghash1{DAQFileStatusUpdate} = 't0input.copied';
+
+      my %loghash2 = (
+		      OnlineFile => 't0input.available',
+		      RUNNUMBER => $input->{work}->{RUNNUMBER},
+		      LUMISECTION => $input->{work}->{LUMISECTION},
+		      PFN => $input->{work}->{PFN},
+		      NEVENTS => $input->{work}->{NEVENTS},
+		      START_TIME => $input->{work}->{START_TIME},
+		      STOP_TIME => $input->{work}->{STOP_TIME},
+		      DATASET => $input->{work}->{DATASET},
+		      STREAM => $input->{work}->{STREAM},
+		      FILESIZE => $input->{work}->{FILESIZE},
+		      CHECKSUM => $input->{work}->{CHECKSUM},
+		      TYPE => $input->{work}->{TYPE},
+		      APP_NAME => $input->{work}->{APP_NAME},
+		      APP_VERSION => $input->{work}->{APP_VERSION},
+		      DeleteAfterCheck => $input->{work}->{DeleteAfterCheck},
+		      SvcClass => $input->{work}->{SvcClass},
+		      T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},
+		     );
+
+      if ( exists $input->{work}->{LFN} )
+	{
+	  $loghash2{LFN} = $input->{work}->{LFN}
+	}
+
+      if ( exists $input->{work}->{Resent} )
+	{
+	  $loghash2{Resent} = $input->{work}->{Resent};
+	}
+
+      $self->Log( \%loghash2 );
     }
   else
     {
       $self->Quiet("JobDone: Copy id = $input->{id} failed, status = $input->{status}\n");
 
-      $input->{work}->{OnlineFile} = 't0input.not_available';
-      $input->{work}->{DAQFileStatusUpdate} = 't0input.copy_failed';
+      $loghash1{DAQFileStatusUpdate} = 't0input.copy_failed';
     }
 
-    $self->Log($input->{work});
+  if ( exists $input->{work}->{Resent} )
+    {
+      $loghash1{Resent} = $input->{work}->{Resent};
+    }
+
+  if ( $input->{work}->{DATASET} ne 'TransferTest' )
+    {
+      $self->Log( \%loghash1 );
+    }
 }
 
 1;
