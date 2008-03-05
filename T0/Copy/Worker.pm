@@ -264,11 +264,18 @@ sub server_input {
 	  {
 	    $work->{INDEXSIZE} = qx{stat --format=%s $indexfile};
 
-	    $work->{INDEXPFN} = 'cmslcgse01:/data1/cmsprod/TransferScaleTest/index' . '/' . $work->{INDEX};
-	    $work->{INDEXPFNBACKUP} = $work->{TargetDir} . '/' . $work->{INDEX};
-
-	    push(@{ $rfcphash{files} }, { source => $indexfile, target => $work->{INDEXPFN} } );
-	    push(@{ $rfcphash{files} }, { source => $indexfile, target => $work->{INDEXPFNBACKUP} } );
+	    if (defined $work->{IndexDir})
+	      {
+		$work->{INDEXPFN} = $work->{IndexDir} . '/' . $work->{INDEX};
+		$work->{INDEXPFNBACKUP} = $work->{TargetDir} . '/' . $work->{INDEX};
+		push(@{ $rfcphash{files} }, { source => $indexfile, target => $work->{INDEXPFN} } );
+		push(@{ $rfcphash{files} }, { source => $indexfile, target => $work->{INDEXPFNBACKUP} } );
+	      }
+	    else
+	      {
+		$work->{INDEXPFN} = $work->{INDEXPFNBACKUP} = $work->{TargetDir} . '/' . $work->{INDEX};
+		push(@{ $rfcphash{files} }, { source => $indexfile, target => $work->{INDEXPFN} } );
+	      }
 	  }
 	else
 	  {
