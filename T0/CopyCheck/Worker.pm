@@ -152,10 +152,13 @@ sub server_input {
 
   if ( $command =~ m%DoThis% )
   {
+    my $work = $hash_ref->{work};
+    my $pfn = $work->{PFN};
+
     $heap->{HashRef} = $hash_ref;
 
     # SvcClass checked in Manager already
-    $ENV{STAGE_SVCCLASS} = $heap->{HashRef}->{work}->{SvcClass};
+    $ENV{STAGE_SVCCLASS} = $work->{SvcClass};
 
     # mark start time
     #$heap->{WorkStarted} = time;
@@ -163,12 +166,50 @@ sub server_input {
     # Call rfstat and check the file.
     # RfstatRetries is the number of retries in case of receiving error from rfstat command.
     # RfstatRetryBackoff is the delay between tries.
+    my $size = T0::Castor::RfstatHelper::getFileSize( $hash_ref->{work}->{PFN}, $self->{RfstatRetries}, $self->{RfstatRetryBackoff} );
 
-    my $size = T0::Castor::RfstatHelper::getFileSize( 
-						     $hash_ref->{work}->{PFN}, $self->{RfstatRetries}, $self->{RfstatRetryBackoff} 
-						    );
-    $kernel->yield('check_size', ($size));
+    #$kernel->yield('check_size', ($size));
 
+    my $status = check_size($self,$work->{PFN},$work->{FILESIZE},$self->{RfstatRetries},$self->{RfstatRetryBackoff});
+
+    $hash_ref->{status} = $status;
+
+    if ( $status == 0 )
+      {
+	# check on index
+	if ( defined $work->{INDEXSIZE} and defined $work->{INDEXPFN} )
+	  {
+	    if ( 1 == check_size($self,$work->{INDEXPFN},$work->{INDEXSIZE},$self->{RfstatRetries},$self->{RfstatRetryBackoff}) )
+	      {
+		$hash_ref->{status} = 1;
+	      }
+	    elsif ( defined $work->{INDEXPFNBACKUP} )
+	      {
+		if ( 1 == check_size($self,$work->{INDEXPFNBACKUP},$work->{INDEXSIZE},$self->{RfstatRetries},$self->{RfstatRetryBackoff}) )
+		  {
+		    $hash_ref->{status} = 1;
+		  }
+	      }
+	  }
+
+	# delete file if DeleteAfterCheck flag is set
+	if (defined($work->{DeleteAfterCheck}) && $work->{DeleteAfterCheck} == 1)
+	  {
+	    delete_file($pfn);
+
+	    if ( defined $work->{INDEXSIZE} and defined $work->{INDEXPFN} )
+	      {
+		delete_file($work->{INDEXPFN});
+
+		if ( defined $work->{INDEXPFNBACKUP} )
+		  {
+		    delete_file($work->{INDEXPFNBACKUP});
+		  }
+	      }
+	  }
+      }
+
+    $kernel->yield('job_done');
     return;
   }
 
@@ -262,59 +303,50 @@ sub job_done
 }
 
 
-# This function will check that the size of the file is the one specified in FILESIZE variable inside work.
-# If DeleteAfterCheck is set (=1) then the file will be deleted after a succesfull check (just if the size matches).
+# call rfstat, compare size
 sub check_size
 {
-  my ( $self, $heap, $kernel, $size ) = @_[ OBJECT, HEAP, KERNEL, ARG0 ];
+  my $self = shift;
+  my $pfn = shift;
+  my $expectedSize = shift;
+  my $retries = shift;
+  my $backoff = shift;
 
-  my $hash_ref = $heap->{HashRef};
-  my $work = $hash_ref->{work};
-  my $pfn = $work->{PFN};
+  my $status = 1;
 
+  my $filesize = T0::Castor::RfstatHelper::getFileSize($pfn,$retries,$backoff);
 
-  #If rfstat didn't end succesfully then we don't check
-  if ($size == -1)
+  if ( $filesize == -1 )
     {
-      $heap->{Self}->Quiet("Rfstat failed with ", $pfn, ".\n");
-      $hash_ref->{status} = 1;
-      $kernel->yield('job_done');
-      return;
+      $self->Quiet("rfstat failed for ", $pfn, ".\n");
     }
-
-
-  #Let's check the size
-  if ( $size == $work->{FILESIZE} )
+  elsif ( $filesize == $expectedSize )
     {
-      $work->{FILESIZE} = $size;
-
-      $heap->{Self}->Quiet($pfn, " size matches.\n");
-      $hash_ref->{status} = 0;
-
-      # delete file if DeleteAfterCheck flag is set
-      if (defined($work->{DeleteAfterCheck}) && $work->{DeleteAfterCheck} == 1)
-	{
-	  if ( $pfn =~ m/^\/castor/ )
-	    {
-	      qx {stager_rm -M $pfn};
-	      qx {nsrm $pfn};
-	    }
-	  else
-	    {
-	      qx {rfrm $pfn};
-	    }
-
-	  $heap->{Self}->Quiet($pfn, " deleted.\n");
-	}
+      $self->Quiet($pfn, " size matches.\n");
+      $status = 0;
     }
   else
     {
-      $heap->{Self}->Quiet($pfn, " size doesn't match.\n");
-      $hash_ref->{status} = 1;
+      $self->Quiet($pfn, " size doesn't match\n");
     }
 
-  $kernel->yield('job_done');
-  return;
+  return $status;
+}
+
+# delete file
+sub delete_file
+{
+  my $pfn = shift;
+
+  if ( $pfn =~ m/^\/castor/ )
+    {
+      qx {stager_rm -M $pfn};
+      qx {nsrm $pfn};
+    }
+  else
+    {
+      qx {rfrm $pfn};
+    }
 }
 
 1;

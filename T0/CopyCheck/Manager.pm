@@ -470,6 +470,7 @@ sub job_done {
 			  RUNNUMBER => $input->{work}->{RUNNUMBER},
 			  LUMISECTION => $input->{work}->{LUMISECTION},
 			  LFN => $input->{work}->{LFN},
+			  PFN => $input->{work}->{PFN},
 			  NEVENTS => $input->{work}->{NEVENTS},
 			  START_TIME => $input->{work}->{START_TIME},
 			  STOP_TIME => $input->{work}->{STOP_TIME},
@@ -483,9 +484,14 @@ sub job_done {
 			  T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},
 			 );
 
-	  if ( exists $input->{work}->{TriggerInfo} )
+	  if ( exists $input->{work}->{INDEXPFN} )
 	    {
-	      $loghash3{TriggerInfo} = $input->{work}->{TriggerInfo};
+	      $loghash3{INDEXPFN} = $input->{work}->{INDEXPFN};
+
+	      if ( exists $input->{work}->{INDEXPFNBACKUP} )
+		{
+		  $loghash3{INDEXPFNBACKUP} = $input->{work}->{INDEXPFNBACKUP};
+		}
 	    }
 
 	  if ( exists $input->{work}->{Resent} )

@@ -207,7 +207,6 @@ sub server_input {
     # target file
     $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
     my $targetfile = $work->{PFN};
-    delete $work->{TargetDir};
 
     # mark start time
     $heap->{WorkStarted} = time;
@@ -224,42 +223,6 @@ sub server_input {
 	# coming from config file (default option)
 	$deletebadfiles = $heap->{Self}->{DeleteBadFiles};
       }
-
-    # check for index file
-    if (defined($work->{INDEX}))
-      {
-	my $indexfile = $work->{PATHNAME} . '/' . $work->{INDEX};
-
-	if (-e $indexfile)
-	  {
-	    #parse index file and extract information
-	    my $output = qx{(. ~hufnagel/w0/releases/CMSSW_1_8_0_pre5/src/runtime.sh ; edmStreamerIndex -i $indexfile) 2> /dev/null};
-
-	    if ( $? == 0 )
-	      {
-		$work->{TriggerInfo} = $output;
-	      }
-	    else
-	      {
-		$heap->{Self}->Quiet("index file not valid, edmStreamerIndex returned $?\n");
-		$heap->{HashRef}->{status} = -1;
-		$kernel->yield('job_done');
-		return;
-	      }
-	  }
-	else
-	  {
-	    $heap->{Self}->Quiet("index file does not exist\n");
-	    $heap->{HashRef}->{status} = -1;
-	    $kernel->yield('job_done');
-	    return;
-	  }
-      }
-
-    # cleanup work hash
-    delete $work->{PATHNAME};
-    #delete $work->{FILENAME};
-    delete $work->{INDEX} if exists $work->{INDEX};
 
     # send another message to logger (for MonaLisa)
     my %loghash = (
@@ -291,6 +254,30 @@ sub server_input {
     $heap->{Self}->Debug("Copy " . $hash_ref->{id} . " added " . basename($sourcefile) . "\n");
 
     push(@{ $rfcphash{files} }, { source => $sourcefile, target => $targetfile } );
+
+    # check for index file
+    if (defined($work->{INDEX}))
+      {
+	my $indexfile = $work->{PATHNAME} . '/' . $work->{INDEX};
+
+	if (-s $indexfile)
+	  {
+	    $work->{INDEXSIZE} = qx{stat --format=%s $indexfile};
+
+	    $work->{INDEXPFN} = 'cmslcgse01:/data1/cmsprod/TransferScaleTest/index' . '/' . $work->{INDEX};
+	    $work->{INDEXPFNBACKUP} = $work->{TargetDir} . '/' . $work->{INDEX};
+
+	    push(@{ $rfcphash{files} }, { source => $indexfile, target => $work->{INDEXPFN} } );
+	    push(@{ $rfcphash{files} }, { source => $indexfile, target => $work->{INDEXPFNBACKUP} } );
+	  }
+	else
+	  {
+	    $heap->{Self}->Quiet("index file does not exist, is not a regular file or empty\n");
+	    $heap->{HashRef}->{status} = -1;
+	    $kernel->yield('job_done');
+	    return;
+	  }
+      }
 
     $heap->{Self}->Debug("Copy " . $hash_ref->{id} . " started\n");
 
