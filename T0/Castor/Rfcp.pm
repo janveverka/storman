@@ -191,8 +191,8 @@ sub start_wheel {
 
   $heap->{Self}->Quiet("Start copy from $file->{source} to $file->{target}\n");
 
-  $ENV{STAGER_TRACE} = 3;
-  $ENV{RFIO_TRACE} = 3;
+  #$ENV{STAGER_TRACE} = 3;
+  #$ENV{RFIO_TRACE} = 3;
 
   my $task = POE::Wheel::Run->new(
 				  Program => $program,
