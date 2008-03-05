@@ -175,6 +175,9 @@ sub start_tasks {
       # track if the target dir has been created because it was missing
       $filehash{checked_target_dir} = 0;
 
+      # keep track of what target directories have been created
+      $heap->{created_target_dir} = ();
+
       $heap->{wheel_count}++;
       $kernel->yield('start_wheel',(\%filehash));
     }
@@ -296,8 +299,6 @@ sub rfcp_exit_handler {
 	  $kernel->alarm_remove( $file->{alarm_id} );
 	}
 
-      $heap->{wheel_count}--;
-
       # update status in caller hash
       $file->{original}->{status} = $status;
 
@@ -353,30 +354,42 @@ sub check_target_exists {
 
   if ( ($status == 256 || $status == 512) && ($file->{checked_target_dir} == 0) )
     {
-      my $targetdir = dirname( $file->{target} );
-      $heap->{Self}->Quiet("Checking if directory $targetdir exists\n");
-      my $dir_status = T0::Castor::RfstatHelper::checkDirExists( $targetdir );
-
+      # only run this code once per file
       $file->{checked_target_dir} = 1;
 
-      # The target doesn't exists. Create the directory
-      if ( $dir_status == 1 )
+      my $targetdir = dirname( $file->{target} );
+
+      # check if directory was already created by other file copy error handler
+      if ( exists $heap->{created_target_dir}->{$targetdir} )
 	{
-	  $heap->{Self}->Quiet("Creating directory $targetdir\n");
-	  qx { rfmkdir -p $targetdir };
+	  # assume the directory has been created and retry
 	  $kernel->yield('rfcp_retry_handler', ($task_id,$status,1));
 	}
-      elsif ($dir_status == 2)
+      else
 	{
-	  # The targetdir is not a dir. Stop the iteration
-	  $heap->{Self}->Quiet("$targetdir is not a directory\n");
-	  $kernel->yield('wheel_cleanup', ($task_id,$status));
-	}
-      # Target exists and it is a directory
-      elsif ($dir_status == 0)
-	{
-	  $heap->{Self}->Quiet("Directory $targetdir exists\n");
-	  $kernel->yield('rfcp_retry_handler', ($task_id,$status,0));
+	  $heap->{Self}->Quiet("Checking if directory $targetdir exists\n");
+	  my $dir_status = T0::Castor::RfstatHelper::checkDirExists( $targetdir );
+
+	  # The target doesn't exists. Create the directory
+	  if ( $dir_status == 1 )
+	    {
+	      $heap->{Self}->Quiet("Creating directory $targetdir\n");
+	      qx { rfmkdir -p $targetdir };
+	      $heap->{created_target_dir}->{$targetdir} = 1;
+	      $kernel->yield('rfcp_retry_handler', ($task_id,$status,1));
+	    }
+	  elsif ($dir_status == 2)
+	    {
+	      # The targetdir is not a dir. Stop the iteration
+	      $heap->{Self}->Quiet("$targetdir is not a directory\n");
+	      $kernel->yield('wheel_cleanup', ($task_id,$status));
+	    }
+	  # Target exists and it is a directory
+	  elsif ($dir_status == 0)
+	    {
+	      $heap->{Self}->Quiet("Directory $targetdir exists\n");
+	      $kernel->yield('rfcp_retry_handler', ($task_id,$status,0));
+	    }
 	}
     }
   # no problems with target, regular retry
@@ -419,17 +432,17 @@ sub rfcp_retry_handler {
   # Retrying
   elsif ( $file->{retries} > 0 )
     {
-      $heap->{wheel_count}++;
-
       $heap->{Self}->Quiet("Retry count at " . $file->{retries} . " , retrying\n");
       $file->{retries}--;
 
       if ( exists $file->{retry_backoff} )
 	{
+	  $heap->{wheel_count}++;
 	  $kernel->delay_set('start_wheel',$file->{retry_backoff},($file));
 	}
       else
 	{
+	  $heap->{wheel_count}++;
 	  $kernel->yield('start_wheel',($file));
 	}
     }
@@ -444,6 +457,10 @@ sub rfcp_retry_handler {
 # Free space in memory assigned to the wheel.
 sub wheel_cleanup {
   my ( $kernel, $heap, $task_id ) = @_[ KERNEL, HEAP, ARG0 ];
+
+  my $file = $heap->{file}->{$task_id};
+
+  $heap->{wheel_count}--;
 
   # Clean up all the session
   if ( $heap->{wheel_count} == 0 )
