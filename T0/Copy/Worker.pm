@@ -149,7 +149,11 @@ sub prepare_work
   # feed parameters into work hash
   map{ $work->{$_} = $dsparams->{$_} } keys %$dsparams;
 
-  if ( $work->{CreateLFN} )
+  if ( $work->{TargetDir} eq '/dev/null' )
+    {
+      $work->{PFN} = '/dev/null';
+    }
+  elsif ( $work->{CreateLFN} )
     {
       my $run = $work->{RUNNUMBER};
 
@@ -157,6 +161,9 @@ sub prepare_work
 			   $run/1000000, ($run%1000000)/1000, $run%1000);
 
       $work->{TargetDir} .= $lfndir;
+
+      $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
+
       $work->{LFN} = $lfndir . "/" . $work->{FILENAME};
     }
   elsif ( $work->{SplitByDay} )
@@ -171,6 +178,8 @@ sub prepare_work
       $year += 1900;
 
       $work->{TargetDir} .= "/" . $year . $month . $day;
+
+      $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
     }
 };
 
@@ -198,14 +207,13 @@ sub server_input {
     # nothing went wrong yet
     $hash_ref->{status} = 0;
 
-    # Preparing....
-    prepare_work($self, $work);
-
     # source file
     my $sourcefile = $work->{PATHNAME} . '/' . $work->{FILENAME};
 
+    # configuring target dir, pfn and lfn
+    prepare_work($self, $work);
+
     # target file
-    $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
     my $targetfile = $work->{PFN};
 
     # mark start time
@@ -256,7 +264,7 @@ sub server_input {
     push(@{ $rfcphash{files} }, { source => $sourcefile, target => $targetfile } );
 
     # check for index file
-    if (defined($work->{INDEX}))
+    if ( defined($work->{INDEX}) and $work->{TargetDir} ne '/dev/null' )
       {
 	my $indexfile = $work->{PATHNAME} . '/' . $work->{INDEX};
 
