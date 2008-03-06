@@ -536,46 +536,50 @@ sub job_done {
     {
       $self->Quiet("JobDone: Copy id = $input->{id} succeeded\n");
 
-      $loghash1{DAQFileStatusUpdate} = 't0input.copied';
-
-      my %loghash2 = (
-		      OnlineFile => 't0input.available',
-		      RUNNUMBER => $input->{work}->{RUNNUMBER},
-		      LUMISECTION => $input->{work}->{LUMISECTION},
-		      PFN => $input->{work}->{PFN},
-		      NEVENTS => $input->{work}->{NEVENTS},
-		      START_TIME => $input->{work}->{START_TIME},
-		      STOP_TIME => $input->{work}->{STOP_TIME},
-		      DATASET => $input->{work}->{DATASET},
-		      STREAM => $input->{work}->{STREAM},
-		      FILESIZE => $input->{work}->{FILESIZE},
-		      CHECKSUM => $input->{work}->{CHECKSUM},
-		      TYPE => $input->{work}->{TYPE},
-		      APP_NAME => $input->{work}->{APP_NAME},
-		      APP_VERSION => $input->{work}->{APP_VERSION},
-		      DeleteAfterCheck => $input->{work}->{DeleteAfterCheck},
-		      SvcClass => $input->{work}->{SvcClass},
-		      T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},
-		     );
-
-      if ( exists $input->{work}->{LFN} )
+      if ( $input->{work}->{PFN} ne '/dev/null' )
 	{
-	  $loghash2{LFN} = $input->{work}->{LFN}
-	}
 
-      if ( defined $input->{work}->{INDEX} )
-	{
-	  $loghash2{INDEXPFN} = $input->{work}->{INDEXPFN};
-	  $loghash2{INDEXPFNBACKUP} = $input->{work}->{INDEXPFNBACKUP};
-	  $loghash2{INDEXSIZE} = $input->{work}->{INDEXSIZE};
-	}
+	  $loghash1{DAQFileStatusUpdate} = 't0input.copied';
 
-      if ( exists $input->{work}->{Resent} )
-	{
-	  $loghash2{Resent} = $input->{work}->{Resent};
-	}
+	  my %loghash2 = (
+			  OnlineFile => 't0input.available',
+			  RUNNUMBER => $input->{work}->{RUNNUMBER},
+			  LUMISECTION => $input->{work}->{LUMISECTION},
+			  PFN => $input->{work}->{PFN},
+			  NEVENTS => $input->{work}->{NEVENTS},
+			  START_TIME => $input->{work}->{START_TIME},
+			  STOP_TIME => $input->{work}->{STOP_TIME},
+			  DATASET => $input->{work}->{DATASET},
+			  STREAM => $input->{work}->{STREAM},
+			  FILESIZE => $input->{work}->{FILESIZE},
+			  CHECKSUM => $input->{work}->{CHECKSUM},
+			  TYPE => $input->{work}->{TYPE},
+			  APP_NAME => $input->{work}->{APP_NAME},
+			  APP_VERSION => $input->{work}->{APP_VERSION},
+			  DeleteAfterCheck => $input->{work}->{DeleteAfterCheck},
+			  SvcClass => $input->{work}->{SvcClass},
+			  T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},
+			 );
 
-      $self->Log( \%loghash2 );
+	  if ( exists $input->{work}->{LFN} )
+	    {
+	      $loghash2{LFN} = $input->{work}->{LFN}
+	    }
+
+	  if ( defined $input->{work}->{INDEX} )
+	    {
+	      $loghash2{INDEXPFN} = $input->{work}->{INDEXPFN};
+	      $loghash2{INDEXPFNBACKUP} = $input->{work}->{INDEXPFNBACKUP};
+	      $loghash2{INDEXSIZE} = $input->{work}->{INDEXSIZE};
+	    }
+
+	  if ( exists $input->{work}->{Resent} )
+	    {
+	      $loghash2{Resent} = $input->{work}->{Resent};
+	    }
+
+	  $self->Log( \%loghash2 );
+	}
     }
   else
     {
@@ -589,7 +593,7 @@ sub job_done {
       $loghash1{Resent} = $input->{work}->{Resent};
     }
 
-  if ( $input->{work}->{DATASET} ne 'TransferTest' )
+  if ( $input->{work}->{DATASET} ne 'TransferTest' and $input->{work}->{PFN} ne '/dev/null' )
     {
       $self->Log( \%loghash1 );
     }
