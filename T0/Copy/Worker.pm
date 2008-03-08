@@ -181,6 +181,10 @@ sub prepare_work
 
       $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
     }
+  else
+    {
+      $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
+    }
 };
 
 
