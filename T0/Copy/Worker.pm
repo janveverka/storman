@@ -153,6 +153,58 @@ sub prepare_work
     {
       $work->{PFN} = '/dev/null';
     }
+  elsif ( defined($work->{SplitMode}) )
+    {
+      my ($day,$month,$year) = (localtime(time))[3,4,5];
+      $month += 1;
+      $year += 1900;
+
+      if ( $work->{SplitMode} eq 'dataLFN' )
+	{
+	  my $run = $work->{RUNNUMBER};
+
+	  my $lfndir = sprintf("/store/data/%s/%s/%03d/%03d/%03d", $work->{DATASET}, $work->{STREAM},
+			       $run/1000000, ($run%1000000)/1000, $run%1000);
+
+	  $work->{TargetDir} .= $lfndir;
+
+	  $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
+
+	  $work->{LFN} = $lfndir . "/" . $work->{FILENAME};
+	}
+      elsif ( $work->{SplitMode} eq 'lumiLFN' )
+	{
+	  my $lfndir = sprintf("/store/lumi/%04d%02d", $year, $month);
+
+	  $work->{TargetDir} .= $lfndir;
+
+	  $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
+
+	  $work->{LFN} = $lfndir . "/" . $work->{FILENAME};
+	}
+      elsif ( $work->{SplitMode} eq 'dqmLFN' )
+	{
+	  my $lfndir = sprintf("/store/dqm/%04d%02d", $year, $month);
+
+	  $work->{TargetDir} .= $lfndir;
+
+	  $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
+
+	  $work->{LFN} = $lfndir . "/" . $work->{FILENAME};
+	}
+      elsif ( $work->{SplitMode} eq 'daily' )
+	{
+	  my $temp = sprintf("/%04d%02d%02d", $year, $month, $day);
+
+	  $work->{TargetDir} .= $temp;
+
+	  $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
+	}
+      else
+	{
+	  $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
+	}
+    }
   elsif ( $work->{CreateLFN} )
     {
       my $run = $work->{RUNNUMBER};
