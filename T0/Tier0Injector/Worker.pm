@@ -5,9 +5,8 @@ use POE;
 use POE::Filter::Reference;
 use POE::Component::Client::TCP;
 use Sys::Hostname;
-use File::Basename;
-use XML::Twig;
 use T0::Util;
+use DBI;
 
 our (@ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION);
 
@@ -72,7 +71,9 @@ sub start_task {
   $heap->{Self} = $self;
 
   # put some parameters on heap
-  $heap->{InjectionScript} = $self->{InjectionScript};
+  $heap->{DatabaseInstance} = $self->{DatabaseInstance};
+  $heap->{DatabaseUser} = $self->{DatabaseUser};
+  $heap->{DatabasePassword} = $self->{DatabasePassword};
 
   #initialize some parameters
   $heap->{State} = 'Created';
@@ -158,45 +159,238 @@ sub server_input {
     # mark start time
     $heap->{WorkStarted} = time;
 
-    my $run = $work->{RUNNUMBER};
-    my $lumi = $work->{LUMISECTION};
-    my $lfn = $work->{LFN};
-    my $nevents = $work->{NEVENTS};
-    my $filesize = $work->{FILESIZE};
     my $checksum = $work->{CHECKSUM};
-    my $start = $work->{START_TIME};
-    my $stop = $work->{STOP_TIME};
     my $type = $work->{TYPE};
-    my $appname = $work->{APP_NAME};
-    my $appversion = $work->{APP_VERSION};
     my $dataset = $work->{DATASET};
-    my $stream = $work->{STREAM};
+
+    # nothing has gone wrong yet
+    $hash_ref->{status} = 0;
 
     #
-    # register file with Tier0
+    # Check database handle, connect if needed
     #
-    if ( exists($work->{TriggerInfo}) and defined($work->{TriggerInfo}) )
+    unless ( $heap->{DatabaseHandle} )
       {
-	my $triggerinfo = $work->{TriggerInfo};
+	$heap->{DatabaseHandle} = DBI->connect($heap->{DatabaseInstance},$heap->{DatabaseUser},$heap->{DatabasePassword});
+      }
 
-	my $output = qx{$heap->{InjectionScript} --run $run --lumi $lumi --lfn $lfn --size $filesize --cksum $checksum --nevents $nevents --start $start --end $stop --dataset $dataset --stream $stream --type $type --appname $appname --appversion $appversion --triggerinfo $triggerinfo};
+    if ( $heap->{DatabaseHandle} )
+      {
+	my ($sql,$sth,$count);
 
-	$hash_ref->{status} = $?;
+	#
+	# check if run is already in database
+	#
+	$count = 0;
+	$sql = "select RUN_ID from CMS_T0AST_DIRK.run where run_id = ?";
+
+	if ( $sth = $heap->{DatabaseHandle}->prepare_cached($sql) )
+	  {
+	    $sth->bind_param(1,int($work->{RUNNUMBER}));
+	    if ( $sth->execute() )
+	      {
+		while ( my ($tmp) = $sth->fetchrow_array() )
+		  {
+		    ++$count;
+		  }
+	      }
+	    else
+	      {
+		$heap->{Self}->Quiet("failed execute : $heap->{DatabaseHandle}->errstr\n");
+		$hash_ref->{status} = 1;
+	      }
+	  }
+	else
+	  {
+	    $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+	    $hash_ref->{status} = 1;
+	  }
+
+	#
+	# insert run if needed
+	#
+	if ( $hash_ref->{status} ==  0 and $count == 0 )
+	  {
+	    # FIXME : should be initialised with T0AST DB schema install
+	    #         remove asap, that's why no error handling
+	    $sql = "insert into CMS_T0AST_DIRK.run_status (STATUS_ID, RUN_STATUS) values (0,'open')";
+	    $sth = $heap->{DatabaseHandle}->prepare( $sql );
+	    $sth->execute();
+
+	    $sql = "insert into CMS_T0AST_DIRK.run (RUN_ID, START_TIME, END_TIME, APP_NAME, APP_VERSION, RUN_STATUS) values (?,?,?,?,?,?)";
+
+	    if ( $sth = $heap->{DatabaseHandle}->prepare_cached( $sql ) )
+	      {
+		$sth->bind_param(1,int($work->{RUNNUMBER}));
+                $sth->bind_param(2,int($work->{START_TIME}));
+                $sth->bind_param(3,int($work->{STOP_TIME}));
+                $sth->bind_param(4,$work->{APP_NAME});
+                $sth->bind_param(5,$work->{APP_VERSION});
+                $sth->bind_param(6,int(0));
+		if ( $sth->execute() )
+		  {
+		    $heap->{Self}->Quiet("Inserted run $work->{RUNNUMBER}\n");
+		  }
+		else
+		  {
+		    $heap->{Self}->Quiet("failed execute : $heap->{DatabaseHandle}->errstr\n");
+		    $hash_ref->{status} = 1;
+		  }
+	      }
+	    else
+	      {
+		$heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+		$hash_ref->{status} = 1;
+	      }
+	  }
+
+	#
+	# check if lumi section is already in database
+	#
+	if ( $hash_ref->{status} ==  0 )
+	  {
+	    $count = 0;
+	    $sql = "select LUMI_ID, RUN_ID from CMS_T0AST_DIRK.lumi_section where lumi_id = ? and run_id = ?";
+
+	    if ( $sth = $heap->{DatabaseHandle}->prepare_cached( $sql ) )
+	      {
+		$sth->bind_param(1,int($work->{LUMISECTION}));
+		$sth->bind_param(2,int($work->{RUNNUMBER}));
+		if ( $sth->execute() )
+		  {
+		    while ( my ($tmp1,$tmp2) = $sth->fetchrow_array() )
+		      {
+			++$count;
+		      }
+		  }
+		else
+		  {
+		    $heap->{Self}->Quiet("failed execute : $heap->{DatabaseHandle}->errstr\n");
+		    $hash_ref->{status} = 1;
+		  }
+	      }
+	    else
+	      {
+		$heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+		$hash_ref->{status} = 1;
+	      }
+	  }
+
+	#
+	# insert lumi section if needed
+	#
+	if ( $hash_ref->{status} ==  0 and $count == 0 )
+	  {
+	    $sql = "insert into CMS_T0AST_DIRK.lumi_section (LUMI_ID, RUN_ID, START_TIME) values (?,?,?)";
+
+	    if ( $sth = $heap->{DatabaseHandle}->prepare_cached( $sql ) )
+	      {
+		$sth->bind_param(1,int($work->{LUMISECTION}));
+		$sth->bind_param(2,int($work->{RUNNUMBER}));
+		$sth->bind_param(3,int($work->{START_TIME}));
+		if ( $sth->execute() )
+		  {
+		    $heap->{Self}->Quiet("Inserted lumi section $work->{LUMISECTION} for run $work->{RUNNUMBER}\n");
+		  }
+		else
+		  {
+		    $heap->{Self}->Quiet("failed execute : $heap->{DatabaseHandle}->errstr\n");
+		    $hash_ref->{status} = 1;
+		  }
+	      }
+	    else
+	      {
+		$heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+		$hash_ref->{status} = 1;
+	      }
+	  }
+
+	#
+	# check if streamer is already in database
+	#
+	if ( $hash_ref->{status} ==  0 )
+	  {
+	    $count = 0;
+	    $sql = "select LFN from CMS_T0AST_DIRK.streamer where lfn = ?";
+
+	    if ( $sth = $heap->{DatabaseHandle}->prepare_cached( $sql ) )
+	      {
+		$sth->bind_param(1,$work->{LFN});
+		if ( $sth->execute() )
+		  {
+		    while ( my ($tmp) = $sth->fetchrow_array() )
+		      {
+			++$count;
+		      }
+		  }
+		else
+		  {
+		    $heap->{Self}->Quiet("failed execute : $heap->{DatabaseHandle}->errstr\n");
+		    $hash_ref->{status} = 1;
+		  }
+	      }
+	    else
+	      {
+		$heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+		$hash_ref->{status} = 1;
+	      }
+	  }
+
+	#
+	# insert streamer if needed
+	#
+	if ( $hash_ref->{status} ==  0 and $count == 0 )
+	  {
+	    $sql = "insert into CMS_T0AST_DIRK.streamer (LUMI_ID, RUN_ID, START_TIME, FILESIZE, EVENTS, LFN, STREAMNAME, EXPORTABLE, SPLITABLE, INDEXPFN, INDEXPFNBACKUP) values (?,?,?,?,?,?,?,?,?,?,?)";
+
+	    if ( $sth = $heap->{DatabaseHandle}->prepare_cached( $sql ) )
+	      {
+		$sth->bind_param(1,int($work->{LUMISECTION}));
+		$sth->bind_param(2,int($work->{RUNNUMBER}));
+		$sth->bind_param(3,int($work->{START_TIME}));
+		$sth->bind_param(4,int($work->{FILESIZE}));
+		$sth->bind_param(5,int($work->{NEVENTS}));
+		$sth->bind_param(6,$work->{LFN});
+		$sth->bind_param(7,$work->{STREAM});
+		$sth->bind_param(8,int(0));
+		$sth->bind_param(9,int(1));
+		$sth->bind_param(10,$work->{INDEXPFN});
+		$sth->bind_param(11,$work->{INDEXPFNBACKUP});
+		if ( $sth->execute() )
+		  {
+		    $heap->{Self}->Quiet("Inserted streamer with LFN $work->{LFN}\n");
+		  }
+		else
+		  {
+		    $heap->{Self}->Quiet("failed execute : $heap->{DatabaseHandle}->errstr\n");
+		    $hash_ref->{status} = 1;
+		  }
+	      }
+	    else
+	      {
+		$heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+		$hash_ref->{status} = 1;
+	      }
+	  }
+	elsif ( $hash_ref->{status} ==  0 and $count > 0 )
+	  {
+	    $heap->{Self}->Quiet("Streamer with LFN $work->{LFN} already exists\n");
+	    $hash_ref->{status} = 1;
+	  }
       }
     else
       {
-	my $output = qx{$heap->{InjectionScript} --run $run --lumi $lumi --lfn $lfn --size $filesize --cksum $checksum --nevents $nevents --start $start --end $stop --dataset $dataset --stream $stream --type $type --appname $appname --appversion $appversion};
-
-	$hash_ref->{status} = $?;
+	$heap->{Self}->Quiet("failed connection to database\n");
+	$hash_ref->{status} = 1;
       }
 
     if ( $hash_ref->{status} == 0 )
       {
-	$heap->{Self}->Quiet("Injection for ",$lfn," succeeded\n");
+	$heap->{Self}->Quiet("Injection for ", $work->{LFN}, " succeeded\n");
       }
     else
       {
-	$heap->{Self}->Quiet("Injection for ",$lfn," failed\n");
+	$heap->{Self}->Quiet("Injection for ", $work->{LFN}, " failed\n");
       }
 
     $kernel->yield('job_done');
