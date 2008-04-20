@@ -71,6 +71,7 @@ sub start_task {
   $heap->{Self} = $self;
 
   # put some parameters on heap
+  $heap->{DatabaseHandleLifetime} = $self->{DatabaseHandleLifetime};
   $heap->{DatabaseInstance} = $self->{DatabaseInstance};
   $heap->{DatabaseUser} = $self->{DatabaseUser};
   $heap->{DatabasePassword} = $self->{DatabasePassword};
@@ -169,9 +170,19 @@ sub server_input {
     #
     # Check database handle, connect if needed
     #
-    unless ( $heap->{DatabaseHandle} )
+    if ( ! $heap->{DatabaseHandle}
+         || time() - $heap->{DatabaseHandleCreation} > $self->{DatabaseHandleLifetime} )
+#	 || (! eval { $heap->{DatabaseHandle}->ping() } || $@)
+#	 || (! eval { $heap->{DatabaseHandle}->do("select sysdate from dual") } || $@) )
       {
+	eval { $heap->{DatabaseHandle}->disconnect() } if $heap->{DatabaseHandle};
+	undef $heap->{DatabaseHandle};
+	undef $heap->{DatabaseHandleCreation};
+
+	$heap->{DatabaseHandleCreation} = time();
 	$heap->{DatabaseHandle} = DBI->connect($heap->{DatabaseInstance},$heap->{DatabaseUser},$heap->{DatabasePassword});
+
+	$heap->{Self}->Quiet("Connected to database\n");
       }
 
     if ( $heap->{DatabaseHandle} )
@@ -182,7 +193,7 @@ sub server_input {
 	# check if run is already in database
 	#
 	$count = 0;
-	$sql = "select RUN_ID from CMS_T0AST_DIRK.run where run_id = ?";
+	$sql = "select RUN_ID from " . $heap->{DatabaseUser} . ".run where run_id = ?";
 
 	if ( $sth = $heap->{DatabaseHandle}->prepare_cached($sql) )
 	  {
@@ -213,11 +224,11 @@ sub server_input {
 	  {
 	    # FIXME : should be initialised with T0AST DB schema install
 	    #         remove asap, that's why no error handling
-	    $sql = "insert into CMS_T0AST_DIRK.run_status (STATUS_ID, RUN_STATUS) values (0,'open')";
+	    $sql = "insert into " . $heap->{DatabaseUser} . ".run_status (STATUS_ID, RUN_STATUS) values (0,'open')";
 	    $sth = $heap->{DatabaseHandle}->prepare( $sql );
 	    $sth->execute();
 
-	    $sql = "insert into CMS_T0AST_DIRK.run (RUN_ID, START_TIME, END_TIME, APP_NAME, APP_VERSION, RUN_STATUS) values (?,?,?,?,?,?)";
+	    $sql = "insert into " . $heap->{DatabaseUser} . ".run (RUN_ID, START_TIME, END_TIME, APP_NAME, APP_VERSION, RUN_STATUS) values (?,?,?,?,?,?)";
 
 	    if ( $sth = $heap->{DatabaseHandle}->prepare_cached( $sql ) )
 	      {
@@ -250,7 +261,7 @@ sub server_input {
 	if ( $hash_ref->{status} ==  0 )
 	  {
 	    $count = 0;
-	    $sql = "select LUMI_ID, RUN_ID from CMS_T0AST_DIRK.lumi_section where lumi_id = ? and run_id = ?";
+	    $sql = "select LUMI_ID, RUN_ID from " . $heap->{DatabaseUser} . ".lumi_section where lumi_id = ? and run_id = ?";
 
 	    if ( $sth = $heap->{DatabaseHandle}->prepare_cached( $sql ) )
 	      {
@@ -281,7 +292,7 @@ sub server_input {
 	#
 	if ( $hash_ref->{status} ==  0 and $count == 0 )
 	  {
-	    $sql = "insert into CMS_T0AST_DIRK.lumi_section (LUMI_ID, RUN_ID, START_TIME) values (?,?,?)";
+	    $sql = "insert into " . $heap->{DatabaseUser} . ".lumi_section (LUMI_ID, RUN_ID, START_TIME) values (?,?,?)";
 
 	    if ( $sth = $heap->{DatabaseHandle}->prepare_cached( $sql ) )
 	      {
@@ -311,7 +322,7 @@ sub server_input {
 	if ( $hash_ref->{status} ==  0 )
 	  {
 	    $count = 0;
-	    $sql = "select LFN from CMS_T0AST_DIRK.streamer where lfn = ?";
+	    $sql = "select LFN from " . $heap->{DatabaseUser} . ".streamer where lfn = ?";
 
 	    if ( $sth = $heap->{DatabaseHandle}->prepare_cached( $sql ) )
 	      {
@@ -341,7 +352,7 @@ sub server_input {
 	#
 	if ( $hash_ref->{status} ==  0 and $count == 0 )
 	  {
-	    $sql = "insert into CMS_T0AST_DIRK.streamer (LUMI_ID, RUN_ID, START_TIME, FILESIZE, EVENTS, LFN, STREAMNAME, EXPORTABLE, SPLITABLE, INDEXPFN, INDEXPFNBACKUP) values (?,?,?,?,?,?,?,?,?,?,?)";
+	    $sql = "insert into " . $heap->{DatabaseUser} . ".streamer (LUMI_ID, RUN_ID, START_TIME, FILESIZE, EVENTS, LFN, STREAMNAME, EXPORTABLE, SPLITABLE, INDEXPFN, INDEXPFNBACKUP) values (?,?,?,?,?,?,?,?,?,?,?)";
 
 	    if ( $sth = $heap->{DatabaseHandle}->prepare_cached( $sql ) )
 	      {
