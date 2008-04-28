@@ -169,240 +169,221 @@ sub server_input {
 
     #
     # Check database handle, connect if needed
+    # Prepare all the selects and inserts
     #
     if ( ! $heap->{DatabaseHandle}
-         || time() - $heap->{DatabaseHandleCreation} > $self->{DatabaseHandleLifetime} )
-#	 || (! eval { $heap->{DatabaseHandle}->ping() } || $@)
-#	 || (! eval { $heap->{DatabaseHandle}->do("select sysdate from dual") } || $@) )
-      {
-	eval { $heap->{DatabaseHandle}->disconnect() } if $heap->{DatabaseHandle};
+         || time() - $heap->{DatabaseHandleCreation} > $self->{DatabaseHandleLifetime} ) {
+      eval { $heap->{DatabaseHandle}->disconnect() } if $heap->{DatabaseHandle};
+      undef $heap->{DatabaseHandle};
+      undef $heap->{DatabaseHandleCreation};
+
+      $heap->{DatabaseHandle} = DBI->connect($heap->{DatabaseInstance},
+					     $heap->{DatabaseUser},
+					     $heap->{DatabasePassword},
+					     {
+					      RaiseError => 1,
+					      AutoCommit => 0
+					     });
+      $heap->{DatabaseHandleCreation} = time();
+
+      # Check if handle is usable
+      if ( ! $heap->{DatabaseHandle}
+	   || (! eval { $heap->{DatabaseHandle}->ping() } || $@)
+	   || (! eval { $heap->{DatabaseHandle}->do("select sysdate from dual") } || $@) ) {
+	$heap->{Self}->Quiet("Failed connection to database\n");
 	undef $heap->{DatabaseHandle};
-	undef $heap->{DatabaseHandleCreation};
+      }
 
-	$heap->{DatabaseHandleCreation} = time();
-	$heap->{DatabaseHandle} = DBI->connect($heap->{DatabaseInstance},$heap->{DatabaseUser},$heap->{DatabasePassword});
+      if ( $heap->{DatabaseHandle} ) {
+	my $sql = "select COUNT(*) from " . $heap->{DatabaseUser} . ".run ";
+	$sql .= "where run_id = ?";
+	if ( ! ( $heap->{StmtFindRun} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
+	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+	  undef $heap->{DatabaseHandle};
+	}
+      }
+      if ( $heap->{DatabaseHandle} ) {
+	my $sql = "insert into " . $heap->{DatabaseUser} . ".run ";
+	$sql .= "(RUN_ID,START_TIME,END_TIME,APP_NAME,APP_VERSION,RUN_STATUS) ";
+	$sql .= "values (?,?,?,?,?,?)";
+	if ( ! ( $heap->{StmtInsertRun} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
+	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+	  undef $heap->{DatabaseHandle};
+	}
+      }
+      if ( $heap->{DatabaseHandle} ) {
+	my $sql = "select COUNT(*) from " . $heap->{DatabaseUser} . ".lumi_section ";
+	$sql .= "where lumi_id = ? and run_id = ?";
+	if ( ! ( $heap->{StmtFindLumi} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
+	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+	  undef $heap->{DatabaseHandle};
+	}
+      }
+      if ( $heap->{DatabaseHandle} ) {
+	my $sql = "insert into " . $heap->{DatabaseUser} . ".lumi_section ";
+	$sql .= "(LUMI_ID,RUN_ID,START_TIME) values (?,?,?)";
+	if ( ! ( $heap->{StmtInsertLumi} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
+	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+	  undef $heap->{DatabaseHandle};
+	}
+      }
+      if ( $heap->{DatabaseHandle} ) {
+	my $sql = "select COUNT(*) from " . $heap->{DatabaseUser} . ".streamer ";
+	$sql .= "where lfn = ?";
+	if ( ! ( $heap->{StmtFindStreamer} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
+	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+	  undef $heap->{DatabaseHandle};
+	}
+      }
+      if ( $heap->{DatabaseHandle} ) {
+	my $sql = "insert into " . $heap->{DatabaseUser} . ".streamer ";
+	$sql .= "(STREAMER_ID,LUMI_ID,RUN_ID,START_TIME,FILESIZE,EVENTS,LFN,STREAMNAME,EXPORTABLE,SPLITABLE,INDEXPFN,INDEXPFNBACKUP) ";
+	$sql .= "values (streamer_SEQ.nextval,?,?,?,?,?,?,?,?,?,?,?)";
+	if ( ! ( $heap->{StmtInsertStreamer} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
+	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+	  undef $heap->{DatabaseHandle};
+	}
+      }
 
+      if ( $heap->{DatabaseHandle} ) {
 	$heap->{Self}->Quiet("Connected to database\n");
       }
+    }
 
     if ( $heap->{DatabaseHandle} )
       {
-	my ($sql,$sth,$count);
+	my ($sth,$count);
 
 	#
 	# check if run is already in database
 	#
 	$count = 0;
-	$sql = "select RUN_ID from " . $heap->{DatabaseUser} . ".run where run_id = ?";
-
-	if ( $sth = $heap->{DatabaseHandle}->prepare_cached($sql) )
-	  {
-	    $sth->bind_param(1,int($work->{RUNNUMBER}));
-	    if ( $sth->execute() )
-	      {
-		while ( my ($tmp) = $sth->fetchrow_array() )
-		  {
-		    ++$count;
-		  }
-	      }
-	    else
-	      {
-		$heap->{Self}->Quiet("failed execute : $heap->{DatabaseHandle}->errstr\n");
-		$hash_ref->{status} = 1;
-	      }
-	  }
-	else
-	  {
-	    $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
-	    $hash_ref->{status} = 1;
-	  }
-
+	$sth = $heap->{StmtFindRun};
+	$sth->bind_param(1,int($work->{RUNNUMBER}));
+	if ( eval { $sth->execute() } ) {
+	  $count = $sth->fetchrow_array();
+	  $sth->finish();
+	} else {
+	  $heap->{Self}->Quiet("Could not check for run $work->{RUNNUMBER}\n");
+	  $hash_ref->{status} = 1;
+	}
+	
 	#
 	# insert run if needed
 	#
-	if ( $hash_ref->{status} ==  0 and $count == 0 )
-	  {
-	    # FIXME : should be initialised with T0AST DB schema install
-	    #         remove asap, that's why no error handling
-	    $sql = "insert into " . $heap->{DatabaseUser} . ".run_status (STATUS_ID, RUN_STATUS) values (0,'open')";
-	    $sth = $heap->{DatabaseHandle}->prepare( $sql );
-	    $sth->execute();
+	if ( $hash_ref->{status} ==  0 and $count == 0 ) {
+	  # FIXME : should be initialised with T0AST DB schema install
+	  #         remove asap, that's why no error handling
+	  my $sql = "insert into " . $heap->{DatabaseUser} . ".run_status (ID,STATUS) ";
+	  $sql .= "select ?,? from dual where not exists ";
+	  $sql .= "(select * from " . $heap->{DatabaseUser} . ".run_status where id = ?)";
+	  $sth = $heap->{DatabaseHandle}->prepare_cached( $sql );
+	  $sth->bind_param(1,int(0));
+	  $sth->bind_param(2,'open');
+	  $sth->bind_param(3,int(0));
+	  $sth->execute();
 
-	    $sql = "insert into " . $heap->{DatabaseUser} . ".run (RUN_ID, START_TIME, END_TIME, APP_NAME, APP_VERSION, RUN_STATUS) values (?,?,?,?,?,?)";
-
-	    if ( $sth = $heap->{DatabaseHandle}->prepare_cached( $sql ) )
-	      {
-		$sth->bind_param(1,int($work->{RUNNUMBER}));
-                $sth->bind_param(2,int($work->{START_TIME}));
-                $sth->bind_param(3,int($work->{STOP_TIME}));
-                $sth->bind_param(4,$work->{APP_NAME});
-                $sth->bind_param(5,$work->{APP_VERSION});
-                $sth->bind_param(6,int(0));
-		if ( $sth->execute() )
-		  {
-		    $heap->{Self}->Quiet("Inserted run $work->{RUNNUMBER}\n");
-		  }
-		else
-		  {
-		    $heap->{Self}->Quiet("failed execute : $heap->{DatabaseHandle}->errstr\n");
-		    $hash_ref->{status} = 1;
-		  }
-	      }
-	    else
-	      {
-		$heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
-		$hash_ref->{status} = 1;
-	      }
+	  $sth = $heap->{StmtInsertRun};
+	  $sth->bind_param(1,int($work->{RUNNUMBER}));
+	  $sth->bind_param(2,int($work->{START_TIME}));
+	  $sth->bind_param(3,int($work->{STOP_TIME}));
+	  $sth->bind_param(4,$work->{APP_NAME});
+	  $sth->bind_param(5,$work->{APP_VERSION});
+	  $sth->bind_param(6,int(0));
+	  if ( eval { $sth->execute() } ) {
+	    $heap->{Self}->Quiet("Inserted run $work->{RUNNUMBER}\n");
+	  } else {
+	    $heap->{Self}->Quiet("Could not insert run $work->{RUNNUMBER}\n");
+	    $hash_ref->{status} = 1;
 	  }
+	}
 
 	#
 	# check if lumi section is already in database
 	#
-	if ( $hash_ref->{status} ==  0 )
-	  {
-	    $count = 0;
-	    $sql = "select LUMI_ID, RUN_ID from " . $heap->{DatabaseUser} . ".lumi_section where lumi_id = ? and run_id = ?";
-
-	    if ( $sth = $heap->{DatabaseHandle}->prepare_cached( $sql ) )
-	      {
-		$sth->bind_param(1,int($work->{LUMISECTION}));
-		$sth->bind_param(2,int($work->{RUNNUMBER}));
-		if ( $sth->execute() )
-		  {
-		    while ( my ($tmp1,$tmp2) = $sth->fetchrow_array() )
-		      {
-			++$count;
-		      }
-		  }
-		else
-		  {
-		    $heap->{Self}->Quiet("failed execute : $heap->{DatabaseHandle}->errstr\n");
-		    $hash_ref->{status} = 1;
-		  }
-	      }
-	    else
-	      {
-		$heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
-		$hash_ref->{status} = 1;
-	      }
+	if ( $hash_ref->{status} ==  0 ) {
+	  $count = 0;
+	  $sth = $heap->{StmtFindLumi};
+	  $sth->bind_param(1,int($work->{LUMISECTION}));
+	  $sth->bind_param(2,int($work->{RUNNUMBER}));
+	  if ( eval { $sth->execute() } ) {
+	    $count = $sth->fetchrow_array();
+	    $sth->finish();
+	  } else {
+	    $heap->{Self}->Quiet("Could not check for lumi section $work->{LUMISECTION} for run $work->{RUNNUMBER}\n");
+	    $hash_ref->{status} = 1;
 	  }
+	}
 
 	#
 	# insert lumi section if needed
 	#
-	if ( $hash_ref->{status} ==  0 and $count == 0 )
-	  {
-	    $sql = "insert into " . $heap->{DatabaseUser} . ".lumi_section (LUMI_ID, RUN_ID, START_TIME) values (?,?,?)";
-
-	    if ( $sth = $heap->{DatabaseHandle}->prepare_cached( $sql ) )
-	      {
-		$sth->bind_param(1,int($work->{LUMISECTION}));
-		$sth->bind_param(2,int($work->{RUNNUMBER}));
-		$sth->bind_param(3,int($work->{START_TIME}));
-		if ( $sth->execute() )
-		  {
-		    $heap->{Self}->Quiet("Inserted lumi section $work->{LUMISECTION} for run $work->{RUNNUMBER}\n");
-		  }
-		else
-		  {
-		    $heap->{Self}->Quiet("failed execute : $heap->{DatabaseHandle}->errstr\n");
-		    $hash_ref->{status} = 1;
-		  }
-	      }
-	    else
-	      {
-		$heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
-		$hash_ref->{status} = 1;
-	      }
+	if ( $hash_ref->{status} ==  0 and $count == 0 ) {
+	  $sth = $heap->{StmtInsertLumi};
+	  $sth->bind_param(1,int($work->{LUMISECTION}));
+	  $sth->bind_param(2,int($work->{RUNNUMBER}));
+	  $sth->bind_param(3,int($work->{START_TIME}));
+	  if ( eval { $sth->execute() } ) {
+	    $heap->{Self}->Quiet("Inserted lumi section $work->{LUMISECTION} for run $work->{RUNNUMBER}\n");
+	  } else {
+	    $heap->{Self}->Quiet("Could not insert lumi section $work->{LUMISECTION} for run $work->{RUNNUMBER}\n");
+	    $hash_ref->{status} = 1;
 	  }
+	}
 
 	#
 	# check if streamer is already in database
 	#
-	if ( $hash_ref->{status} ==  0 )
-	  {
-	    $count = 0;
-	    $sql = "select LFN from " . $heap->{DatabaseUser} . ".streamer where lfn = ?";
-
-	    if ( $sth = $heap->{DatabaseHandle}->prepare_cached( $sql ) )
-	      {
-		$sth->bind_param(1,$work->{LFN});
-		if ( $sth->execute() )
-		  {
-		    while ( my ($tmp) = $sth->fetchrow_array() )
-		      {
-			++$count;
-		      }
-		  }
-		else
-		  {
-		    $heap->{Self}->Quiet("failed execute : $heap->{DatabaseHandle}->errstr\n");
-		    $hash_ref->{status} = 1;
-		  }
-	      }
-	    else
-	      {
-		$heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
-		$hash_ref->{status} = 1;
-	      }
+	if ( $hash_ref->{status} ==  0 ) {
+	  $count = 0;
+	  $sth = $heap->{StmtFindStreamer};
+	  $sth->bind_param(1,$work->{LFN});
+	  if ( eval { $sth->execute() } ) {
+	    $count = $sth->fetchrow_array();
+	    $sth->finish();
+	  } else {
+	    $heap->{Self}->Quiet("Could not check for streamer with LFN $work->{LFN}\n");
+	    $hash_ref->{status} = 1;
 	  }
-
+	}
+	
 	#
 	# insert streamer if needed
 	#
-	if ( $hash_ref->{status} ==  0 and $count == 0 )
-	  {
-	    $sql = "insert into " . $heap->{DatabaseUser} . ".streamer (LUMI_ID, RUN_ID, START_TIME, FILESIZE, EVENTS, LFN, STREAMNAME, EXPORTABLE, SPLITABLE, INDEXPFN, INDEXPFNBACKUP) values (?,?,?,?,?,?,?,?,?,?,?)";
-
-	    if ( $sth = $heap->{DatabaseHandle}->prepare_cached( $sql ) )
-	      {
-		$sth->bind_param(1,int($work->{LUMISECTION}));
-		$sth->bind_param(2,int($work->{RUNNUMBER}));
-		$sth->bind_param(3,int($work->{START_TIME}));
-		$sth->bind_param(4,int($work->{FILESIZE}));
-		$sth->bind_param(5,int($work->{NEVENTS}));
-		$sth->bind_param(6,$work->{LFN});
-		$sth->bind_param(7,$work->{STREAM});
-		$sth->bind_param(8,int(0));
-		$sth->bind_param(9,int(1));
-		$sth->bind_param(10,$work->{INDEXPFN});
-		$sth->bind_param(11,$work->{INDEXPFNBACKUP});
-		if ( $sth->execute() )
-		  {
-		    $heap->{Self}->Quiet("Inserted streamer with LFN $work->{LFN}\n");
-		  }
-		else
-		  {
-		    $heap->{Self}->Quiet("failed execute : $heap->{DatabaseHandle}->errstr\n");
-		    $hash_ref->{status} = 1;
-		  }
-	      }
-	    else
-	      {
-		$heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
-		$hash_ref->{status} = 1;
-	      }
-	  }
-	elsif ( $hash_ref->{status} ==  0 and $count > 0 )
-	  {
-	    $heap->{Self}->Quiet("Streamer with LFN $work->{LFN} already exists\n");
+	if ( $hash_ref->{status} ==  0 and $count == 0 ) {
+	  $sth = $heap->{StmtInsertStreamer};
+	  $sth->bind_param(1,int($work->{LUMISECTION}));
+	  $sth->bind_param(2,int($work->{RUNNUMBER}));
+	  $sth->bind_param(3,int($work->{START_TIME}));
+	  $sth->bind_param(4,int($work->{FILESIZE}));
+	  $sth->bind_param(5,int($work->{NEVENTS}));
+	  $sth->bind_param(6,$work->{LFN});
+	  $sth->bind_param(7,$work->{STREAM});
+	  $sth->bind_param(8,int(0));
+	  $sth->bind_param(9,int(1));
+	  $sth->bind_param(10,$work->{INDEXPFN});
+	  $sth->bind_param(11,$work->{INDEXPFNBACKUP});
+	  if ( eval { $sth->execute() } ) {
+	    $heap->{Self}->Quiet("Inserted streamer with LFN $work->{LFN}\n");
+	  } else {
+	    $heap->{Self}->Quiet("Could not insert streamer with LFN $work->{LFN}\n");
 	    $hash_ref->{status} = 1;
 	  }
-      }
-    else
-      {
-	$heap->{Self}->Quiet("failed connection to database\n");
+	} elsif ( $hash_ref->{status} ==  0 and $count > 0 ) {
+	  $heap->{Self}->Quiet("Streamer with LFN $work->{LFN} already exists\n");
+	  $hash_ref->{status} = 1;
+	}
+      } else {
 	$hash_ref->{status} = 1;
       }
 
-    if ( $hash_ref->{status} == 0 )
-      {
-	$heap->{Self}->Quiet("Injection for ", $work->{LFN}, " succeeded\n");
-      }
-    else
-      {
-	$heap->{Self}->Quiet("Injection for ", $work->{LFN}, " failed\n");
-      }
+    if ( $hash_ref->{status} == 0 ) {
+      $heap->{DatabaseHandle}->commit();
+      $heap->{Self}->Quiet("Injection for ", $work->{LFN}, " succeeded\n");
+    } else {
+      $heap->{DatabaseHandle}->rollback();
+      $heap->{Self}->Quiet("Injection for ", $work->{LFN}, " failed\n");
+    }
 
     $kernel->yield('job_done');
 
