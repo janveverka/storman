@@ -373,15 +373,19 @@ sub server_input {
 	  $heap->{Self}->Quiet("Streamer with LFN $work->{LFN} already exists\n");
 	  $hash_ref->{status} = 1;
 	}
+
+	if ( $hash_ref->{status} == 0 ) {
+	  $heap->{DatabaseHandle}->commit();
+	} else {
+	  $heap->{DatabaseHandle}->rollback();
+	}
       } else {
 	$hash_ref->{status} = 1;
       }
 
     if ( $hash_ref->{status} == 0 ) {
-      $heap->{DatabaseHandle}->commit();
       $heap->{Self}->Quiet("Injection for ", $work->{LFN}, " succeeded\n");
     } else {
-      $heap->{DatabaseHandle}->rollback();
       $heap->{Self}->Quiet("Injection for ", $work->{LFN}, " failed\n");
     }
 
