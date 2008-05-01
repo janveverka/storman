@@ -331,14 +331,14 @@ sub server_input {
 	    if (defined $work->{IndexDir})
 	      {
 		$work->{INDEXPFN} = $work->{IndexDir} . '/' . $work->{INDEX};
-		$work->{INDEXPFNBACKUP} = $work->{TargetDir} . '/' . $work->{INDEX};
+		#$work->{INDEXPFNBACKUP} = $work->{TargetDir} . '/' . $work->{INDEX};
 		push(@{ $rfcphash{files} }, { source => $indexfile, target => $work->{INDEXPFN} } );
-		push(@{ $rfcphash{files} }, { source => $indexfile, target => $work->{INDEXPFNBACKUP} } );
+		#push(@{ $rfcphash{files} }, { source => $indexfile, target => $work->{INDEXPFNBACKUP} } );
 	      }
 	    else
 	      {
-		$work->{INDEXPFN} = $work->{INDEXPFNBACKUP} = $work->{TargetDir} . '/' . $work->{INDEX};
-		push(@{ $rfcphash{files} }, { source => $indexfile, target => $work->{INDEXPFN} } );
+		#$work->{INDEXPFN} = $work->{INDEXPFNBACKUP} = $work->{TargetDir} . '/' . $work->{INDEX};
+		#push(@{ $rfcphash{files} }, { source => $indexfile, target => $work->{INDEXPFN} } );
 	      }
 	  }
 	else
