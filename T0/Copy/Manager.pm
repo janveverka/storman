@@ -566,11 +566,15 @@ sub job_done {
 	      $loghash2{LFN} = $input->{work}->{LFN}
 	    }
 
-	  if ( defined $input->{work}->{INDEX} )
+	  if ( exists $input->{work}->{INDEXPFN} )
 	    {
 	      $loghash2{INDEXPFN} = $input->{work}->{INDEXPFN};
-	      $loghash2{INDEXPFNBACKUP} = $input->{work}->{INDEXPFNBACKUP};
 	      $loghash2{INDEXSIZE} = $input->{work}->{INDEXSIZE};
+
+	      if ( exists $input->{work}->{INDEXPFNBACKUP} )
+		{
+		  $loghash2{INDEXPFNBACKUP} = $input->{work}->{INDEXPFNBACKUP};
+		}
 	    }
 
 	  if ( exists $input->{work}->{Resent} )
