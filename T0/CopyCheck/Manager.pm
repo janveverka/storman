@@ -484,6 +484,7 @@ sub job_done {
 			  T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},
 			 );
 
+	  # only inject into Tier0 if there is an index
 	  if ( exists $input->{work}->{INDEXPFN} )
 	    {
 	      $loghash3{INDEXPFN} = $input->{work}->{INDEXPFN};
@@ -492,14 +493,14 @@ sub job_done {
 		{
 		  $loghash3{INDEXPFNBACKUP} = $input->{work}->{INDEXPFNBACKUP};
 		}
-	    }
 
-	  if ( exists $input->{work}->{Resent} )
-	    {
-	      $loghash3{Resent} = $input->{work}->{Resent};
-	    }
+	      if ( exists $input->{work}->{Resent} )
+		{
+		  $loghash3{Resent} = $input->{work}->{Resent};
+		}
 
-	  $self->Log( \%loghash3 );
+	      $self->Log( \%loghash3 );
+	    }
 	}
     }
   else
