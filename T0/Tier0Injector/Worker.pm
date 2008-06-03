@@ -160,9 +160,8 @@ sub server_input {
     # mark start time
     $heap->{WorkStarted} = time;
 
-    my $checksum = $work->{CHECKSUM};
-    my $type = $work->{TYPE};
-    my $dataset = $work->{DATASET};
+#    my $checksum = $work->{CHECKSUM};
+#    my $type = $work->{TYPE};
 
     # nothing has gone wrong yet
     $hash_ref->{status} = 0;
