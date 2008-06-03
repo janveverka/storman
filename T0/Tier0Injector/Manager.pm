@@ -419,36 +419,31 @@ sub client_input
 sub job_done {
   my ( $self, $kernel, $heap, $session, $input ) = @_[ OBJECT, KERNEL, HEAP, SESSION, ARG0 ];
 
-
 #  while ( my ($key, $value) = each(%$input) ) {
 #        print "Inside JobDone: $key => $value\n";
 #    }
-
-  my %loghash1 = (
-		  FILENAME => basename($input->{work}->{LFN}),
-		  STOP_TIME => $input->{work}->{STOP_TIME},
-		  T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},
-		 );
 
   if ( $input->{status} == 0 )
     {
       $self->Quiet("JobDone: Tier0Injector id = $input->{id} succeeded\n");
 
-      $loghash1{DAQFileStatusUpdate} = 't0input.injected';
+      my %loghash1 = (
+		      TransferStatus => 'inserted',
+		      FILENAME => basename($input->{work}->{LFN}),
+		      STOP_TIME => $input->{work}->{STOP_TIME},
+		      T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},
+		     );
+
+      if ( exists $input->{work}->{Resent} )
+	{
+	  $loghash1{Resent} = $input->{work}->{Resent};
+	}
+      $self->Log( \%loghash1 );
     }
   else
     {
       $self->Quiet("JobDone: Tier0Injector id = $input->{id} failed, status = $input->{status}\n");
-
-      $loghash1{DAQFileStatusUpdate} = 't0input.inject_failed';
     }
-
-  if ( exists $input->{work}->{Resent} )
-    {
-      $loghash1{Resent} = $input->{work}->{Resent};
-    }
-
-  $self->Log( \%loghash1 );
 }
 
 1;

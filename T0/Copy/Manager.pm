@@ -526,21 +526,32 @@ sub client_input
 sub job_done {
   my ( $self, $kernel, $heap, $session, $input ) = @_[ OBJECT, KERNEL, HEAP, SESSION, ARG0 ];
 
-  my %loghash1 = (
-		  FILENAME => basename($input->{work}->{PFN}),
-		  STOP_TIME => $input->{work}->{STOP_TIME},
-		  T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},
-		 );
+#  while ( my ($key, $value) = each(%$input) ) {
+#        print "Inside JobDone: $key => $value\n";
+#    }
 
   if ( $input->{status} == 0 )
     {
       $self->Quiet("JobDone: Copy id = $input->{id} succeeded\n");
 
+      my %loghash1 = (
+		      TransferStatus => 'copied',
+		      FILENAME => basename($input->{work}->{PFN}),
+		      STOP_TIME => $input->{work}->{STOP_TIME},
+		      T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},
+		     );
+
+      if ( exists $input->{work}->{Resent} )
+	{
+	  $loghash1{Resent} = $input->{work}->{Resent};
+	}
+      if ( $input->{work}->{DESTINATION} ne 'TransferTest' and $input->{work}->{PFN} ne '/dev/null' )
+	{
+	  $self->Log( \%loghash1 );
+	}
+
       if ( $input->{work}->{PFN} ne '/dev/null' )
 	{
-
-	  $loghash1{DAQFileStatusUpdate} = 't0input.copied';
-
 	  my %loghash2 = (
 			  OnlineFile => 't0input.available',
 			  RUNNUMBER => $input->{work}->{RUNNUMBER},
@@ -549,7 +560,7 @@ sub job_done {
 			  NEVENTS => $input->{work}->{NEVENTS},
 			  START_TIME => $input->{work}->{START_TIME},
 			  STOP_TIME => $input->{work}->{STOP_TIME},
-			  DATASET => $input->{work}->{DATASET},
+			  SETUPLABEL => $input->{work}->{SETUPLABEL},
 			  STREAM => $input->{work}->{STREAM},
 			  FILESIZE => $input->{work}->{FILESIZE},
 			  CHECKSUM => $input->{work}->{CHECKSUM},
@@ -588,18 +599,6 @@ sub job_done {
   else
     {
       $self->Quiet("JobDone: Copy id = $input->{id} failed, status = $input->{status}\n");
-
-      $loghash1{DAQFileStatusUpdate} = 't0input.copy_failed';
-    }
-
-  if ( exists $input->{work}->{Resent} )
-    {
-      $loghash1{Resent} = $input->{work}->{Resent};
-    }
-
-  if ( $input->{work}->{DATASET} ne 'TransferTest' and $input->{work}->{PFN} ne '/dev/null' )
-    {
-      $self->Log( \%loghash1 );
     }
 }
 

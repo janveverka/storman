@@ -140,10 +140,10 @@ sub prepare_work
 
   # deciding what parameters set to apply according to the dataset
   my $dsparams;
-  if ( exists($work->{DATASET}) && exists($self->{DatasetPathConfiguration}->{$work->{DATASET}}) ){
-    $dsparams = $self->{DatasetPathConfiguration}->{$work->{DATASET}};
+  if ( exists($work->{DESTINATION}) && exists($self->{DestionationConfiguration}->{$work->{DESTINATION}}) ){
+    $dsparams = $self->{DestionationConfiguration}->{$work->{DESTINATION}};
   } else {
-    $dsparams = $self->{DatasetPathConfiguration}->{default};
+    $dsparams = $self->{DestionationConfiguration}->{default};
   };
 
   # feed parameters into work hash
@@ -163,7 +163,7 @@ sub prepare_work
 	{
 	  my $run = $work->{RUNNUMBER};
 
-	  my $lfndir = sprintf("/store/data/%s/%s/%03d/%03d/%03d", $work->{DATASET}, $work->{STREAM},
+	  my $lfndir = sprintf("/store/data/%s/%s/%03d/%03d/%03d", $work->{SETUPLABEL}, $work->{STREAM},
 			       $run/1000000, ($run%1000000)/1000, $run%1000);
 
 	  $work->{TargetDir} .= $lfndir;
@@ -209,7 +209,7 @@ sub prepare_work
     {
       my $run = $work->{RUNNUMBER};
 
-      my $lfndir = sprintf("/store/data/%s/%s/%03d/%03d/%03d", $work->{DATASET}, $work->{STREAM},
+      my $lfndir = sprintf("/store/data/%s/%s/%03d/%03d/%03d", $work->{SETUPLABEL}, $work->{STREAM},
 			   $run/1000000, ($run%1000000)/1000, $run%1000);
 
       $work->{TargetDir} .= $lfndir;
