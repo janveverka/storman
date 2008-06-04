@@ -138,12 +138,12 @@ sub prepare_work
 {
   my ($self, $work) = @_;
 
-  # deciding what parameters set to apply according to the dataset
+  # deciding what parameters set to apply according to the destination
   my $dsparams;
-  if ( exists($work->{DESTINATION}) && exists($self->{DestionationConfiguration}->{$work->{DESTINATION}}) ){
-    $dsparams = $self->{DestionationConfiguration}->{$work->{DESTINATION}};
+  if ( exists($work->{DESTINATION}) && exists($self->{DestinationConfiguration}->{$work->{DESTINATION}}) ){
+    $dsparams = $self->{DestinationConfiguration}->{$work->{DESTINATION}};
   } else {
-    $dsparams = $self->{DestionationConfiguration}->{default};
+    $dsparams = $self->{DestinationConfiguration}->{default};
   };
 
   # feed parameters into work hash
