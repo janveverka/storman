@@ -138,11 +138,6 @@ sub process_file
   # record time received
   $work->{received} = time;
 
-  if ( not defined $work->{SvcClass} )
-    {
-      $work->{SvcClass} = 't0input';
-    }
-
   # check if the notification contains all needed information
   #
   # FIXME
