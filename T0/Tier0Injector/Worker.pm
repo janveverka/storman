@@ -203,8 +203,8 @@ sub server_input {
       }
       if ( $heap->{DatabaseHandle} ) {
 	my $sql = "insert into " . $heap->{DatabaseUser} . ".run ";
-	$sql .= "(RUN_ID,START_TIME,END_TIME,APP_NAME,APP_VERSION,RUN_STATUS) ";
-	$sql .= "values (?,?,?,?,?,?)";
+	$sql .= "(RUN_ID,START_TIME,END_TIME,RUN_STATUS) ";
+	$sql .= "values (?,?,?,1)";
 	if ( ! ( $heap->{StmtInsertRun} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
 	  undef $heap->{DatabaseHandle};
@@ -237,7 +237,7 @@ sub server_input {
       if ( $heap->{DatabaseHandle} ) {
 	my $sql = "insert into " . $heap->{DatabaseUser} . ".streamer ";
 	$sql .= "(STREAMER_ID,LUMI_ID,RUN_ID,START_TIME,FILESIZE,EVENTS,LFN,STREAMNAME,EXPORTABLE,SPLITABLE,INDEXPFN,INDEXPFNBACKUP) ";
-	$sql .= "values (streamer_SEQ.nextval,?,?,?,?,?,?,?,?,?,?,?)";
+	$sql .= "values (streamer_SEQ.nextval,?,?,?,?,?,?,?,0,1,?,?)";
 	if ( ! ( $heap->{StmtInsertStreamer} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
 	  undef $heap->{DatabaseHandle};
@@ -266,29 +266,15 @@ sub server_input {
 	  $heap->{Self}->Quiet("Could not check for run $work->{RUNNUMBER}\n");
 	  $hash_ref->{status} = 1;
 	}
-	
+
 	#
 	# insert run if needed
 	#
 	if ( $hash_ref->{status} ==  0 and $count == 0 ) {
-	  # FIXME : should be initialised with T0AST DB schema install
-	  #         remove asap, that's why no error handling
-	  my $sql = "insert into " . $heap->{DatabaseUser} . ".run_status (ID,STATUS) ";
-	  $sql .= "select ?,? from dual where not exists ";
-	  $sql .= "(select * from " . $heap->{DatabaseUser} . ".run_status where id = ?)";
-	  $sth = $heap->{DatabaseHandle}->prepare_cached( $sql );
-	  $sth->bind_param(1,int(0));
-	  $sth->bind_param(2,'open');
-	  $sth->bind_param(3,int(0));
-	  $sth->execute();
-
 	  $sth = $heap->{StmtInsertRun};
 	  $sth->bind_param(1,int($work->{RUNNUMBER}));
 	  $sth->bind_param(2,int($work->{START_TIME}));
 	  $sth->bind_param(3,int($work->{STOP_TIME}));
-	  $sth->bind_param(4,$work->{APP_NAME});
-	  $sth->bind_param(5,$work->{APP_VERSION});
-	  $sth->bind_param(6,int(0));
 	  if ( eval { $sth->execute() } ) {
 	    $heap->{Self}->Quiet("Inserted run $work->{RUNNUMBER}\n");
 	  } else {
@@ -345,7 +331,7 @@ sub server_input {
 	    $hash_ref->{status} = 1;
 	  }
 	}
-	
+
 	#
 	# insert streamer if needed
 	#
@@ -358,10 +344,8 @@ sub server_input {
 	  $sth->bind_param(5,int($work->{NEVENTS}));
 	  $sth->bind_param(6,$work->{LFN});
 	  $sth->bind_param(7,$work->{STREAM});
-	  $sth->bind_param(8,int(0));
-	  $sth->bind_param(9,int(1));
-	  $sth->bind_param(10,$work->{INDEXPFN});
-	  $sth->bind_param(11,$work->{INDEXPFNBACKUP});
+	  $sth->bind_param(8,$work->{INDEXPFN});
+	  $sth->bind_param(9,$work->{INDEXPFNBACKUP});
 	  if ( eval { $sth->execute() } ) {
 	    $heap->{Self}->Quiet("Inserted streamer with LFN $work->{LFN}\n");
 	  } else {
