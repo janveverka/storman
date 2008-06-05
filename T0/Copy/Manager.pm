@@ -535,7 +535,8 @@ sub job_done {
       $self->Quiet("JobDone: Copy id = $input->{id} succeeded\n");
 
       my %loghash1 = (
-		      TransferStatus => 'copied',
+		      TransferStatus => '1',
+		      STATUS => 'copied',
 		      FILENAME => basename($input->{work}->{PFN}),
 		      STOP_TIME => $input->{work}->{STOP_TIME},
 		      T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},

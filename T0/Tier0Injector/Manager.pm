@@ -423,7 +423,8 @@ sub job_done {
       $self->Quiet("JobDone: Tier0Injector id = $input->{id} succeeded\n");
 
       my %loghash1 = (
-		      TransferStatus => 'inserted',
+		      TransferStatus => '1',
+		      STATUS => 'inserted',
 		      FILENAME => basename($input->{work}->{LFN}),
 		      STOP_TIME => $input->{work}->{STOP_TIME},
 		      T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},
