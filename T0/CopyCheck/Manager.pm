@@ -443,7 +443,8 @@ sub job_done {
 	}
       $self->Log( \%loghash1 );
 
-      if ( defined $input->{work}->{LFN} and (not defined($work->{DeleteAfterCheck}) || $work->{DeleteAfterCheck} == 0) )
+      if ( defined $input->{work}->{LFN}
+	   and (not defined($input->{work}->{DeleteAfterCheck}) || $input->{work}->{DeleteAfterCheck} == 0) )
 	{
 	  my %loghash2 = (
 			  DBSUpdate => '1',
