@@ -441,12 +441,9 @@ sub job_done {
 	{
 	  $loghash1{Resent} = $input->{work}->{Resent};
 	}
-      if ( $input->{work}->{DESTINATION} ne 'TransferTest' )
-	{
-	  $self->Log( \%loghash1 );
-	}
+      $self->Log( \%loghash1 );
 
-      if ( defined $input->{work}->{LFN} )
+      if ( defined $input->{work}->{LFN} and (not defined($work->{DeleteAfterCheck}) || $work->{DeleteAfterCheck} == 0) )
 	{
 	  my %loghash2 = (
 			  DBSUpdate => '1',

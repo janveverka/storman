@@ -534,25 +534,22 @@ sub job_done {
     {
       $self->Quiet("JobDone: Copy id = $input->{id} succeeded\n");
 
-      my %loghash1 = (
-		      TransferStatus => '1',
-		      STATUS => 'copied',
-		      FILENAME => basename($input->{work}->{PFN}),
-		      STOP_TIME => $input->{work}->{STOP_TIME},
-		      T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},
-		     );
-
-      if ( exists $input->{work}->{Resent} )
-	{
-	  $loghash1{Resent} = $input->{work}->{Resent};
-	}
-      if ( $input->{work}->{DESTINATION} ne 'TransferTest' and $input->{work}->{PFN} ne '/dev/null' )
-	{
-	  $self->Log( \%loghash1 );
-	}
-
       if ( $input->{work}->{PFN} ne '/dev/null' )
 	{
+	  my %loghash1 = (
+			  TransferStatus => '1',
+			  STATUS => 'copied',
+			  FILENAME => basename($input->{work}->{PFN}),
+			  STOP_TIME => $input->{work}->{STOP_TIME},
+			  T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},
+			 );
+	  if ( exists $input->{work}->{Resent} )
+	    {
+	      $loghash1{Resent} = $input->{work}->{Resent};
+	    }
+
+	  $self->Log( \%loghash1 );
+
 	  my %loghash2 = (
 			  OnlineFile => 't0input.available',
 			  RUNNUMBER => $input->{work}->{RUNNUMBER},
