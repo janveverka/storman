@@ -158,6 +158,11 @@ sub process_file
 
       delete $work->{HOSTNAME};
 
+      if ( $hostname eq 'cmsdisk1' )
+	{
+	  delete $work->{INDEX};
+	}
+
       my $id = $self->HostnameQueue($hostname)->enqueue($priority,$work);;
       $self->Quiet("Job $id added to ", $hostname, " queue\n");
     }
