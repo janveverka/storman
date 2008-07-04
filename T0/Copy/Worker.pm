@@ -163,21 +163,18 @@ sub prepare_work
 	{
 	  my $run = $work->{RUNNUMBER};
 
-	  my $lfndir = sprintf("/store/data/%s/%s/%03d/%03d/%03d", $work->{SETUPLABEL}, $work->{STREAM},
-			       $run/1000000, ($run%1000000)/1000, $run%1000);
+	  my $lfndir;
 
-	  $work->{TargetDir} .= $lfndir;
-
-	  $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
-
-	  $work->{LFN} = $lfndir . "/" . $work->{FILENAME};
-	}
-      elsif ( $work->{SplitMode} eq 'edmLFN' )
-	{
-	  my $run = $work->{RUNNUMBER};
-
-	  my $lfndir = sprintf("/store/data/%s/%03d/%03d/%03d", $work->{SETUPLABEL},
-			       $run/1000000, ($run%1000000)/1000, $run%1000);
+	  if ( $work->{STREAM} eq '' )
+	    {
+	      $lfndir = sprintf("/store/data/%s/%03d/%03d/%03d", $work->{SETUPLABEL},
+				$run/1000000, ($run%1000000)/1000, $run%1000);
+	    }
+	  else
+	    {
+	      $lfndir = sprintf("/store/data/%s/%s/%03d/%03d/%03d", $work->{SETUPLABEL}, $work->{STREAM},
+				$run/1000000, ($run%1000000)/1000, $run%1000);
+	    }
 
 	  $work->{TargetDir} .= $lfndir;
 
