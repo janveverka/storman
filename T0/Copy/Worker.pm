@@ -172,6 +172,19 @@ sub prepare_work
 
 	  $work->{LFN} = $lfndir . "/" . $work->{FILENAME};
 	}
+      elsif ( $work->{SplitMode} eq 'edmLFN' )
+	{
+	  my $run = $work->{RUNNUMBER};
+
+	  my $lfndir = sprintf("/store/data/%s/%03d/%03d/%03d", $work->{SETUPLABEL},
+			       $run/1000000, ($run%1000000)/1000, $run%1000);
+
+	  $work->{TargetDir} .= $lfndir;
+
+	  $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
+
+	  $work->{LFN} = $lfndir . "/" . $work->{FILENAME};
+	}
       elsif ( $work->{SplitMode} eq 'lumiLFN' )
 	{
 	  my $lfndir = sprintf("/store/lumi/%04d%02d", $year, $month);
