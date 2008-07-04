@@ -316,8 +316,17 @@ sub server_input {
     }
 
     $heap->{Self}->Debug("Copy " . $hash_ref->{id} . " added " . basename($sourcefile) . "\n");
-
     push(@{ $rfcphash{files} }, { source => $sourcefile, target => $targetfile } );
+
+    # check for file size
+    my $filesize = qx{stat --format=%s $sourcefile};
+    if ( int($work->{FILESIZE}) != int($filesize) )
+      {
+	$heap->{Self}->Quiet("file size on disk does not match size in notification\n");
+	$heap->{HashRef}->{status} = -1;
+	$kernel->yield('job_done');
+	return;	
+      }
 
     # check for index file
     if ( defined($work->{INDEX}) and $work->{TargetDir} ne '/dev/null' )
