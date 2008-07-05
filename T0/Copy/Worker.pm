@@ -177,6 +177,10 @@ sub prepare_work
 	    }
 
 	  $work->{TargetDir} .= $lfndir;
+	  if (defined $work->{IndexDir})
+	    {
+	      $work->{IndexDir} .= $lfndir;
+	    }
 
 	  $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
 
