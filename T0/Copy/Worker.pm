@@ -333,7 +333,7 @@ sub server_input {
     push(@{ $rfcphash{files} }, { source => $sourcefile, target => $targetfile } );
 
     # check for file size
-    my $filesize = qx{stat --format=%s $sourcefile};
+    my $filesize = qx{stat -L --format=%s $sourcefile};
     if ( int($work->{FILESIZE}) != int($filesize) )
       {
 	$heap->{Self}->Quiet("file size on disk does not match size in notification\n");
@@ -349,7 +349,7 @@ sub server_input {
 
 	if (-s $indexfile)
 	  {
-	    $work->{INDEXSIZE} = qx{stat --format=%s $indexfile};
+	    $work->{INDEXSIZE} = qx{stat -L --format=%s $indexfile};
 
 	    if (defined $work->{IndexDir})
 	      {
