@@ -236,8 +236,8 @@ sub server_input {
       }
       if ( $heap->{DatabaseHandle} ) {
 	my $sql = "insert into " . $heap->{DatabaseUser} . ".streamer ";
-	$sql .= "(STREAMER_ID,LUMI_ID,RUN_ID,START_TIME,FILESIZE,EVENTS,LFN,STREAMNAME,EXPORTABLE,SPLITABLE,INDEXPFN,INDEXPFNBACKUP) ";
-	$sql .= "values (streamer_SEQ.nextval,?,?,?,?,?,?,?,0,1,?,?)";
+	$sql .= "(STREAMER_ID,LUMI_ID,RUN_ID,START_TIME,INSERT_TIME,FILESIZE,EVENTS,LFN,STREAMNAME,EXPORTABLE,SPLITABLE,INDEXPFN,INDEXPFNBACKUP) ";
+	$sql .= "values (streamer_SEQ.nextval,?,?,?,?,?,?,?,?,0,1,?,?)";
 	if ( ! ( $heap->{StmtInsertStreamer} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
 	  undef $heap->{DatabaseHandle};
@@ -340,12 +340,13 @@ sub server_input {
 	  $sth->bind_param(1,int($work->{LUMISECTION}));
 	  $sth->bind_param(2,int($work->{RUNNUMBER}));
 	  $sth->bind_param(3,int($work->{START_TIME}));
-	  $sth->bind_param(4,int($work->{FILESIZE}));
-	  $sth->bind_param(5,int($work->{NEVENTS}));
-	  $sth->bind_param(6,$work->{LFN});
-	  $sth->bind_param(7,$work->{STREAM});
-	  $sth->bind_param(8,$work->{INDEXPFN});
-	  $sth->bind_param(9,$work->{INDEXPFNBACKUP});
+	  $sth->bind_param(4,time);
+	  $sth->bind_param(5,int($work->{FILESIZE}));
+	  $sth->bind_param(6,int($work->{NEVENTS}));
+	  $sth->bind_param(7,$work->{LFN});
+	  $sth->bind_param(8,$work->{STREAM});
+	  $sth->bind_param(9,$work->{INDEXPFN});
+	  $sth->bind_param(10,$work->{INDEXPFNBACKUP});
 	  if ( eval { $sth->execute() } ) {
 	    $heap->{Self}->Quiet("Inserted streamer with LFN $work->{LFN}\n");
 	  } else {
