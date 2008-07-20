@@ -340,7 +340,7 @@ sub server_input {
 	  $sth->bind_param(1,int($work->{LUMISECTION}));
 	  $sth->bind_param(2,int($work->{RUNNUMBER}));
 	  $sth->bind_param(3,int($work->{START_TIME}));
-	  $sth->bind_param(4,time);
+	  $sth->bind_param(4,time());
 	  $sth->bind_param(5,int($work->{FILESIZE}));
 	  $sth->bind_param(6,int($work->{NEVENTS}));
 	  $sth->bind_param(7,$work->{LFN});
