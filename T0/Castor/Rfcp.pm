@@ -172,9 +172,6 @@ sub start_tasks {
       # this variable will avoid multiple checks about source file missing.
       $filehash{checked_source} = 0;
 
-      # track if the target dir has been created because it was missing
-      $filehash{checked_target_dir} = 0;
-
       # keep track of what target directories have been created
       $heap->{created_target_dir} = ();
 
@@ -352,18 +349,15 @@ sub check_target_exists {
 
   my $file = $heap->{file}->{$task_id};
 
-  if ( ($status == 256 || $status == 512) && ($file->{checked_target_dir} == 0) )
+  if ( ($status == 256 || $status == 512) )
     {
-      # only run this code once per file
-      $file->{checked_target_dir} = 1;
-
       my $targetdir = dirname( $file->{target} );
 
       # check if directory was already created by other file copy error handler
       if ( exists $heap->{created_target_dir}->{$targetdir} )
 	{
 	  # assume the directory has been created and retry
-	  $kernel->yield('rfcp_retry_handler', ($task_id,$status,1));
+	  $kernel->yield('rfcp_retry_handler', ($task_id,$status,1,1));
 	}
       else
 	{
@@ -374,9 +368,19 @@ sub check_target_exists {
 	  if ( $dir_status == 1 )
 	    {
 	      $heap->{Self}->Quiet("Creating directory $targetdir\n");
-	      qx { rfmkdir -p $targetdir };
-	      $heap->{created_target_dir}->{$targetdir} = 1;
-	      $kernel->yield('rfcp_retry_handler', ($task_id,$status,1));
+	      my @args = ("rfmkdir", "-p", $targetdir);
+	      if ( system(@args) == 0 )
+		{
+		  $heap->{created_target_dir}->{$targetdir} = 1;
+		  $kernel->yield('rfcp_retry_handler', ($task_id,$status,1,0));
+		}
+	      else
+		{
+		  # something went wrong in directory creation
+		  # normal retry, hope works better next round
+		  $heap->{Self}->Quiet("Could not create directory $targetdir\n");
+		  $kernel->yield('rfcp_retry_handler', ($task_id,$status,0,0));
+		}
 	    }
 	  elsif ($dir_status == 2)
 	    {
@@ -388,14 +392,14 @@ sub check_target_exists {
 	  elsif ($dir_status == 0)
 	    {
 	      $heap->{Self}->Quiet("Directory $targetdir exists\n");
-	      $kernel->yield('rfcp_retry_handler', ($task_id,$status,0));
+	      $kernel->yield('rfcp_retry_handler', ($task_id,$status,0,1));
 	    }
 	}
     }
   # no problems with target, regular retry
   else
     {
-      $kernel->yield('rfcp_retry_handler', ($task_id,$status,0));
+      $kernel->yield('rfcp_retry_handler', ($task_id,$status,0,1));
     }
 }
 
@@ -403,12 +407,12 @@ sub check_target_exists {
 # Remove target file if it exists only if I didn't create the target
 # directory in the previous step
 sub rfcp_retry_handler {
-  my ( $kernel, $heap, $session, $task_id, $status, $createdTargetDir ) = @_[ KERNEL, HEAP, SESSION, ARG0, ARG1, ARG2 ];
+  my ( $kernel, $heap, $session, $task_id, $status, $createdTargetDir, $deleteTargetFile ) = @_[ KERNEL, HEAP, SESSION, ARG0, ARG1, ARG2, ARG3 ];
 
   my $file = $heap->{file}->{$task_id};
 
   if ( defined($heap->{delete_bad_files}) && $heap->{delete_bad_files} == 1
-       && $createdTargetDir == 0 )
+       && $deleteTargetFile == 1 )
     {
       $heap->{Self}->Quiet("Deleting file before retrying\n");
 
