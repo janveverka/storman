@@ -172,18 +172,24 @@ sub server_input {
     #
     if ( ! $heap->{DatabaseHandle}
          || time() - $heap->{DatabaseHandleCreation} > $self->{DatabaseHandleLifetime} ) {
-      eval { $heap->{DatabaseHandle}->disconnect() } if $heap->{DatabaseHandle};
-      undef $heap->{DatabaseHandle};
-      undef $heap->{DatabaseHandleCreation};
 
-      $heap->{DatabaseHandle} = DBI->connect($heap->{DatabaseInstance},
-					     $heap->{DatabaseUser},
-					     $heap->{DatabasePassword},
-					     {
-					      RaiseError => 1,
-					      AutoCommit => 0
-					     });
+      if ( $heap->{DatabaseHandle} ) {
+	$heap->{Self}->Quiet("Database handle timed out, disconnecting\n");
+	eval { $heap->{DatabaseHandle}->disconnect() };
+      }
+      undef $heap->{DatabaseHandle};
+
       $heap->{DatabaseHandleCreation} = time();
+
+      eval {
+	$heap->{DatabaseHandle} = DBI->connect($heap->{DatabaseInstance},
+					       $heap->{DatabaseUser},
+					       $heap->{DatabasePassword},
+					       {
+						RaiseError => 1,
+						AutoCommit => 0
+					       });
+      };
 
       # Check if handle is usable
       if ( ! $heap->{DatabaseHandle}
@@ -251,18 +257,21 @@ sub server_input {
 
     if ( $heap->{DatabaseHandle} )
       {
-	my ($sth,$count);
+	my $sth = undef;
+	my $count = 0;
 
 	#
 	# check if run is already in database
 	#
-	$count = 0;
 	$sth = $heap->{StmtFindRun};
-	$sth->bind_param(1,int($work->{RUNNUMBER}));
-	if ( eval { $sth->execute() } ) {
+	eval {
+	  $sth->bind_param(1,int($work->{RUNNUMBER}));
+	  $sth->execute();
 	  $count = $sth->fetchrow_array();
 	  $sth->finish();
-	} else {
+	};
+
+	if ( $@ ) {
 	  $heap->{Self}->Quiet("Could not check for run $work->{RUNNUMBER}\n");
 	  $hash_ref->{status} = 1;
 	}
@@ -272,14 +281,18 @@ sub server_input {
 	#
 	if ( $hash_ref->{status} ==  0 and $count == 0 ) {
 	  $sth = $heap->{StmtInsertRun};
-	  $sth->bind_param(1,int($work->{RUNNUMBER}));
-	  $sth->bind_param(2,int($work->{START_TIME}));
-	  $sth->bind_param(3,int($work->{STOP_TIME}));
-	  if ( eval { $sth->execute() } ) {
-	    $heap->{Self}->Quiet("Inserted run $work->{RUNNUMBER}\n");
-	  } else {
+	  eval {
+	    $sth->bind_param(1,int($work->{RUNNUMBER}));
+	    $sth->bind_param(2,int($work->{START_TIME}));
+	    $sth->bind_param(3,int($work->{STOP_TIME}));
+	    $sth->execute();
+	  };
+
+	  if ( $@ ) {
 	    $heap->{Self}->Quiet("Could not insert run $work->{RUNNUMBER}\n");
 	    $hash_ref->{status} = 1;
+	  } else {
+	    $heap->{Self}->Quiet("Inserted run $work->{RUNNUMBER}\n");
 	  }
 	}
 
@@ -287,14 +300,16 @@ sub server_input {
 	# check if lumi section is already in database
 	#
 	if ( $hash_ref->{status} ==  0 ) {
-	  $count = 0;
 	  $sth = $heap->{StmtFindLumi};
-	  $sth->bind_param(1,int($work->{LUMISECTION}));
-	  $sth->bind_param(2,int($work->{RUNNUMBER}));
-	  if ( eval { $sth->execute() } ) {
+	  eval {
+	    $sth->bind_param(1,int($work->{LUMISECTION}));
+	    $sth->bind_param(2,int($work->{RUNNUMBER}));
+	    $sth->execute();
 	    $count = $sth->fetchrow_array();
 	    $sth->finish();
-	  } else {
+	  };
+
+	  if ( $@ ) {
 	    $heap->{Self}->Quiet("Could not check for lumi section $work->{LUMISECTION} for run $work->{RUNNUMBER}\n");
 	    $hash_ref->{status} = 1;
 	  }
@@ -305,14 +320,18 @@ sub server_input {
 	#
 	if ( $hash_ref->{status} ==  0 and $count == 0 ) {
 	  $sth = $heap->{StmtInsertLumi};
-	  $sth->bind_param(1,int($work->{LUMISECTION}));
-	  $sth->bind_param(2,int($work->{RUNNUMBER}));
-	  $sth->bind_param(3,int($work->{START_TIME}));
-	  if ( eval { $sth->execute() } ) {
-	    $heap->{Self}->Quiet("Inserted lumi section $work->{LUMISECTION} for run $work->{RUNNUMBER}\n");
-	  } else {
+	  eval {
+	    $sth->bind_param(1,int($work->{LUMISECTION}));
+	    $sth->bind_param(2,int($work->{RUNNUMBER}));
+	    $sth->bind_param(3,int($work->{START_TIME}));
+	    $sth->execute();
+	  };
+
+	  if ( $@ ) {
 	    $heap->{Self}->Quiet("Could not insert lumi section $work->{LUMISECTION} for run $work->{RUNNUMBER}\n");
 	    $hash_ref->{status} = 1;
+	  } else {
+	    $heap->{Self}->Quiet("Inserted lumi section $work->{LUMISECTION} for run $work->{RUNNUMBER}\n");
 	  }
 	}
 
@@ -320,13 +339,15 @@ sub server_input {
 	# check if streamer is already in database
 	#
 	if ( $hash_ref->{status} ==  0 ) {
-	  $count = 0;
 	  $sth = $heap->{StmtFindStreamer};
-	  $sth->bind_param(1,$work->{LFN});
-	  if ( eval { $sth->execute() } ) {
+	  eval {
+	    $sth->bind_param(1,$work->{LFN});
+	    $sth->execute();
 	    $count = $sth->fetchrow_array();
 	    $sth->finish();
-	  } else {
+	  };
+
+	  if ( $@ ) {
 	    $heap->{Self}->Quiet("Could not check for streamer with LFN $work->{LFN}\n");
 	    $hash_ref->{status} = 1;
 	  }
@@ -337,31 +358,46 @@ sub server_input {
 	#
 	if ( $hash_ref->{status} ==  0 and $count == 0 ) {
 	  $sth = $heap->{StmtInsertStreamer};
-	  $sth->bind_param(1,int($work->{LUMISECTION}));
-	  $sth->bind_param(2,int($work->{RUNNUMBER}));
-	  $sth->bind_param(3,int($work->{START_TIME}));
-	  $sth->bind_param(4,time());
-	  $sth->bind_param(5,int($work->{FILESIZE}));
-	  $sth->bind_param(6,int($work->{NEVENTS}));
-	  $sth->bind_param(7,$work->{LFN});
-	  $sth->bind_param(8,$work->{STREAM});
-	  $sth->bind_param(9,$work->{INDEXPFN});
-	  $sth->bind_param(10,$work->{INDEXPFNBACKUP});
-	  if ( eval { $sth->execute() } ) {
-	    $heap->{Self}->Quiet("Inserted streamer with LFN $work->{LFN}\n");
-	  } else {
+	  eval {
+	    $sth->bind_param(1,int($work->{LUMISECTION}));
+	    $sth->bind_param(2,int($work->{RUNNUMBER}));
+	    $sth->bind_param(3,int($work->{START_TIME}));
+	    $sth->bind_param(4,time());
+	    $sth->bind_param(5,int($work->{FILESIZE}));
+	    $sth->bind_param(6,int($work->{NEVENTS}));
+	    $sth->bind_param(7,$work->{LFN});
+	    $sth->bind_param(8,$work->{STREAM});
+	    $sth->bind_param(9,$work->{INDEXPFN});
+	    $sth->bind_param(10,$work->{INDEXPFNBACKUP});
+	    $sth->execute();
+	  };
+
+	  if ( $@ ) {
 	    $heap->{Self}->Quiet("Could not insert streamer with LFN $work->{LFN}\n");
 	    $hash_ref->{status} = 1;
+	  } else {
+	    $heap->{Self}->Quiet("Inserted streamer with LFN $work->{LFN}\n");
 	  }
 	} elsif ( $hash_ref->{status} ==  0 and $count > 0 ) {
 	  $heap->{Self}->Quiet("Streamer with LFN $work->{LFN} already exists\n");
 	  $hash_ref->{status} = 1;
 	}
 
-	if ( $hash_ref->{status} == 0 ) {
-	  $heap->{DatabaseHandle}->commit();
-	} else {
-	  $heap->{DatabaseHandle}->rollback();
+
+	eval {
+	  if ( $hash_ref->{status} == 0 ) {
+	    $heap->{DatabaseHandle}->commit();
+	  } else {
+	    $heap->{DatabaseHandle}->rollback();
+	  }
+	};
+
+	if ( $@ ) {
+	  $heap->{Self}->Quiet("Database Error: Commit or rollback failed!\n");
+	  $heap->{Self}->Quiet("Invalidating database handle!\n");
+	  $hash_ref->{status} = 1;
+	  eval { $heap->{DatabaseHandle}->disconnect() } if ( $heap->{DatabaseHandle} );
+	  undef $heap->{DatabaseHandle};
 	}
       } else {
 	$hash_ref->{status} = 1;
