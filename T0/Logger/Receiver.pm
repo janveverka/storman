@@ -327,7 +327,7 @@ sub set_rotate_alarm
 {
   my $kernel = $_[ KERNEL ];
   my @n = localtime;
-  my $wakeme = time + 86400 - $n[0] - 60*$n[1] - 3600*$n[2];
+  my $wakeme = time + 86400 + 60 - $n[0] - 60*$n[1] - 3600*$n[2];
   print "Set alarm for ", scalar localtime $wakeme, "\n";
   $kernel->alarm_set( rotate_logfile => $wakeme );
 }
