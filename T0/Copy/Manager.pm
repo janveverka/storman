@@ -63,7 +63,6 @@ sub _init
        Args => [ $self ],
       );
 
-  $self->{Queue} = POE::Queue::Array->new();
   $self->{State} = 'Running';
   return $self;
 }
@@ -145,44 +144,34 @@ sub process_file
       $work->{SvcClass} = 't0input';
     }
 
-  # check if the payload is for a black listed run
-  if ( exists $self->{RunBlacklist} and defined $self->{RunBlacklist} )
-    {
-      foreach my $run ($self->{RunBlacklist})
-	{
-	  if ( $run == int($work->{RUNNUMBER}) )
-	    {
-	      $self->Quiet("Received payload for blacklisted run " . $run . ", discarding it\n");
-	      return;
-	    }
-	}
-    }
+  # check if the job is for a black listed run
+#  if ( exists $self->{RunBlacklist} and defined $self->{RunBlacklist} )
+#    {
+#      foreach my $run ($self->{RunBlacklist})
+#	{
+#	  if ( $run == int($work->{RUNNUMBER}) )
+#	    {
+#	      $self->Quiet("Received job for blacklisted run " . $run . ", discarding it\n");
+#	      return;
+#	    }
+#	}
+#    }
 
   my $priority = 99;
 
-  if (defined($work->{HOSTNAME}))
+  my $hostname=$work->{HOSTNAME};
+
+  delete $work->{HOSTNAME};
+
+  # special treatment for cmsdisk1 and cms-tier0-stage
+  if ( ($hostname eq 'srv-C2D05-02') ||
+       ($hostname eq 'srv-S2C17-01') )
     {
-      my $hostname=$work->{HOSTNAME};
-
-      delete $work->{HOSTNAME};
-
-      # special treatment for cmsdisk1 and cms-tier0-stage
-      if ( ($hostname eq 'srv-C2D05-02') ||
-           ($hostname eq 'srv-S2C17-01') )
-	{
-	  delete $work->{INDEX};
-	}
-
-      my $id = $self->HostnameQueue($hostname)->enqueue($priority,$work);;
-      $self->Quiet("Job $id added to ", $hostname, " queue\n");
+      delete $work->{INDEX};
     }
-  else
-    {
-      delete $work->{HOSTNAME} if exists $work->{HOSTNAME};
 
-      my $id = $self->Queue->enqueue($priority,$work);
-      $self->Quiet("Job $id added to general queue\n");
-    }
+  my $id = $self->HostnameQueue($hostname)->enqueue($priority,$work);;
+  $self->Quiet("Job $id added to ", $hostname, " queue\n");
 }
 
 # Create 2 private queues (for the hostname and client)
@@ -220,7 +209,6 @@ sub RemoveClient
   my $hostname = $self->{hostnames}->{$client};
 
   delete $self->{clientsQueue}->{$client};
-
 
   # Remove the hostname queue only if there are no more clients using it.
   my $lastone = 1;
@@ -267,18 +255,6 @@ sub ClientQueue
       $self->AddClient($client);
     }
   return $self->{clientsQueue}->{$client};
-}
-
-# Return the general queue
-sub Queue
-{
-  my $self = shift;
-
-  if( !defined($self->{Queue}) )
-    {
-      $self->{Queue} = POE::Queue::Array->new();
-    }
-  return $self->{Queue};
 }
 
 sub Log
@@ -351,8 +327,7 @@ sub FSM_Abort
 {
   my ( $self, $kernel, $heap ) = @_[ OBJECT, KERNEL, HEAP ];
   Print "I am in FSM_Abort. Empty the queue and forget all allocated work.\n";
-  $self->{Queue} = POE::Queue::Array->new();
-  delete $self->{_queue};
+  # TODO: empty all hostname queues
 }
 
 sub _client_error { reroute_event( (caller(0))[3], @_ ); }
@@ -419,7 +394,6 @@ sub send_work
   }
 
   # Check client's queue
-  ($priority, $id, $work) = $self->ClientQueue($client)->dequeue_next();
   if ( defined $id )
     {
       $self->Debug("Job $id taken from client's queue.\n");
@@ -446,41 +420,29 @@ sub send_work
   # Check hostname's queue
   if ( $self->{State} eq 'Running' )
     {
-      ($priority, $id, $work) = $self->HostnameQueue($hostname)->dequeue_next();
-
-      # Check general queue
-      if ( !defined($id) )
+      # loop over job and discard the ones for balcklisted runs
+      while ( ($priority, $id, $work) = $self->HostnameQueue($hostname)->dequeue_next() )
 	{
-	  ($priority, $id, $work) = $self->Queue->dequeue_next();
-	}
-      else
-	{
-	  $self->Debug("Job $id taken from hostname's queue.\n");
-	}
-    }
-
-  # figure out whether to send copy job or let the client sleep
-  my $sendCopyJob = 0;
-  if ( defined $id and defined $work )
-    {
-      $sendCopyJob = 1;
-
-      # check if the payload is for a black listed run
-      if ( exists $self->{RunBlacklist} and defined $self->{RunBlacklist} )
-	{
-	  foreach my $run ($self->{RunBlacklist})
+	  if ( defined $id and defined $work )
 	    {
-	      if ( $run == int($work->{RUNNUMBER}) )
+	      $self->Debug("Job $id taken from hostname's queue.\n");
+
+	      if ( exists $self->{RunBlacklist} and defined $self->{RunBlacklist} )
 		{
-		  $self->Quiet("Dequeued payload for blacklisted run " . $run . ", discarding it\n");
-		  $sendCopyJob = 0;
+		  my %runBlacklistHash = ($self->{RunBlacklist},$self->{RunBlacklist});
+
+		  if ( exists $runBlacklistHash{int($work->{RUNNUMBER})} )
+		    {
+		      $self->Debug("Dequeued job for blacklisted run " . $work->{RUNNUMBER} . ", discarding it\n");
+		      next;
+		    }
 		  last;
 		}
 	    }
 	}
     }
 
-  if ( $sendCopyJob )
+  if ( defined $id and defined $work )
     {
       # send copy job to client
       $self->Quiet("Send: Copy job ",$id," to $client\n");
