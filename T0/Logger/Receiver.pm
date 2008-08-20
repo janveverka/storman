@@ -336,14 +336,16 @@ sub rotate_logfile
 {
   my ( $self, $kernel ) = @_[ OBJECT, KERNEL ];
   return unless defined($self->{Logfile});
-  my $now = T0::Util::timestamp;
+  $kernel->yield('set_rotate_alarm');
+
+  my $newlogfile = $self->{Logfile} . '.' . T0::Util::timestamp;
+  return if -f $newlogfile;
+
   close STDOUT;
-  rename $self->{Logfile}, $self->{Logfile} . '.' . $now || 
+  rename $self->{Logfile}, $newlogfile ||
     Croak "Cannot rename $self->{Logfile}: $!\n";
   open STDOUT, ">>$self->{Logfile}" or Croak "open $self->{Logfile}: $!\n";
-# open(STDERR,">&STDOUT") or Croak "Cannot dup STDOUT: $!\n";
   select(STDOUT); $|=1;
-  $kernel->yield('set_rotate_alarm');
 }
 
 sub OnInputDefault
