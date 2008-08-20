@@ -147,7 +147,7 @@ sub process_file
   # check if the job is for a black listed run
   if ( exists $self->{RunBlacklist} and defined $self->{RunBlacklist} )
     {
-      foreach my $run ($self->{RunBlacklist})
+      foreach my $run (@{$self->{RunBlacklist}})
 	{
 	  if ( $run == int($work->{RUNNUMBER}) )
 	    {
@@ -425,11 +425,11 @@ sub send_work
 	{
 	  if ( defined $id and defined $work )
 	    {
-	      $self->Debug("Job $id taken from hostname's queue.\n");
+	      $self->Debug("Job $id for run " . $work->{RUNNUMBER} . " taken from hostname's queue.\n");
 
 	      if ( exists $self->{RunBlacklist} and defined $self->{RunBlacklist} )
 		{
-		  my %runBlacklistHash = ($self->{RunBlacklist},$self->{RunBlacklist});
+		  my %runBlacklistHash = (@{$self->{RunBlacklist}},@{$self->{RunBlacklist}});
 
 		  if ( exists $runBlacklistHash{int($work->{RUNNUMBER})} )
 		    {
