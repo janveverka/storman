@@ -145,17 +145,17 @@ sub process_file
     }
 
   # check if the job is for a black listed run
-#  if ( exists $self->{RunBlacklist} and defined $self->{RunBlacklist} )
-#    {
-#      foreach my $run ($self->{RunBlacklist})
-#	{
-#	  if ( $run == int($work->{RUNNUMBER}) )
-#	    {
-#	      $self->Quiet("Received job for blacklisted run " . $run . ", discarding it\n");
-#	      return;
-#	    }
-#	}
-#    }
+  if ( exists $self->{RunBlacklist} and defined $self->{RunBlacklist} )
+    {
+      foreach my $run ($self->{RunBlacklist})
+	{
+	  if ( $run == int($work->{RUNNUMBER}) )
+	    {
+	      $self->Quiet("Received job for blacklisted run " . $run . ", discarding it\n");
+	      return;
+	    }
+	}
+    }
 
   my $priority = 99;
 
