@@ -145,10 +145,18 @@ sub process_file
       $work->{SvcClass} = 't0input';
     }
 
-  # check if the notification contains all needed information
-  #
-  # FIXME
-  #
+  # check if the payload is for a black listed run
+  if ( exists $self->{RunBlacklist} and defined $self->{RunBlacklist} )
+    {
+      foreach my $run ($self->{RunBlacklist})
+	{
+	  if ( $run == int($work->{RUNNUMBER}) )
+	    {
+	      $self->Quiet("Received payload for blacklisted run " . $run . ", discarding it\n");
+	      return;
+	    }
+	}
+    }
 
   my $priority = 99;
 
@@ -158,7 +166,9 @@ sub process_file
 
       delete $work->{HOSTNAME};
 
-      if ( $hostname eq 'cmsdisk1' )
+      # special treatment for cmsdisk1 and cms-tier0-stage
+      if ( ($hostname eq 'srv-C2D05-02') ||
+           ($hostname eq 'srv-S2C17-01') )
 	{
 	  delete $work->{INDEX};
 	}
@@ -408,7 +418,6 @@ sub send_work
     return;
   }
 
-
   # Check client's queue
   ($priority, $id, $work) = $self->ClientQueue($client)->dequeue_next();
   if ( defined $id )
@@ -450,9 +459,30 @@ sub send_work
 	}
     }
 
-  # Send the copy job
-  if ( defined $id )
+  # figure out whether to send copy job or let the client sleep
+  my $sendCopyJob = 0;
+  if ( defined $id and defined $work )
     {
+      $sendCopyJob = 1;
+
+      # check if the payload is for a black listed run
+      if ( exists $self->{RunBlacklist} and defined $self->{RunBlacklist} )
+	{
+	  foreach my $run ($self->{RunBlacklist})
+	    {
+	      if ( $run == int($work->{RUNNUMBER}) )
+		{
+		  $self->Quiet("Dequeued payload for blacklisted run " . $run . ", discarding it\n");
+		  $sendCopyJob = 0;
+		  last;
+		}
+	    }
+	}
+    }
+
+  if ( $sendCopyJob )
+    {
+      # send copy job to client
       $self->Quiet("Send: Copy job ",$id," to $client\n");
       %text = (
 	       'command'  => 'DoThis',
@@ -463,9 +493,9 @@ sub send_work
 	      );
       $heap->{client}->put( \%text );
     }
-  # Put to sleep
   else
     {
+      # put client to sleep
       $self->Quiet("Send: Sleep to $client\n");
       %text = ( 'command' => 'Sleep',
 		'client'  => $client,
