@@ -169,18 +169,24 @@ sub server_input {
     #
     if ( ! $heap->{DatabaseHandle}
          || time() - $heap->{DatabaseHandleCreation} > $self->{DatabaseHandleLifetime} ) {
-      eval { $heap->{DatabaseHandle}->disconnect() } if $heap->{DatabaseHandle};
-      undef $heap->{DatabaseHandle};
-      undef $heap->{DatabaseHandleCreation};
 
-      $heap->{DatabaseHandle} = DBI->connect($heap->{DatabaseInstance},
-					     $heap->{DatabaseUser},
-					     $heap->{DatabasePassword},
-					     {
-					      RaiseError => 1,
-					      AutoCommit => 0
-					     });
+      if ( $heap->{DatabaseHandle} ) {
+	$heap->{Self}->Quiet("Database handle timed out, disconnecting\n");
+	eval { $heap->{DatabaseHandle}->disconnect() };
+      }
+      undef $heap->{DatabaseHandle};
+
       $heap->{DatabaseHandleCreation} = time();
+
+      eval {
+	$heap->{DatabaseHandle} = DBI->connect($heap->{DatabaseInstance},
+					       $heap->{DatabaseUser},
+					       $heap->{DatabasePassword},
+					       {
+						RaiseError => 1,
+						AutoCommit => 0
+					       });
+      };
 
       # Check if handle is usable
       if ( ! $heap->{DatabaseHandle}
@@ -270,13 +276,17 @@ sub server_input {
 
       if ( defined $newStatus )
 	{
-	  $sth->bind_param(1,$work->{FILENAME});
-	  $sth->bind_param(2,$work->{FILENAME});
-	  if ( eval { $sth->execute() } ) {
-	    $heap->{Self}->Quiet("Update transfer status for $work->{FILENAME} to $newStatus\n");
-	  } else {
+	  eval {
+	    $sth->bind_param(1,$work->{FILENAME});
+	    $sth->bind_param(2,$work->{FILENAME});
+	    $sth->execute();
+	  };
+
+	  if ( $@ ) {
 	    $heap->{Self}->Quiet("Could not update transfer status for $work->{FILENAME} to $newStatus\n");
 	    $hash_ref->{status} = 1;
+	  } else {
+	    $heap->{Self}->Quiet("Updated transfer status for $work->{FILENAME} to $newStatus\n");
 	  }
 	}
       else
@@ -285,10 +295,20 @@ sub server_input {
 	  $hash_ref->{status} = 1;
 	}
 
-      if ( $hash_ref->{status} == 0 ) {
-	$heap->{DatabaseHandle}->commit();
-      } else {
-	$heap->{DatabaseHandle}->rollback();
+      eval {
+	if ( $hash_ref->{status} == 0 ) {
+	  $heap->{DatabaseHandle}->commit();
+	} else {
+	  $heap->{DatabaseHandle}->rollback();
+	}
+      };
+
+      if ( $@ ) {
+	$heap->{Self}->Quiet("Database Error: Commit or rollback failed!\n");
+	$heap->{Self}->Quiet("Invalidating database handle!\n");
+	$hash_ref->{status} = 1;
+	eval { $heap->{DatabaseHandle}->disconnect() } if ( $heap->{DatabaseHandle} );
+	undef $heap->{DatabaseHandle};
       }
     } else {
       $hash_ref->{status} = 1;
