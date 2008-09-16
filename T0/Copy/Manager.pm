@@ -562,6 +562,7 @@ sub job_done {
 			  TYPE => $input->{work}->{TYPE},
 			  APP_NAME => $input->{work}->{APP_NAME},
 			  APP_VERSION => $input->{work}->{APP_VERSION},
+			  HLTKEY => $input->{work}->{HLTKEY},
 			  DeleteAfterCheck => $input->{work}->{DeleteAfterCheck},
 			  SvcClass => $input->{work}->{SvcClass},
 			  T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},
