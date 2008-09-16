@@ -209,8 +209,8 @@ sub server_input {
       }
       if ( $heap->{DatabaseHandle} ) {
 	my $sql = "insert into " . $heap->{DatabaseUser} . ".run ";
-	$sql .= "(RUN_ID,START_TIME,END_TIME,RUN_STATUS) ";
-	$sql .= "values (?,?,?,1)";
+	$sql .= "(RUN_ID,VERSION,HLTKEY,START_TIME,END_TIME,RUN_STATUS) ";
+	$sql .= "values (?,?,?,?,?,1)";
 	if ( ! ( $heap->{StmtInsertRun} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
 	  undef $heap->{DatabaseHandle};
@@ -283,8 +283,15 @@ sub server_input {
 	  $sth = $heap->{StmtInsertRun};
 	  eval {
 	    $sth->bind_param(1,int($work->{RUNNUMBER}));
-	    $sth->bind_param(2,int($work->{START_TIME}));
-	    $sth->bind_param(3,int($work->{STOP_TIME}));
+
+	    # remove appendizes to online version
+	    my @versionArray = split('_', $work->{APP_VERSION});
+	    $work->{APP_VERSION} = join('_', @versionArray[0..3]);
+
+	    $sth->bind_param(2,$work->{APP_VERSION});
+	    $sth->bind_param(3,$work->{HLTKEY});
+	    $sth->bind_param(4,int($work->{START_TIME}));
+	    $sth->bind_param(5,int($work->{STOP_TIME}));
 	    $sth->execute();
 	  };
 
@@ -293,6 +300,7 @@ sub server_input {
 	    $hash_ref->{status} = 1;
 	  } else {
 	    $heap->{Self}->Quiet("Inserted run $work->{RUNNUMBER}\n");
+	    $heap->{Self}->Quiet("Run = $work->{RUNNUMBER}, Version = $work->{APP_VERSION}, HLTKey = $work->{HLTKEY}\n");
 	  }
 	}
 
