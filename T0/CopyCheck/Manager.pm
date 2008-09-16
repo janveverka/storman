@@ -484,6 +484,8 @@ sub job_done {
 			  FILESIZE => $input->{work}->{FILESIZE},
 			  CHECKSUM => $input->{work}->{CHECKSUM},
 			  TYPE => $input->{work}->{TYPE},
+			  APP_VERSION => $input->{work}->{APP_VERSION},
+			  HLTKEY => $input->{work}->{HLTKEY},
 			  T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},
 			 );
 
