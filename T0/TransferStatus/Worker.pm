@@ -73,6 +73,7 @@ sub start_task {
   # put some parameters on heap
   $heap->{DatabaseHandleLifetime} = $self->{DatabaseHandleLifetime};
   $heap->{DatabaseInstance} = $self->{DatabaseInstance};
+  $heap->{DatabaseName} = $self->{DatabaseName};
   $heap->{DatabaseUser} = $self->{DatabaseUser};
   $heap->{DatabasePassword} = $self->{DatabasePassword};
 
@@ -197,8 +198,8 @@ sub server_input {
       }
 
       if ( $heap->{DatabaseHandle} ) {
-	my $sql = "merge into " . $heap->{DatabaseUser} . ".files_trans_new ";
-	$sql .= "using dual on (" . $heap->{DatabaseUser} . ".files_trans_new.FILENAME = ?) ";
+	my $sql = "merge into " . $heap->{DatabaseName} . ".files_trans_new ";
+	$sql .= "using dual on (" . $heap->{DatabaseName} . ".files_trans_new.FILENAME = ?) ";
 	$sql .= "when matched then update set ITIME = CURRENT_TIMESTAMP ";
 	$sql .= "when not matched then insert (FILENAME,ITIME) values (?,CURRENT_TIMESTAMP)";
 	if ( ! ( $heap->{StmtInsertFileNew} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
@@ -208,8 +209,8 @@ sub server_input {
       }
 
       if ( $heap->{DatabaseHandle} ) {
-	my $sql = "merge into " . $heap->{DatabaseUser} . ".files_trans_copied ";
-	$sql .= "using dual on (" . $heap->{DatabaseUser} . ".files_trans_copied.FILENAME = ?) ";
+	my $sql = "merge into " . $heap->{DatabaseName} . ".files_trans_copied ";
+	$sql .= "using dual on (" . $heap->{DatabaseName} . ".files_trans_copied.FILENAME = ?) ";
 	$sql .= "when matched then update set ITIME = CURRENT_TIMESTAMP ";
 	$sql .= "when not matched then insert (FILENAME,ITIME) values (?,CURRENT_TIMESTAMP)";
 	if ( ! ( $heap->{StmtInsertFileCopied} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
@@ -219,8 +220,8 @@ sub server_input {
       }
 
       if ( $heap->{DatabaseHandle} ) {
-	my $sql = "merge into " . $heap->{DatabaseUser} . ".files_trans_checked ";
-	$sql .= "using dual on (" . $heap->{DatabaseUser} . ".files_trans_checked.FILENAME = ?) ";
+	my $sql = "merge into " . $heap->{DatabaseName} . ".files_trans_checked ";
+	$sql .= "using dual on (" . $heap->{DatabaseName} . ".files_trans_checked.FILENAME = ?) ";
 	$sql .= "when matched then update set ITIME = CURRENT_TIMESTAMP ";
 	$sql .= "when not matched then insert (FILENAME,ITIME) values (?,CURRENT_TIMESTAMP)";
 	if ( ! ( $heap->{StmtInsertFileChecked} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
@@ -230,8 +231,8 @@ sub server_input {
       }
 
       if ( $heap->{DatabaseHandle} ) {
-	my $sql = "merge into " . $heap->{DatabaseUser} . ".files_trans_inserted ";
-	$sql .= "using dual on (" . $heap->{DatabaseUser} . ".files_trans_inserted.FILENAME = ?) ";
+	my $sql = "merge into " . $heap->{DatabaseName} . ".files_trans_inserted ";
+	$sql .= "using dual on (" . $heap->{DatabaseName} . ".files_trans_inserted.FILENAME = ?) ";
 	$sql .= "when matched then update set ITIME = CURRENT_TIMESTAMP ";
 	$sql .= "when not matched then insert (FILENAME,ITIME) values (?,CURRENT_TIMESTAMP)";
 	if ( ! ( $heap->{StmtInsertFileInserted} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
@@ -241,8 +242,8 @@ sub server_input {
       }
 
       if ( $heap->{DatabaseHandle} ) {
-	my $sql = "merge into " . $heap->{DatabaseUser} . ".files_trans_repacked ";
-	$sql .= "using dual on (" . $heap->{DatabaseUser} . ".files_trans_repacked.FILENAME = ?) ";
+	my $sql = "merge into " . $heap->{DatabaseName} . ".files_trans_repacked ";
+	$sql .= "using dual on (" . $heap->{DatabaseName} . ".files_trans_repacked.FILENAME = ?) ";
 	$sql .= "when matched then update set ITIME = CURRENT_TIMESTAMP ";
 	$sql .= "when not matched then insert (FILENAME,ITIME) values (?,CURRENT_TIMESTAMP)";
 	if ( ! ( $heap->{StmtInsertFileRepacked} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
