@@ -163,6 +163,9 @@ sub server_input {
 #    my $checksum = $work->{CHECKSUM};
 #    my $type = $work->{TYPE};
 
+    # HLTKEY missing for old messages
+    $work->{HLTKEY} = 'none' unless $work->{HLTKEY};
+
     # nothing has gone wrong yet
     $hash_ref->{status} = 0;
 
