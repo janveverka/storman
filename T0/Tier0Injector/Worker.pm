@@ -236,6 +236,22 @@ sub server_input {
 	}
       }
       if ( $heap->{DatabaseHandle} ) {
+	my $sql = "select COUNT(*) from " . $heap->{DatabaseUser} . ".stream ";
+	$sql .= "where name = ?";
+	if ( ! ( $heap->{StmtFindStream} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
+	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+	  undef $heap->{DatabaseHandle};
+	}
+      }
+      if ( $heap->{DatabaseHandle} ) {
+	my $sql = "insert into " . $heap->{DatabaseUser} . ".stream ";
+	$sql .= "(ID,NAME) values (stream_SEQ.nextval,?)";
+	if ( ! ( $heap->{StmtInsertStream} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
+	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+	  undef $heap->{DatabaseHandle};
+	}
+      }
+      if ( $heap->{DatabaseHandle} ) {
 	my $sql = "select COUNT(*) from " . $heap->{DatabaseUser} . ".streamer ";
 	$sql .= "where lfn = ?";
 	if ( ! ( $heap->{StmtFindStreamer} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
@@ -245,8 +261,8 @@ sub server_input {
       }
       if ( $heap->{DatabaseHandle} ) {
 	my $sql = "insert into " . $heap->{DatabaseUser} . ".streamer ";
-	$sql .= "(STREAMER_ID,LUMI_ID,RUN_ID,START_TIME,INSERT_TIME,FILESIZE,EVENTS,LFN,STREAMNAME,EXPORTABLE,SPLITABLE,INDEXPFN,INDEXPFNBACKUP) ";
-	$sql .= "values (streamer_SEQ.nextval,?,?,?,?,?,?,?,?,0,1,?,?)";
+	$sql .= "(STREAMER_ID,RUN_ID,LUMI_ID,INSERT_TIME,FILESIZE,EVENTS,LFN,TYPE_ID,EXPORTABLE,STREAM_ID,INDEXPFN,INDEXPFNBACKUP) ";
+	$sql .= "values (streamer_SEQ.nextval,?,?,?,?,?,?,(SELECT ID FROM streamer_type WHERE TYPE = 'repack'),0,(SELECT ID FROM stream WHERE NAME = ?),?,?)";
 	if ( ! ( $heap->{StmtInsertStreamer} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
 	  undef $heap->{DatabaseHandle};
@@ -276,6 +292,7 @@ sub server_input {
 
 	if ( $@ ) {
 	  $heap->{Self}->Quiet("Could not check for run $work->{RUNNUMBER}\n");
+	  $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
 	  $hash_ref->{status} = 1;
 	}
 
@@ -300,6 +317,7 @@ sub server_input {
 
 	  if ( $@ ) {
 	    $heap->{Self}->Quiet("Could not insert run $work->{RUNNUMBER}\n");
+	    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
 	    $hash_ref->{status} = 1;
 	  } else {
 	    $heap->{Self}->Quiet("Inserted run $work->{RUNNUMBER}\n");
@@ -322,6 +340,7 @@ sub server_input {
 
 	  if ( $@ ) {
 	    $heap->{Self}->Quiet("Could not check for lumi section $work->{LUMISECTION} for run $work->{RUNNUMBER}\n");
+	    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
 	    $hash_ref->{status} = 1;
 	  }
 	}
@@ -340,9 +359,48 @@ sub server_input {
 
 	  if ( $@ ) {
 	    $heap->{Self}->Quiet("Could not insert lumi section $work->{LUMISECTION} for run $work->{RUNNUMBER}\n");
+	    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
 	    $hash_ref->{status} = 1;
 	  } else {
 	    $heap->{Self}->Quiet("Inserted lumi section $work->{LUMISECTION} for run $work->{RUNNUMBER}\n");
+	  }
+	}
+
+	#
+	# check if stream is already in database
+	#
+	if ( $hash_ref->{status} ==  0 ) {
+	  $sth = $heap->{StmtFindStream};
+	  eval {
+	    $sth->bind_param(1,$work->{STREAM});
+	    $sth->execute();
+	    $count = $sth->fetchrow_array();
+	    $sth->finish();
+	  };
+
+	  if ( $@ ) {
+	    $heap->{Self}->Quiet("Could not check for stream $work->{STREAM}\n");
+	    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+	    $hash_ref->{status} = 1;
+	  }
+	}
+
+	#
+	# insert stream if needed
+	#
+	if ( $hash_ref->{status} ==  0 and $count == 0 ) {
+	  $sth = $heap->{StmtInsertStream};
+	  eval {
+	    $sth->bind_param(1,$work->{STREAM});
+	    $sth->execute();
+	  };
+
+	  if ( $@ ) {
+	    $heap->{Self}->Quiet("Could not insert stream $work->{STREAM}\n");
+	    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+	    $hash_ref->{status} = 1;
+	  } else {
+	    $heap->{Self}->Quiet("Inserted stream $work->{STREAM}\n");
 	  }
 	}
 
@@ -360,6 +418,7 @@ sub server_input {
 
 	  if ( $@ ) {
 	    $heap->{Self}->Quiet("Could not check for streamer with LFN $work->{LFN}\n");
+	    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
 	    $hash_ref->{status} = 1;
 	  }
 	}
@@ -370,21 +429,21 @@ sub server_input {
 	if ( $hash_ref->{status} ==  0 and $count == 0 ) {
 	  $sth = $heap->{StmtInsertStreamer};
 	  eval {
-	    $sth->bind_param(1,int($work->{LUMISECTION}));
-	    $sth->bind_param(2,int($work->{RUNNUMBER}));
-	    $sth->bind_param(3,int($work->{START_TIME}));
-	    $sth->bind_param(4,time());
-	    $sth->bind_param(5,int($work->{FILESIZE}));
-	    $sth->bind_param(6,int($work->{NEVENTS}));
-	    $sth->bind_param(7,$work->{LFN});
-	    $sth->bind_param(8,$work->{STREAM});
-	    $sth->bind_param(9,$work->{INDEXPFN});
-	    $sth->bind_param(10,$work->{INDEXPFNBACKUP});
+	    $sth->bind_param(1,int($work->{RUNNUMBER}));
+	    $sth->bind_param(2,int($work->{LUMISECTION}));
+	    $sth->bind_param(3,time());
+	    $sth->bind_param(4,int($work->{FILESIZE}));
+	    $sth->bind_param(5,int($work->{NEVENTS}));
+	    $sth->bind_param(6,$work->{LFN});
+	    $sth->bind_param(7,$work->{STREAM});
+	    $sth->bind_param(8,$work->{INDEXPFN});
+	    $sth->bind_param(9,$work->{INDEXPFNBACKUP});
 	    $sth->execute();
 	  };
 
 	  if ( $@ ) {
 	    $heap->{Self}->Quiet("Could not insert streamer with LFN $work->{LFN}\n");
+	    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
 	    $hash_ref->{status} = 1;
 	  } else {
 	    $heap->{Self}->Quiet("Inserted streamer with LFN $work->{LFN}\n");
