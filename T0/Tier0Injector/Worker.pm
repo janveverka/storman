@@ -166,6 +166,16 @@ sub server_input {
     # HLTKEY missing for old messages
     $work->{HLTKEY} = 'none' unless $work->{HLTKEY};
 
+    # determine streamer type
+    if ( $work->{STREAM} eq 'EXPRESS' )
+      {
+	$heap->{streamertype} = 'express';
+      }
+    else
+      {
+	$heap->{streamertype} = 'repack';
+      }
+
     # nothing has gone wrong yet
     $hash_ref->{status} = 0;
 
@@ -262,7 +272,7 @@ sub server_input {
       if ( $heap->{DatabaseHandle} ) {
 	my $sql = "insert into " . $heap->{DatabaseUser} . ".streamer ";
 	$sql .= "(STREAMER_ID,RUN_ID,LUMI_ID,INSERT_TIME,FILESIZE,EVENTS,LFN,TYPE_ID,EXPORTABLE,STREAM_ID,INDEXPFN,INDEXPFNBACKUP) ";
-	$sql .= "values (streamer_SEQ.nextval,?,?,?,?,?,?,(SELECT ID FROM streamer_type WHERE TYPE = 'repack'),0,(SELECT ID FROM stream WHERE NAME = ?),?,?)";
+	$sql .= "values (streamer_SEQ.nextval,?,?,?,?,?,?,(SELECT ID FROM streamer_type WHERE TYPE = '" . $heap->{streamertype} . "'),0,(SELECT ID FROM stream WHERE NAME = ?),?,?)";
 	if ( ! ( $heap->{StmtInsertStreamer} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
 	  undef $heap->{DatabaseHandle};
