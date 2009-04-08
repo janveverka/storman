@@ -1,4 +1,5 @@
 use strict;
+
 use warnings;
 package T0::Tier0Injector::Worker;
 use POE;
@@ -167,7 +168,7 @@ sub server_input {
     $work->{HLTKEY} = 'none' unless $work->{HLTKEY};
 
     # determine streamer type
-    if ( $work->{STREAM} eq 'EXPRESS' )
+    if ( uc($work->{STREAM}) eq 'EXPRESS' )
       {
 	$heap->{streamertype} = 'express';
       }
