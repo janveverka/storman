@@ -267,7 +267,7 @@ sub GetRootFileInfo
 {
 # Look up info on the root files using the FrameworkJobReport and PoolCatalog
 # XML files
-  my ($t,%h,$p,$pfn,@a,@b);
+  my ($t,$p,$pfn,@a,@b);
   my %h = @_;
   $p = XML::Simple->new( );
 
