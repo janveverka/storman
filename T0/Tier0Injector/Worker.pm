@@ -168,6 +168,7 @@ sub server_input {
     $work->{HLTKEY} = 'none' unless $work->{HLTKEY};
 
     # determine streamer type
+    #if ( uc($work->{STREAM}) eq 'EXPRESS' or  uc($work->{STREAM}) eq 'HLTMON' )
     if ( uc($work->{STREAM}) eq 'EXPRESS' )
       {
 	$heap->{streamertype} = 'express';
@@ -214,8 +215,20 @@ sub server_input {
       }
 
       if ( $heap->{DatabaseHandle} ) {
+	my $sql = "insert into " . $heap->{DatabaseUser} . ".cmssw_version ";
+	$sql .= "(ID,NAME) ";
+	$sql .= "SELECT " . $heap->{DatabaseUser} . ".cmssw_version_SEQ.nextval, :name FROM DUAL ";
+	$sql .= "WHERE NOT EXISTS ";
+	$sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".cmssw_version WHERE NAME = :name)";
+	if ( ! ( $heap->{StmtInsertCMSSWVersion} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
+	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+	  undef $heap->{DatabaseHandle};
+	}
+      }
+
+      if ( $heap->{DatabaseHandle} ) {
 	my $sql = "select COUNT(*) from " . $heap->{DatabaseUser} . ".run ";
-	$sql .= "where run_id = ?";
+	$sql .= "where run_id = :run";
 	if ( ! ( $heap->{StmtFindRun} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
 	  undef $heap->{DatabaseHandle};
@@ -223,8 +236,13 @@ sub server_input {
       }
       if ( $heap->{DatabaseHandle} ) {
 	my $sql = "insert into " . $heap->{DatabaseUser} . ".run ";
-	$sql .= "(RUN_ID,VERSION,HLTKEY,START_TIME,END_TIME,RUN_STATUS) ";
-	$sql .= "values (?,?,?,?,?,1)";
+	$sql .= "(RUN_ID,VERSION,HLTKEY,RUN_VERSION,REPACK_VERSION,EXPRESS_VERSION,START_TIME,END_TIME,RUN_STATUS) ";
+	$sql .= "VALUES (:run,:appversion,:hltkey,";
+        $sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".cmssw_version WHERE NAME = :appversion),";
+        $sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".cmssw_version WHERE NAME = :appversion),";
+        $sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".cmssw_version WHERE NAME = :appversion),";
+	$sql .= ":starttime,:endtime,";
+	$sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".run_status WHERE STATUS = 'Active'))";
 	if ( ! ( $heap->{StmtInsertRun} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
 	  undef $heap->{DatabaseHandle};
@@ -293,18 +311,38 @@ sub server_input {
 	#
 	# check if run is already in database
 	#
-	$sth = $heap->{StmtFindRun};
-	eval {
-	  $sth->bind_param(1,int($work->{RUNNUMBER}));
-	  $sth->execute();
-	  $count = $sth->fetchrow_array();
-	  $sth->finish();
-	};
+	if ( $hash_ref->{status} ==  0 ) {
+	  $sth = $heap->{StmtFindRun};
+	  eval {
+	    $sth->bind_param(":run",int($work->{RUNNUMBER}));
+	    $sth->execute();
+	    $count = $sth->fetchrow_array();
+	    $sth->finish();
+	  };
 
-	if ( $@ ) {
-	  $heap->{Self}->Quiet("Could not check for run $work->{RUNNUMBER}\n");
-	  $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
-	  $hash_ref->{status} = 1;
+	  if ( $@ ) {
+	    $heap->{Self}->Quiet("Could not check for run $work->{RUNNUMBER}\n");
+	    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+	    $hash_ref->{status} = 1;
+	  }
+	}
+
+	#
+	# insert cmssw version into T0AST (only do it for new runs)
+	#
+	if ( $hash_ref->{status} ==  0 and $count == 0 ) {
+	  $sth = $heap->{StmtInsertCMSSWVersion};
+	  eval {
+	    $sth->bind_param(":name",$work->{APP_VERSION});
+	    $sth->execute();
+	    $sth->finish();
+	  };
+
+	  if ( $@ ) {
+	    $heap->{Self}->Quiet("Could not insert CMSSW version $work->{APP_VERSION}\n");
+	    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+	    $hash_ref->{status} = 1;
+	  }
 	}
 
 	#
@@ -313,16 +351,17 @@ sub server_input {
 	if ( $hash_ref->{status} ==  0 and $count == 0 ) {
 	  $sth = $heap->{StmtInsertRun};
 	  eval {
-	    $sth->bind_param(1,int($work->{RUNNUMBER}));
+	    $sth->bind_param(":run",int($work->{RUNNUMBER}));
 
 	    # remove appendizes to online version
-	    my @versionArray = split('_', $work->{APP_VERSION});
-	    $work->{APP_VERSION} = join('_', @versionArray[0..3]);
+	    #my @versionArray = split('_', $work->{APP_VERSION});
+	    #$work->{APP_VERSION} = join('_', @versionArray[0..3]);
 
-	    $sth->bind_param(2,$work->{APP_VERSION});
-	    $sth->bind_param(3,$work->{HLTKEY});
-	    $sth->bind_param(4,int($work->{START_TIME}));
-	    $sth->bind_param(5,int($work->{STOP_TIME}));
+	    $sth->bind_param(":appversion",$work->{APP_VERSION});
+	    $sth->bind_param(":hltkey",$work->{HLTKEY});
+	    $sth->bind_param(":starttime",int($work->{START_TIME}));
+	    $sth->bind_param(":endtime",int($work->{STOP_TIME}));
+	    $sth->bind_param(":endtime",int($work->{STOP_TIME}));
 	    $sth->execute();
 	  };
 
