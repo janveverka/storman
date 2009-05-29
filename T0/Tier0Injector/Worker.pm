@@ -237,10 +237,10 @@ sub server_input {
       if ( $heap->{DatabaseHandle} ) {
 	my $sql = "insert into " . $heap->{DatabaseUser} . ".run ";
 	$sql .= "(RUN_ID,VERSION,HLTKEY,RUN_VERSION,REPACK_VERSION,EXPRESS_VERSION,START_TIME,END_TIME,RUN_STATUS) ";
-	$sql .= "VALUES (:run,:appversion,:hltkey,";
-        $sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".cmssw_version WHERE NAME = :appversion),";
-        $sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".cmssw_version WHERE NAME = :appversion),";
-        $sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".cmssw_version WHERE NAME = :appversion),";
+	$sql .= "VALUES (:run,:runversion,:hltkey,";
+        $sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".cmssw_version WHERE NAME = :runversion),";
+        $sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".cmssw_version WHERE NAME = :repackversion),";
+        $sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".cmssw_version WHERE NAME = :expressversion),";
 	$sql .= ":starttime,:endtime,";
 	$sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".run_status WHERE STATUS = 'Active'))";
 	if ( ! ( $heap->{StmtInsertRun} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
@@ -308,6 +308,10 @@ sub server_input {
 	my $sth = undef;
 	my $count = 0;
 
+	# only keep base release from online version
+	my @versionArray = split('_', $work->{APP_VERSION});
+	$work->{APP_VERSION} = join('_', @versionArray[0..3]);
+
 	#
 	# check if run is already in database
 	#
@@ -352,12 +356,9 @@ sub server_input {
 	  $sth = $heap->{StmtInsertRun};
 	  eval {
 	    $sth->bind_param(":run",int($work->{RUNNUMBER}));
-
-	    # remove appendizes to online version
-	    #my @versionArray = split('_', $work->{APP_VERSION});
-	    #$work->{APP_VERSION} = join('_', @versionArray[0..3]);
-
-	    $sth->bind_param(":appversion",$work->{APP_VERSION});
+	    $sth->bind_param(":runversion",$work->{APP_VERSION});
+	    $sth->bind_param(":repackversion",$work->{APP_VERSION});
+	    $sth->bind_param(":expressversion",$work->{APP_VERSION});
 	    $sth->bind_param(":hltkey",$work->{HLTKEY});
 	    $sth->bind_param(":starttime",int($work->{START_TIME}));
 	    $sth->bind_param(":endtime",int($work->{STOP_TIME}));
