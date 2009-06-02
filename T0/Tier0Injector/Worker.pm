@@ -168,8 +168,8 @@ sub server_input {
     $work->{HLTKEY} = 'none' unless $work->{HLTKEY};
 
     # determine streamer type
-    #if ( uc($work->{STREAM}) eq 'EXPRESS' or  uc($work->{STREAM}) eq 'HLTMON' )
-    if ( uc($work->{STREAM}) eq 'EXPRESS' )
+    if ( uc($work->{STREAM}) eq 'EXPRESS' or  uc($work->{STREAM}) eq 'HLTMON' )
+    #if ( uc($work->{STREAM}) eq 'EXPRESS' )
       {
 	$heap->{streamertype} = 'express';
       }
@@ -236,8 +236,8 @@ sub server_input {
       }
       if ( $heap->{DatabaseHandle} ) {
 	my $sql = "insert into " . $heap->{DatabaseUser} . ".run ";
-	$sql .= "(RUN_ID,VERSION,HLTKEY,RUN_VERSION,REPACK_VERSION,EXPRESS_VERSION,START_TIME,END_TIME,RUN_STATUS) ";
-	$sql .= "VALUES (:run,:runversion,:hltkey,";
+	$sql .= "(RUN_ID,HLTKEY,RUN_VERSION,REPACK_VERSION,EXPRESS_VERSION,START_TIME,END_TIME,RUN_STATUS) ";
+	$sql .= "VALUES (:run,:hltkey,";
         $sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".cmssw_version WHERE NAME = :runversion),";
         $sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".cmssw_version WHERE NAME = :repackversion),";
         $sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".cmssw_version WHERE NAME = :expressversion),";
