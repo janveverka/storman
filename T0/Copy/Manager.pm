@@ -420,7 +420,7 @@ sub send_work
   # Check hostname's queue
   if ( $self->{State} eq 'Running' )
     {
-      # loop over job and discard the ones for balcklisted runs
+      # loop over job and discard the ones for blacklisted runs
       while ( ($priority, $id, $work) = $self->HostnameQueue($hostname)->dequeue_next() )
 	{
 	  if ( defined $id and defined $work )
@@ -436,8 +436,10 @@ sub send_work
 		      $self->Debug("Dequeued job for blacklisted run " . $work->{RUNNUMBER} . ", discarding it\n");
 		      next;
 		    }
-		  last;
 		}
+
+	      # leave loop, have valid work unit or there is no work unit
+	      last;
 	    }
 	}
     }
