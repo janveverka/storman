@@ -446,53 +446,28 @@ sub job_done {
       if ( defined $input->{work}->{LFN}
 	   and ( (not defined($input->{work}->{DeleteAfterCheck})) || $input->{work}->{DeleteAfterCheck} == 0) )
 	{
-	  my %loghash2 = (
-			  DBSUpdate => '1',
-			  RUNNUMBER => $input->{work}->{RUNNUMBER},
-			  LUMISECTION => $input->{work}->{LUMISECTION},
-			  LFN => $input->{work}->{LFN},
-			  NEVENTS => $input->{work}->{NEVENTS},
-			  START_TIME => $input->{work}->{START_TIME},
-			  STOP_TIME => $input->{work}->{STOP_TIME},
-			  SETUPLABEL => $input->{work}->{SETUPLABEL},
-			  STREAM => $input->{work}->{STREAM},
-			  FILESIZE => $input->{work}->{FILESIZE},
-			  CHECKSUM => $input->{work}->{CHECKSUM},
-			  TYPE => $input->{work}->{TYPE},
-			  APP_NAME => $input->{work}->{APP_NAME},
-			  APP_VERSION => $input->{work}->{APP_VERSION},
-			  T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},
-			 );
-
-	  if ( exists $input->{work}->{Resent} )
-	    {
-	      $loghash2{Resent} = $input->{work}->{Resent};
-	    }
-
-	  $self->Log( \%loghash2 );
-
-	  my %loghash3 = (
-			  Tier0Inject => '1',
-			  RUNNUMBER => $input->{work}->{RUNNUMBER},
-			  LUMISECTION => $input->{work}->{LUMISECTION},
-			  LFN => $input->{work}->{LFN},
-			  PFN => $input->{work}->{PFN},
-			  NEVENTS => $input->{work}->{NEVENTS},
-			  START_TIME => $input->{work}->{START_TIME},
-			  STOP_TIME => $input->{work}->{STOP_TIME},
-			  STREAM => $input->{work}->{STREAM},
-			  FILESIZE => $input->{work}->{FILESIZE},
-			  CHECKSUM => $input->{work}->{CHECKSUM},
-			  TYPE => $input->{work}->{TYPE},
-			  APP_VERSION => $input->{work}->{APP_VERSION},
-			  HLTKEY => $input->{work}->{HLTKEY},
-			  T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},
-			 );
-
-	  # only inject into Tier0 with index
 	  if ( exists $input->{work}->{INDEXPFN} )
 	    {
-	      $loghash3{INDEXPFN} = $input->{work}->{INDEXPFN};
+	      # only inject into Tier0 with index
+
+	      my %loghash3 = (
+			      Tier0Inject => '1',
+			      RUNNUMBER => $input->{work}->{RUNNUMBER},
+			      LUMISECTION => $input->{work}->{LUMISECTION},
+			      LFN => $input->{work}->{LFN},
+			      PFN => $input->{work}->{PFN},
+			      NEVENTS => $input->{work}->{NEVENTS},
+			      START_TIME => $input->{work}->{START_TIME},
+			      STOP_TIME => $input->{work}->{STOP_TIME},
+			      STREAM => $input->{work}->{STREAM},
+			      FILESIZE => $input->{work}->{FILESIZE},
+			      CHECKSUM => $input->{work}->{CHECKSUM},
+			      TYPE => $input->{work}->{TYPE},
+			      APP_VERSION => $input->{work}->{APP_VERSION},
+			      HLTKEY => $input->{work}->{HLTKEY},
+			      T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},
+			      INDEXPFN => $input->{work}->{INDEXPFN};
+			     );
 
 	      if ( exists $input->{work}->{INDEXPFNBACKUP} )
 		{
@@ -505,6 +480,35 @@ sub job_done {
 		}
 
 	      $self->Log( \%loghash3 );
+	    }
+	  else
+	    {
+	      # if no index, register file in DBS
+
+	      my %loghash2 = (
+			      DBSUpdate => '1',
+			      RUNNUMBER => $input->{work}->{RUNNUMBER},
+			      LUMISECTION => $input->{work}->{LUMISECTION},
+			      LFN => $input->{work}->{LFN},
+			      NEVENTS => $input->{work}->{NEVENTS},
+			      START_TIME => $input->{work}->{START_TIME},
+			      STOP_TIME => $input->{work}->{STOP_TIME},
+			      SETUPLABEL => $input->{work}->{SETUPLABEL},
+			      STREAM => $input->{work}->{STREAM},
+			      FILESIZE => $input->{work}->{FILESIZE},
+			      CHECKSUM => $input->{work}->{CHECKSUM},
+			      TYPE => $input->{work}->{TYPE},
+			      APP_NAME => $input->{work}->{APP_NAME},
+			      APP_VERSION => $input->{work}->{APP_VERSION},
+			      T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},
+			     );
+
+	      if ( exists $input->{work}->{Resent} )
+		{
+		  $loghash2{Resent} = $input->{work}->{Resent};
+		}
+
+	      $self->Log( \%loghash2 );
 	    }
 	}
     }
