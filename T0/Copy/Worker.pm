@@ -159,13 +159,40 @@ sub prepare_work
       $month += 1;
       $year += 1900;
 
-      if ( $work->{SplitMode} eq 'dataLFN' )
+      if ( $work->{SplitMode} eq 'streamerLFN' )
 	{
 	  my $run = $work->{RUNNUMBER};
 
 	  my $lfndir;
 
-	  if ( $work->{STREAM} eq '' )
+	  if ( ( not defined($work->{STREAM}) ) or $work->{STREAM} eq '' )
+	    {
+	      $lfndir = sprintf("/store/streamer/%s/%03d/%03d/%03d", $work->{SETUPLABEL},
+				$run/1000000, ($run%1000000)/1000, $run%1000);
+	    }
+	  else
+	    {
+	      $lfndir = sprintf("/store/streamer/%s/%s/%03d/%03d/%03d", $work->{SETUPLABEL}, $work->{STREAM},
+				$run/1000000, ($run%1000000)/1000, $run%1000);
+	    }
+
+	  $work->{TargetDir} .= $lfndir;
+	  if (defined $work->{IndexDir})
+	    {
+	      $work->{IndexDir} .= $lfndir;
+	    }
+
+	  $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
+
+	  $work->{LFN} = $lfndir . "/" . $work->{FILENAME};
+	}
+      elsif ( $work->{SplitMode} eq 'dataLFN' )
+	{
+	  my $run = $work->{RUNNUMBER};
+
+	  my $lfndir;
+
+	  if ( ( not defined($work->{STREAM})  ) or $work->{STREAM} eq '' )
 	    {
 	      $lfndir = sprintf("/store/data/%s/%03d/%03d/%03d", $work->{SETUPLABEL},
 				$run/1000000, ($run%1000000)/1000, $run%1000);
@@ -219,6 +246,10 @@ sub prepare_work
 	  $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
 	}
     }
+  #
+  # Deprecated, remove all these lines and replace by
+  # and else that prints out an error message
+  #
   elsif ( $work->{CreateLFN} )
     {
       my $run = $work->{RUNNUMBER};
