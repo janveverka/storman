@@ -466,7 +466,7 @@ sub job_done {
 			      APP_VERSION => $input->{work}->{APP_VERSION},
 			      HLTKEY => $input->{work}->{HLTKEY},
 			      T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},
-			      INDEXPFN => $input->{work}->{INDEXPFN};
+			      INDEXPFN => $input->{work}->{INDEXPFN},
 			     );
 
 	      if ( exists $input->{work}->{INDEXPFNBACKUP} )
