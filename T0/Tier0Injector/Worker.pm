@@ -168,8 +168,7 @@ sub server_input {
     $work->{HLTKEY} = 'none' unless $work->{HLTKEY};
 
     # determine streamer type
-    if ( uc($work->{STREAM}) eq 'EXPRESS' or  uc($work->{STREAM}) eq 'HLTMON' )
-    #if ( uc($work->{STREAM}) eq 'EXPRESS' )
+    if ( uc($work->{STREAM}) eq 'EXPRESS' )
       {
 	$heap->{streamertype} = 'express';
       }
