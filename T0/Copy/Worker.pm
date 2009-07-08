@@ -225,7 +225,7 @@ sub prepare_work
 	}
       elsif ( $work->{SplitMode} eq 'dqmLFN' )
 	{
-	  my $lfndir = sprintf("/store/temp/dqm/%04d%02d", $year, $month);
+	  my $lfndir = sprintf("/store/temp/dqm/online/%04d%02d", $year, $month);
 
 	  $work->{TargetDir} .= $lfndir;
 
