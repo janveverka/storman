@@ -270,6 +270,24 @@ sub server_input {
 	}
       }
       if ( $heap->{DatabaseHandle} ) {
+	my $sql = "SELECT COUNT(*) FROM " . $heap->{DatabaseUser} . ".run_stream_cmssw_assoc ";
+	$sql .= "WHERE run_id = :run ";
+	$sql .= "AND stream_id = ( SELECT id FROM stream WHERE name = :stream )";
+	if ( ! ( $heap->{StmtFindRunStreamVersionAssoc} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
+	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+	  undef $heap->{DatabaseHandle};
+	}
+      }
+      if ( $heap->{DatabaseHandle} ) {
+	my $sql = "INSERT INTO " . $heap->{DatabaseUser} . ".run_stream_cmssw_assoc ";
+	$sql .= "(RUN_ID,STREAM_ID,RUN_VERSION,OVERRIDE_VERSION) ";
+	$sql .= "VALUES (:run,(SELECT id FROM stream WHERE name = :stream),(SELECT id FROM cmssw_version WHERE name = :appversion),(SELECT id FROM cmssw_version WHERE name = :appversion))";
+	if ( ! ( $heap->{StmtInsertRunStreamVersionAssoc} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
+	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+	  undef $heap->{DatabaseHandle};
+	}
+      }
+      if ( $heap->{DatabaseHandle} ) {
 	my $sql = "select COUNT(*) from " . $heap->{DatabaseUser} . ".streamer ";
 	$sql .= "where lfn = ?";
 	if ( ! ( $heap->{StmtFindStreamer} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
@@ -280,7 +298,7 @@ sub server_input {
       if ( $heap->{DatabaseHandle} ) {
 	my $sql = "insert into " . $heap->{DatabaseUser} . ".streamer ";
 	$sql .= "(STREAMER_ID,RUN_ID,LUMI_ID,INSERT_TIME,FILESIZE,EVENTS,LFN,EXPORTABLE,STREAM_ID,INDEXPFN,INDEXPFNBACKUP) ";
-	$sql .= "values (streamer_SEQ.nextval,?,?,?,?,?,?,0,(SELECT ID FROM stream WHERE NAME = ?),?,?)";
+	$sql .= "values (streamer_SEQ.nextval,?,?,?,?,?,?,0,(SELECT id FROM stream WHERE name = ?),?,?)";
 	if ( ! ( $heap->{StmtInsertStreamer} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
 	  undef $heap->{DatabaseHandle};
@@ -321,7 +339,7 @@ sub server_input {
 	}
 
 	#
-	# insert cmssw version into T0AST (only do it for new runs)
+	# insert cmssw version into T0AST if needed
 	#
 	if ( $hash_ref->{status} ==  0 and $count == 0 ) {
 	  $sth = $heap->{StmtInsertCMSSWVersion};
@@ -441,6 +459,47 @@ sub server_input {
 	    $hash_ref->{status} = 1;
 	  } else {
 	    $heap->{Self}->Quiet("Inserted stream $work->{STREAM}\n");
+	  }
+	}
+
+	#
+	# check if run_stream_cmssw_assoc already in database
+	#
+	if ( $hash_ref->{status} ==  0 ) {
+	  $sth = $heap->{StmtFindRunStreamVersionAssoc};
+	  eval {
+	    $sth->bind_param(":run",$work->{RUNNUMBER});
+	    $sth->bind_param(":stream",$work->{STREAM});
+	    $sth->execute();
+	    $count = $sth->fetchrow_array();
+	    $sth->finish();
+	  };
+
+	  if ( $@ ) {
+	    $heap->{Self}->Quiet("Could not check for run_stream_cmssw_assoc for run $work->{RUNNUMBER} and stream $work->{STREAM}\n");
+	    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+	    $hash_ref->{status} = 1;
+	  }
+	}
+
+	#
+	# insert run_stream_cmssw_assoc if needed
+	#
+	if ( $hash_ref->{status} ==  0 and $count == 0 ) {
+	  $sth = $heap->{StmtInsertRunStreamVersionAssoc};
+	  eval {
+	    $sth->bind_param(":run",$work->{RUNNUMBER});
+	    $sth->bind_param(":stream",$work->{STREAM});
+	    $sth->bind_param(":appversion",$work->{APP_VERSION});
+	    $sth->execute();
+	  };
+
+	  if ( $@ ) {
+	    $heap->{Self}->Quiet("Could not insert run_stream_cmssw_assoc for run $work->{RUNNUMBER} and stream $work->{STREAM}\n");
+	    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+	    $hash_ref->{status} = 1;
+	  } else {
+	    $heap->{Self}->Quiet("Inserted run_stream_cmssw_assoc for run $work->{RUNNUMBER} and stream $work->{STREAM}\n");
 	  }
 	}
 
