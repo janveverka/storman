@@ -51,7 +51,7 @@ sub Quiet   { T0::Util::Quiet(   (shift)->{Quiet},   ("RFCP:\t", @_) ); }
 
 sub new
 {
-  my ($class, $hash_ref) = @_;
+  my ($class, $hash_ref, $use_checksum) = @_;
   my $self = {};
   bless($self, $class);
 
@@ -68,17 +68,20 @@ sub new
 					 got_task_stderr => \&got_task_stderr,
 					 got_sigchld => \&got_sigchld,
 					},
-		       args => [ $hash_ref, $self ],
+		       args => [ $hash_ref, $use_checksum, $self ],
 		      );
 
   return $self;
 }
 
 sub start_tasks {
-  my ( $kernel, $heap, $hash_ref, $self ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
+  my ( $kernel, $heap, $hash_ref, $use_checksum, $self ) = @_[ KERNEL, HEAP, ARG0, ARG1, ARG2 ];
 
   # remember hash reference
   $heap->{inputhash} = $hash_ref;
+
+  # remember use of checksum
+  $heap->{use_checksum} = $use_checksum;
 
   # remember reference to myself
   $heap->{Self} = $self;
@@ -120,6 +123,7 @@ sub start_tasks {
 		      original => $file,
 		      source => $file->{source},
 		      target => $file->{target},
+		      checksum => $file->{checksum},
 		     );
 
       # configure number of retries
@@ -183,21 +187,63 @@ sub start_tasks {
 sub start_wheel {
   my ( $kernel, $heap, $file ) = @_[ KERNEL, HEAP, ARG0 ];
 
-  my $program = 'rfcp';
-  my @arguments = ( $file->{source}, $file->{target} );
-
-  $heap->{Self}->Quiet("Start copy from $file->{source} to $file->{target}\n");
-
   #$ENV{STAGER_TRACE} = 3;
   #$ENV{RFIO_TRACE} = 3;
 
-  my $task = POE::Wheel::Run->new(
-				  Program => $program,
-				  ProgramArgs => \@arguments,
-				  StdoutFilter => POE::Filter::Line->new(),
-				  StdoutEvent  => "got_task_stdout",
-				  StderrEvent  => "got_task_stderr",
-				 );
+  # see if with or without checksum check
+  my $task;
+  if ( 0 and $file->{checksum} and $file->{checksum} ne "" and $file->{checksum} ne "0" and $file->{target} =~ m/^\/castor/ )
+  {
+      $heap->{Self}->Quiet("Start copy\n");
+      $heap->{Self}->Quiet("Source: $file->{source}\n");
+      $heap->{Self}->Quiet("Target: $file->{target}\n");
+      $heap->{Self}->Quiet("Adler32 checksum: $file->{checksum}\n");
+
+      $task = POE::Wheel::Run->new(
+				   Program => sub {
+				       my $exitcode = -1;
+				       my @args = ("nstouch",
+						   $file->{target});
+				       if ( system(@args) == 0 )
+				       {
+					   @args = ("nssetchecksum",
+						    "-n",
+						    "adler32",
+						    "-k",
+						    $file->{checksum},
+						    $file->{target});
+					   if ( system(@args) == 0 )
+					   {
+					       @args = ("rfcp",
+							$file->{source},
+							$file->{target});
+					       $exitcode = system(@args);
+					   }
+				       }
+				       POSIX::_exit($exitcode);
+				   },
+				   StdoutFilter => POE::Filter::Line->new(),
+				   StdoutEvent  => "got_task_stdout",
+				   StderrEvent  => "got_task_stderr",
+				   );
+  }
+  else
+  {
+      $heap->{Self}->Quiet("Start copy\n");
+      $heap->{Self}->Quiet("Source: $file->{source}\n");
+      $heap->{Self}->Quiet("Target: $file->{target}\n");
+
+      my $program = "rfcp";
+      my @arguments = ( $file->{source}, $file->{target} );
+
+      $task = POE::Wheel::Run->new(
+				   Program => $program,
+				   ProgramArgs => \@arguments,
+				   StdoutFilter => POE::Filter::Line->new(),
+				   StdoutEvent  => "got_task_stdout",
+				   StderrEvent  => "got_task_stderr",
+				   );
+  }
 
   $heap->{task}->{ $task->ID } = $task;
   $heap->{file}->{ $task->ID } = $file;
@@ -307,7 +353,6 @@ sub rfcp_exit_handler {
 	  # Check if the source file exists just the first time.
 	  if( !$file->{checked_source} )
 	    {
-
 	      $heap->{Self}->Quiet("Checking if file " . $file->{source} . " exists\n");
 	      my $file_status = T0::Castor::RfstatHelper::checkFileExists( $file->{source} );
 
@@ -419,7 +464,7 @@ sub rfcp_retry_handler {
       if ( $file->{target} =~ m/^\/castor/ )
 	{
 	  qx {stager_rm -M $file->{target} 2> /dev/null};
-	  qx {nsrm $file->{target} 2> /dev/null};
+	  qx {nsrm -f $file->{target} 2> /dev/null};
 	}
       else
 	{
