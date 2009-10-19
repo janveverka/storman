@@ -341,7 +341,7 @@ sub delete_file
   if ( $pfn =~ m/^\/castor/ )
     {
       qx {stager_rm -M $pfn};
-      qx {nsrm $pfn};
+      qx {nsrm -f $pfn};
     }
   else
     {
