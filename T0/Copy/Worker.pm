@@ -78,6 +78,29 @@ sub start_task {
 
   #initialize some parameters
   $heap->{State} = 'Created';
+
+  #
+  # check if rfcp version supports checksum
+  # (default is off)
+  #
+  $heap->{UseRfcpChecksum} = 0;
+
+  my $output = qx{rpm -qa | grep castor-rfio-client-};
+
+  if ( $output )
+  {
+      $output =~ s/castor-rfio-client-//;
+      my ($version,$subversion) = split('-',$output);
+      my ($version1,$version2,$version3) = split('\.',$version);
+      if ( ( $version1 > 2 ) or
+	   ( $version1 == 2 and $version2 > 1 ) or
+	   ( $version1 == 2 and $version2 == 1 and $version3 > 8 ) or
+	   ( $version1 == 2 and $version2 == 1 and $version3 == 8 and $subversion >= 12 ) )
+      {
+	  print "use rfcp checksum\n";
+	  $heap->{UseRfcpChecksum} = 1;
+      }
+  }
 }
 
 sub ReadConfig
@@ -361,13 +384,13 @@ sub server_input {
     }
 
     $heap->{Self}->Debug("Copy " . $hash_ref->{id} . " added " . basename($sourcefile) . "\n");
-    push(@{ $rfcphash{files} }, { source => $sourcefile, target => $targetfile } );
+    push(@{ $rfcphash{files} }, { source => $sourcefile, target => $targetfile, checksum => $work->{CHECKSUM} } );
 
-    # check for file size
-    my $filesize = qx{stat -L --format=%s $sourcefile};
-    if ( int($work->{FILESIZE}) != int($filesize) )
+    # check source file for existance and file size
+    my $filesize = qx{stat -L --format=%s $sourcefile 2> /dev/null};
+    if ( ( $? != 0 ) or ( int($work->{FILESIZE}) != int($filesize) ) )
       {
-	$heap->{Self}->Quiet("file size on disk does not match size in notification\n");
+	$heap->{Self}->Quiet("Source file does not exist or does not match file size in notification\n");
 	$heap->{HashRef}->{status} = -1;
 	$kernel->yield('job_done');
 	return;	
@@ -406,7 +429,7 @@ sub server_input {
 
     $heap->{Self}->Debug("Copy " . $hash_ref->{id} . " started\n");
 
-    T0::Castor::Rfcp->new(\%rfcphash);
+    T0::Castor::Rfcp->new(\%rfcphash, $heap->{UseRfcpChecksum});
 
     return;
   }
