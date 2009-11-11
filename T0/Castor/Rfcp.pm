@@ -413,7 +413,15 @@ sub check_target_exists {
 	  if ( $dir_status == 1 )
 	    {
 	      $heap->{Self}->Quiet("Creating directory $targetdir\n");
-	      my @args = ("rfmkdir", "-p", $targetdir);
+	      my @args;
+	      if ( $targetdir =~ m/^\/castor/ )
+		{
+		  @args = ("nsmkdir", "-m", "775", "-p", $targetdir);
+		}
+	      else
+		{
+		  @args = ("rfmkdir", "-m", "775", "-p", $targetdir);
+		}
 	      if ( system(@args) == 0 )
 		{
 		  $heap->{created_target_dir}->{$targetdir} = 1;
