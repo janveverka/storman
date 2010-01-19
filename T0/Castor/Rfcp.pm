@@ -192,7 +192,7 @@ sub start_wheel {
 
   # see if with or without checksum check
   my $task;
-  if ( 0 and $file->{checksum} and $file->{checksum} ne "" and $file->{checksum} ne "0" and $file->{target} =~ m/^\/castor/ )
+  if ( $heap->{use_checksum} and $file->{checksum} and $file->{checksum} ne "" and $file->{checksum} ne "0" and $file->{target} =~ m/^\/castor/ )
   {
       $heap->{Self}->Quiet("Start copy\n");
       $heap->{Self}->Quiet("Source: $file->{source}\n");
