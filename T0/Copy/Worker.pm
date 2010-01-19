@@ -85,11 +85,10 @@ sub start_task {
   #
   $heap->{UseRfcpChecksum} = 0;
 
-  my $output = qx{rpm -qa | grep castor-rfio-client-};
+  my $output = qx{castor -v 2>/dev/null};
 
   if ( $output )
   {
-      $output =~ s/castor-rfio-client-//;
       my ($version,$subversion) = split('-',$output);
       my ($version1,$version2,$version3) = split('\.',$version);
       if ( ( $version1 > 2 ) or
