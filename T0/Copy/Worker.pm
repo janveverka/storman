@@ -236,8 +236,18 @@ sub prepare_work
 	  $work->{LFN} = $lfndir . "/" . $work->{FILENAME};
 	}
       elsif ( $work->{SplitMode} eq 'lumiLFN' )
-	{
-	  my $lfndir = sprintf("/store/lumi/%04d%02d", $year, $month);
+      {
+	  my $lfndir;
+
+	  if ( $work->{FILENAME} =~ /CMS_LUMI_RAW_([0-9][0-9][0-9][0-9])([0-9][0-9])([0-9][0-9])_([0-9]+)_([^.]+).root/ ) {
+
+	      $lfndir = sprintf("/store/lumi/%04d%02d", $1, $2);
+
+	  } else {
+
+	      $lfndir = sprintf("/store/lumi/%04d%02d", $year, $month);
+
+	  }
 
 	  $work->{TargetDir} .= $lfndir;
 
