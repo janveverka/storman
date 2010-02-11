@@ -199,12 +199,15 @@ sub start_wheel {
       $heap->{Self}->Quiet("Target: $file->{target}\n");
       $heap->{Self}->Quiet("Adler32 checksum: $file->{checksum}\n");
 
+      # POSIX::_exit(n) => exit status n * 256
+      # bit shift by 8 to the right to compensate
+
       $task = POE::Wheel::Run->new(
 				   Program => sub {
 				       my $exitcode = -1;
 				       my @args = ("nstouch",
 						   $file->{target});
-				       $exitcode = system(@args)
+				       $exitcode = system(@args);
 				       if ( $exitcode == 0 ) {
 					   @args = ("nssetchecksum",
 						    "-n",
@@ -212,19 +215,15 @@ sub start_wheel {
 						    "-k",
 						    $file->{checksum},
 						    $file->{target});
-					   $exitcode = system(@args)
+					   $exitcode = system(@args);
 					   if ( $exitcode == 0 ) {
 					       @args = ("rfcp",
 							$file->{source},
 							$file->{target});
 					       $exitcode = system(@args);
-					   } else {
-					       print "nssetchecksum failed\n";
 					   }
-				       } else {
-					   print "nstouch failed\n";
 				       }
-				       POSIX::_exit($exitcode);
+				       POSIX::_exit($exitcode >> 8);
 				   },
 				   StdoutFilter => POE::Filter::Line->new(),
 				   StdoutEvent  => "got_task_stdout",
