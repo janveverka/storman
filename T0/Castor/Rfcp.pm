@@ -204,21 +204,25 @@ sub start_wheel {
 				       my $exitcode = -1;
 				       my @args = ("nstouch",
 						   $file->{target});
-				       if ( system(@args) == 0 )
-				       {
+				       $exitcode = system(@args)
+				       if ( $exitcode == 0 ) {
 					   @args = ("nssetchecksum",
 						    "-n",
 						    "adler32",
 						    "-k",
 						    $file->{checksum},
 						    $file->{target});
-					   if ( system(@args) == 0 )
-					   {
+					   $exitcode = system(@args)
+					   if ( $exitcode == 0 ) {
 					       @args = ("rfcp",
 							$file->{source},
 							$file->{target});
 					       $exitcode = system(@args);
+					   } else {
+					       print "nssetchecksum failed\n";
 					   }
+				       } else {
+					   print "nstouch failed\n";
 				       }
 				       POSIX::_exit($exitcode);
 				   },
