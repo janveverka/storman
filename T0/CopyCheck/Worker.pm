@@ -168,44 +168,16 @@ sub server_input {
     # RfstatRetryBackoff is the delay between tries.
     my $size = T0::Castor::RfstatHelper::getFileSize( $hash_ref->{work}->{PFN}, $self->{RfstatRetries}, $self->{RfstatRetryBackoff} );
 
-    #$kernel->yield('check_size', ($size));
-
     my $status = check_size($self,$work->{PFN},$work->{FILESIZE},$self->{RfstatRetries},$self->{RfstatRetryBackoff});
 
     $hash_ref->{status} = $status;
 
     if ( $status == 0 )
       {
-	# check on index
-	if ( defined $work->{INDEXSIZE} and defined $work->{INDEXPFN} )
-	  {
-	    if ( 1 == check_size($self,$work->{INDEXPFN},$work->{INDEXSIZE},$self->{RfstatRetries},$self->{RfstatRetryBackoff}) )
-	      {
-		$hash_ref->{status} = 1;
-	      }
-	    elsif ( defined $work->{INDEXPFNBACKUP} )
-	      {
-		if ( 1 == check_size($self,$work->{INDEXPFNBACKUP},$work->{INDEXSIZE},$self->{RfstatRetries},$self->{RfstatRetryBackoff}) )
-		  {
-		    $hash_ref->{status} = 1;
-		  }
-	      }
-	  }
-
 	# delete file if DeleteAfterCheck flag is set
 	if (defined($work->{DeleteAfterCheck}) && $work->{DeleteAfterCheck} == 1)
 	  {
 	    delete_file($pfn);
-
-	    if ( defined $work->{INDEXSIZE} and defined $work->{INDEXPFN} )
-	      {
-		delete_file($work->{INDEXPFN});
-
-		if ( defined $work->{INDEXPFNBACKUP} )
-		  {
-		    delete_file($work->{INDEXPFNBACKUP});
-		  }
-	      }
 	  }
       }
 

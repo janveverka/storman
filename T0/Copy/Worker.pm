@@ -181,7 +181,34 @@ sub prepare_work
       $month += 1;
       $year += 1900;
 
-      if ( $work->{SplitMode} eq 'streamerLFN' )
+      $work->{InjectIntoTier0} = 0;
+
+      if ( $work->{SplitMode} eq 'tier0StreamerLFN' )
+	{
+	  my $run = $work->{RUNNUMBER};
+
+	  my $lfndir;
+
+	  if ( ( not defined($work->{STREAM}) ) or $work->{STREAM} eq '' )
+	    {
+	      $lfndir = sprintf("/store/t0streamer/%s/%03d/%03d/%03d", $work->{SETUPLABEL},
+				$run/1000000, ($run%1000000)/1000, $run%1000);
+	    }
+	  else
+	    {
+	      $lfndir = sprintf("/store/t0streamer/%s/%s/%03d/%03d/%03d", $work->{SETUPLABEL}, $work->{STREAM},
+				$run/1000000, ($run%1000000)/1000, $run%1000);
+	    }
+
+	  $work->{TargetDir} .= $lfndir;
+
+	  $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
+
+	  $work->{LFN} = $lfndir . "/" . $work->{FILENAME};
+
+	  $work->{InjectIntoTier0} = 1;
+	}
+      elsif ( $work->{SplitMode} eq 'streamerLFN' )
 	{
 	  my $run = $work->{RUNNUMBER};
 
@@ -199,37 +226,6 @@ sub prepare_work
 	    }
 
 	  $work->{TargetDir} .= $lfndir;
-	  if (defined $work->{IndexDir})
-	    {
-	      $work->{IndexDir} .= $lfndir;
-	    }
-
-	  $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
-
-	  $work->{LFN} = $lfndir . "/" . $work->{FILENAME};
-	}
-      elsif ( $work->{SplitMode} eq 'dataLFN' )
-	{
-	  my $run = $work->{RUNNUMBER};
-
-	  my $lfndir;
-
-	  if ( ( not defined($work->{STREAM})  ) or $work->{STREAM} eq '' )
-	    {
-	      $lfndir = sprintf("/store/data/%s/%03d/%03d/%03d", $work->{SETUPLABEL},
-				$run/1000000, ($run%1000000)/1000, $run%1000);
-	    }
-	  else
-	    {
-	      $lfndir = sprintf("/store/data/%s/%s/%03d/%03d/%03d", $work->{SETUPLABEL}, $work->{STREAM},
-				$run/1000000, ($run%1000000)/1000, $run%1000);
-	    }
-
-	  $work->{TargetDir} .= $lfndir;
-	  if (defined $work->{IndexDir})
-	    {
-	      $work->{IndexDir} .= $lfndir;
-	    }
 
 	  $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
 
@@ -394,37 +390,6 @@ sub server_input {
 	$heap->{HashRef}->{status} = -1;
 	$kernel->yield('job_done');
 	return;	
-      }
-
-    # check for index file
-    if ( defined($work->{INDEX}) and $work->{TargetDir} ne '/dev/null' )
-      {
-	my $indexfile = $work->{PATHNAME} . '/' . $work->{INDEX};
-
-	if (-s $indexfile)
-	  {
-	    $work->{INDEXSIZE} = qx{stat -L --format=%s $indexfile};
-
-	    if (defined $work->{IndexDir})
-	      {
-		$work->{INDEXPFN} = $work->{IndexDir} . '/' . $work->{INDEX};
-		#$work->{INDEXPFNBACKUP} = $work->{TargetDir} . '/' . $work->{INDEX};
-		push(@{ $rfcphash{files} }, { source => $indexfile, target => $work->{INDEXPFN} } );
-		#push(@{ $rfcphash{files} }, { source => $indexfile, target => $work->{INDEXPFNBACKUP} } );
-	      }
-	    else
-	      {
-		#$work->{INDEXPFN} = $work->{INDEXPFNBACKUP} = $work->{TargetDir} . '/' . $work->{INDEX};
-		#push(@{ $rfcphash{files} }, { source => $indexfile, target => $work->{INDEXPFN} } );
-	      }
-	  }
-	else
-	  {
-	    $heap->{Self}->Quiet("index file does not exist, is not a regular file or empty\n");
-	    $heap->{HashRef}->{status} = -1;
-	    $kernel->yield('job_done');
-	    return;
-	  }
       }
 
     $heap->{Self}->Debug("Copy " . $hash_ref->{id} . " started\n");

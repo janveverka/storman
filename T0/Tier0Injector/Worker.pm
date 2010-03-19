@@ -535,8 +535,8 @@ sub server_input {
 	    $sth->bind_param(5,int($work->{NEVENTS}));
 	    $sth->bind_param(6,$work->{LFN});
 	    $sth->bind_param(7,$work->{STREAM});
-	    $sth->bind_param(8,$work->{INDEXPFN});
-	    $sth->bind_param(9,$work->{INDEXPFNBACKUP});
+	    $sth->bind_param(8,undef);
+	    $sth->bind_param(9,undef);
 	    $sth->execute();
 	  };
 

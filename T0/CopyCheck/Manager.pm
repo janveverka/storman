@@ -449,10 +449,8 @@ sub job_done {
       if ( defined $input->{work}->{LFN}
 	   and ( (not defined($input->{work}->{DeleteAfterCheck})) || $input->{work}->{DeleteAfterCheck} == 0) )
 	{
-	  if ( exists $input->{work}->{INDEXPFN} )
+	  if ( $input->{work}->{InjectIntoTier0} == 1 )
 	    {
-	      # only inject into Tier0 with index
-
 	      my %loghash3 = (
 			      Tier0Inject => '1',
 			      RUNNUMBER => $input->{work}->{RUNNUMBER},
@@ -470,13 +468,7 @@ sub job_done {
 			      APP_VERSION => $input->{work}->{APP_VERSION},
 			      HLTKEY => $input->{work}->{HLTKEY},
 			      T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},
-			      INDEXPFN => $input->{work}->{INDEXPFN},
 			     );
-
-	      if ( exists $input->{work}->{INDEXPFNBACKUP} )
-		{
-		  $loghash3{INDEXPFNBACKUP} = $input->{work}->{INDEXPFNBACKUP};
-		}
 
 	      if ( exists $input->{work}->{Resent} )
 		{
@@ -487,8 +479,6 @@ sub job_done {
 	    }
 	  else
 	    {
-	      # if no index, register file in DBS
-
 	      my %loghash2 = (
 			      DBSUpdate => '1',
 			      RUNNUMBER => $input->{work}->{RUNNUMBER},

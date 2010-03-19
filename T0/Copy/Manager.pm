@@ -163,13 +163,6 @@ sub process_file
 
   delete $work->{HOSTNAME};
 
-  # special treatment for cmsdisk1 and cms-tier0-stage
-  if ( ($hostname eq 'srv-C2D05-02') ||
-       ($hostname eq 'srv-S2C17-01') )
-    {
-      delete $work->{INDEX};
-    }
-
   my $id = $self->HostnameQueue($hostname)->enqueue($priority,$work);;
   $self->Quiet("Job $id added to ", $hostname, " queue\n");
 }
@@ -571,22 +564,12 @@ sub job_done {
 			  DeleteAfterCheck => $input->{work}->{DeleteAfterCheck},
 			  SvcClass => $input->{work}->{SvcClass},
 			  T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},
+			  InjectIntoTier0 => $input->{work}->{InjectIntoTier0},
 			 );
 
 	  if ( exists $input->{work}->{LFN} )
 	    {
 	      $loghash2{LFN} = $input->{work}->{LFN}
-	    }
-
-	  if ( exists $input->{work}->{INDEXPFN} )
-	    {
-	      $loghash2{INDEXPFN} = $input->{work}->{INDEXPFN};
-	      $loghash2{INDEXSIZE} = $input->{work}->{INDEXSIZE};
-
-	      if ( exists $input->{work}->{INDEXPFNBACKUP} )
-		{
-		  $loghash2{INDEXPFNBACKUP} = $input->{work}->{INDEXPFNBACKUP};
-		}
 	    }
 
 	  if ( exists $input->{work}->{Resent} )
