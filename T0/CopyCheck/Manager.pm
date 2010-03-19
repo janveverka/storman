@@ -60,7 +60,7 @@ sub _init
 				      broadcast	=> 'broadcast',
 				     ],
 			   ],
-       Args => [ $self ],
+       ClientArgs => [ $self ],
       );
 
   $self->{Queue} = POE::Queue::Array->new();
