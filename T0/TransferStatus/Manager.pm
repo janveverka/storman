@@ -58,10 +58,9 @@ sub _init
 				      broadcast	=> 'broadcast',
 				     ],
 			   ],
-       Args => [ $self ],
+       ClientArgs => [ $self ],
       );
 
-  $self->{Queue} = POE::Queue::Array->new();
   $self->{State} = 'Running';
   return $self;
 }
@@ -138,53 +137,115 @@ sub process_file
   # record time received
   $work->{received} = time;
 
+  # if service class not specific send to t0input
   if ( not defined $work->{SvcClass} )
     {
       $work->{SvcClass} = 't0input';
     }
 
-  # check if the notification contains all needed information
-  #
-  # FIXME
-  #
-
   my $priority = 99;
 
-  my $id = $heap->{Self}->{Queue}->enqueue($priority,$work);
+  my $status = $work->{STATUS};
+
+  my $id = $self->StatusQueue($status)->enqueue($priority,$work);;
+  $self->Quiet("Job $id added to ", $status, " queue\n");
 }
 
 sub AddClient
 {
   my $self = shift;
   my $client = shift or Croak "Expected a client name...\n";
-  $self->{clients}->{$client} = POE::Queue::Array->new();
+  $self->{clientsQueue}->{$client} = POE::Queue::Array->new();
 }
 
 sub RemoveClient
 {
   my $self = shift;
   my $client = shift or Croak "Expected a client name...\n";
-  delete $self->{clients}->{$client};
+  delete $self->{clientsQueue}->{$client};
 }
 
-sub Queue
+sub MostQueuedStatus
+{
+  my $self = shift;
+
+  my $maxCount = 0;
+  my $status = undef;
+  foreach ( keys %{$self->{statusQueue}} )
+  {
+      my $count = $self->StatusQueue($_)->get_item_count();
+      if ( $count > $maxCount )
+      {
+	  $maxCount = $count;
+	  $status = $_;
+      }
+  }
+  return $status;
+}
+
+sub StatusQueue
+{
+  my $self = shift;
+  my $status = shift;
+
+  return undef unless defined($status);
+  if( !defined($self->{statusQueue}->{$status}) )
+  {
+      $self->{statusQueue}->{$status} = POE::Queue::Array->new();
+  }
+  return $self->{statusQueue}->{$status};
+
+  #if no status specified, return queue with most entries
+  if( defined($status) )
+  {
+      if( !defined($self->{statusQueue}->{$status}) )
+      {
+	  $self->{statusQueue}->{$status} = POE::Queue::Array->new();
+      }
+  }
+  else
+  {
+      my $maxCount = 0;
+      foreach ( keys %{$self->{statusQueue}} )
+      {
+	  my $count = $self->StatusQueue($_)->get_item_count();
+	  if ( $count > $maxCount )
+	  {
+	      $maxCount = $count;
+	      $status = $_;
+	  }
+      }
+  }
+
+  if( defined($status) )
+  {
+     return $self->{statusQueue}->{$status}; 
+  }
+  else
+  {
+      return undef;
+  }
+}
+
+sub ClientQueue
 {
   my $self = shift;
   my $client = shift;
+
   return undef unless defined($client);
-  if ( ! defined($self->{clients}->{$client}) )
+  if ( ! defined($self->{clientsQueue}->{$client}) )
   {
-    $self->AddClient($client);
+      $self->AddClient($client);
   }
-  return $self->{clients}->{$client};
+  return $self->{clientsQueue}->{$client};
 }
 
 sub Clients
 {
   my $self = shift;
   my $client = shift;
-  if ( defined($client) ) { return $self->{clients}->{$client}; }
-  return keys %{$self->{clients}};
+  if ( defined($client) ) { return $self->{clientsQueue}->{$client}; }
+  return keys %{$self->{clientsQueue}};
 }
 
 sub Log
@@ -256,8 +317,7 @@ sub FSM_Abort
 {
   my ( $self, $kernel, $heap ) = @_[ OBJECT, KERNEL, HEAP ];
   Print "I am in FSM_Abort. Empty the queue and forget all allocated work.\n";
-  $self->{Queue} = POE::Queue::Array->new();
-  delete $self->{_queue};
+  # TODO: empty all status queues
 }
 
 sub _client_error { reroute_event( (caller(0))[3], @_ ); }
@@ -323,7 +383,7 @@ sub send_work
 
   # If there's any client-specific stuff in the queue, send that.
   # Otherwise tell the client to wait
-  ($priority, $id, $work) = $self->Queue($client)->dequeue_next(); # if $q;
+  ($priority, $id, $work) = $self->ClientQueue($client)->dequeue_next(); # if $q;
   if ( defined $id )
     {
       $self->Quiet("Queued work: ",$work->{command},"\n");
@@ -345,20 +405,36 @@ sub send_work
 
   if ( $self->{State} eq 'Running' )
     {
-      ($priority, $id, $work) = $self->{Queue}->dequeue_next();
-      if ( defined $id )
-	{
-	  $self->Quiet("Send: TransferStatus job ",$id," to $client\n");
-	  %text = (
-		   'command'	=> 'DoThis',
-		   'client'	=> $client,
-		   'priority'	=> $priority,
-		   'work'	=> $work,
-		   'id'         => $id,
-		  );
-	  $heap->{client}->put( \%text );
+	my $status = $self->MostQueuedStatus();
 
-	  return;
+	if ( defined $status )
+	{
+	    my $queue = $self->StatusQueue($status);
+
+	    my @fileList = ();
+
+	    my $count = 0;
+	    my ($temp1, $temp2) = (undef, undef);
+	    while ( ($temp1, $temp2, $work) = $queue->dequeue_next() )
+	    {
+		$priority = $temp1;
+		$id = $temp2;
+		push(@fileList, $work->{FILENAME});
+		$count++;
+		last if ( $count == 500 );
+	    }
+
+	    $self->Quiet("Send: TransferStatus job ",$id," to $client\n");
+	    %text = (
+		     'command'	  => 'DoThis',
+		     'client'	  => $client,
+		     'priority'	  => $priority,
+		     'fileStatus' => $status,
+		     'fileList'   => \@fileList,
+		     'id'         => $id,
+		     );
+	    $heap->{client}->put( \%text );
+	    return;
 	}
     }
 

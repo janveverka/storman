@@ -155,8 +155,9 @@ sub server_input {
     # save hash reference on heap, needed in job_done
     $heap->{HashRef} = $hash_ref;
 
-    # convinience variable
-    my $work = $hash_ref->{work};
+    # convinience variables
+    my $fileStatus = $hash_ref->{fileStatus};
+    my $fileList = $hash_ref->{fileList};
 
     # mark start time
     $heap->{WorkStarted} = time;
@@ -259,41 +260,41 @@ sub server_input {
 
     if ( $heap->{DatabaseHandle} ) {
 
-      my $newStatus = $work->{STATUS};
-
-      #
-      # new file, insert or update files_trans_new
-      #
-
       #
       # insert or update the appropriate table based on new status
       #
       my $sth = undef;
-      if ( $newStatus eq 'new' ) { $sth = $heap->{StmtInsertFileNew}; }
-      elsif ( $newStatus eq 'copied' ) { $sth = $heap->{StmtInsertFileCopied}; }
-      elsif ( $newStatus eq 'checked' ) { $sth = $heap->{StmtInsertFileChecked}; }
-      elsif ( $newStatus eq 'inserted' ) { $sth = $heap->{StmtInsertFileInserted}; }
-      elsif ( $newStatus eq 'repacked' ) { $sth = $heap->{StmtInsertFileRepacked}; }
+      if ( $fileStatus eq 'new' ) { $sth = $heap->{StmtInsertFileNew}; }
+      elsif ( $fileStatus eq 'copied' ) { $sth = $heap->{StmtInsertFileCopied}; }
+      elsif ( $fileStatus eq 'checked' ) { $sth = $heap->{StmtInsertFileChecked}; }
+      elsif ( $fileStatus eq 'inserted' ) { $sth = $heap->{StmtInsertFileInserted}; }
+      elsif ( $fileStatus eq 'repacked' ) { $sth = $heap->{StmtInsertFileRepacked}; }
 
-      if ( defined $newStatus )
+      if ( defined $fileStatus )
 	{
-	  eval {
-	    $sth->bind_param(1,$work->{FILENAME});
-	    $sth->bind_param(2,$work->{FILENAME});
-	    $sth->execute();
-	  };
-
-	  if ( $@ ) {
-	    $heap->{Self}->Quiet("Could not update transfer status for $work->{FILENAME} to $newStatus\n");
-	    $hash_ref->{status} = 1;
-	  } else {
-	    $heap->{Self}->Quiet("Updated transfer status for $work->{FILENAME} to $newStatus\n");
-	  }
+	    eval {
+		$sth->bind_param_array(1,\@$fileList);
+		$sth->bind_param_array(2,\@$fileList);
+		$sth->execute_array( { ArrayTupleStatus => \my @tuple_status } );
+	    };
+	    
+	    if ( $@ ) {
+		foreach ( @$fileList ) {
+		    $heap->{Self}->Quiet("Could not update transfer status for $_ to $fileStatus\n");
+		}
+		$hash_ref->{status} = 1;
+	    } else {
+		foreach ( @$fileList ) {
+		    $heap->{Self}->Quiet("Updated transfer status for $_ to $fileStatus\n");
+		}
+	    }
 	}
       else
 	{
-	  $heap->{Self}->Quiet("Could not update $work->{FILENAME} to unknown status $newStatus\n");
-	  $hash_ref->{status} = 1;
+	   foreach ( @$fileList ) {
+		    $heap->{Self}->Quiet("Could not update $_ to unknown status $fileStatus\n");
+		}
+	   $hash_ref->{status} = 1;
 	}
 
       eval {
@@ -316,9 +317,9 @@ sub server_input {
     }
 
     if ( $hash_ref->{status} == 0 ) {
-      $heap->{Self}->Quiet("Status update for ", $work->{FILENAME}, " succeeded\n");
+      $heap->{Self}->Quiet("Status update for ", $hash_ref->{id}, " succeeded\n");
     } else {
-      $heap->{Self}->Quiet("Status update for ", $work->{FILENAME}, " failed\n");
+      $heap->{Self}->Quiet("Status update for ", $hash_ref->{id}, " failed\n");
     }
 
     $kernel->yield('job_done');
