@@ -59,7 +59,7 @@ sub _init
 		      set_rotate_alarm => 'set_rotate_alarm',
 		 ],
 	],
-    Args => [ $self ],
+    ClientArgs => [ $self ],
   );
 
   if ( defined($self->{Logfile}) )
@@ -265,11 +265,10 @@ sub client_input
 	 @_[ OBJECT, KERNEL, HEAP, SESSION, ARG0 ];
   my ( $date, $text, $client );
 
-
   if ( ref($input) =~ m%^HASH% )
   {
-#   Special case for adding new clients...
-    if ( $input->{text} =~ m%^I live...$% )
+    # Special case for adding new clients...
+    if ( exists $input->{text} and $input->{text} =~ m%^I live...$% )
     {
       Print "new client: ",$input->{client},"\n";
       $heap->{client_name} = $input->{client};
