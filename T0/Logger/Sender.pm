@@ -152,7 +152,7 @@ sub connection_error_handler
   return if $self->{OnError}(@_);
 
   # Stop reconnecting  if the sender is shutting down
-  if($heap->{forceShutdown} == 1){
+  if( defined($heap->{forceShutdown}) and $heap->{forceShutdown} == 1){
       $self->Debug("No reconnections while shutting down.\n");
       return;
   }
