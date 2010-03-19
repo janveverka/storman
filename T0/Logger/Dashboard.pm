@@ -121,8 +121,8 @@ sub Stop
 {
   my $self = shift;
   my ($exitcode,$exitreason);
-  $exitcode = shift or -999;
-  $exitreason = shift or 'no reason given';
+  $exitcode = ( shift or -999 );
+  $exitreason = ( shift or 'no reason given' );
   $exitreason = 'successful completion' unless $exitcode;
   $self->Send(
 		"StepStop",	$self->Exe,
