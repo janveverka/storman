@@ -129,7 +129,7 @@ sub start_task
              Client   => $self->{Name},
              Event    => 'file_changed',
            );
- $self->{Watcher} = T0::FileWatcher->new( %param );
+  $self->{Watcher} = T0::FileWatcher->new( %param );
 }
 
 sub process_file
@@ -311,7 +311,10 @@ sub ReadConfig
   if ( defined $self->{Watcher} )
   {
     $self->{Watcher}->Interval($self->{ConfigRefresh});
-    $self->{Watcher}->Options(\%FileWatcher::Params);
+    if ( keys(%FileWatcher::Params) > 0 )
+    {
+	$self->{Watcher}->Options(\%FileWatcher::Params);
+    }
   }
 }
 
