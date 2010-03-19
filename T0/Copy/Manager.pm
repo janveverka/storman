@@ -157,6 +157,21 @@ sub process_file
 	}
     }
 
+  # checksum format workaround
+  if ( defined($work->{CHECKSUM}) ) {
+      if ( $work->{CHECKSUM} =~ m/0*([a-f0-9]+)(.*)/ ) {
+	  if ( $2 eq '' ) {
+	      $work->{CHECKSUM} = $1;
+	  }
+	  else {
+	      $work->{CHECKSUM} = undef;
+	  }
+      }
+      else{
+	  $work->{CHECKSUM} = undef;
+      }
+  }
+
   my $priority = 99;
 
   my $hostname=$work->{HOSTNAME};
