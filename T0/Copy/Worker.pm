@@ -96,7 +96,7 @@ sub start_task {
 	   ( $version1 == 2 and $version2 == 1 and $version3 > 8 ) or
 	   ( $version1 == 2 and $version2 == 1 and $version3 == 8 and $subversion >= 12 ) )
       {
-	  print "use rfcp checksum\n";
+	  $heap->{Self}->Quiet("Castor version check successfull, use preset checksums for rfcp transfers\n");
 	  $heap->{UseRfcpChecksum} = 1;
       }
   }
