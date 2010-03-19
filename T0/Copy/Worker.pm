@@ -365,15 +365,6 @@ sub server_input {
 	$deletebadfiles = $heap->{Self}->{DeleteBadFiles};
       }
 
-    # send another message to logger (for MonaLisa)
-    my %loghash = (
-		   MonaLisa => 1,
-		   Cluster => $T0::System{Name},
-		   Node => $heap->{Node},
-		   IdleTime => $heap->{WorkStarted} - $heap->{WorkRequested},
-		  );
-    $heap->{Self}->Log( \%loghash );
-
     my %rfcphash = (
 		    svcclass => $work->{SvcClass},
 		    session => $session,
@@ -538,33 +529,10 @@ sub job_done
 
       # record copy time
       $heap->{HashRef}->{time} = time - $heap->{WorkStarted};
-
-      # send message to logger
-#      my %loghash1 = (
-#		      CopyID => $heap->{HashRef}->{id},
-#		      Status => $heap->{HashRef}->{status},
-#		     );
-#      $heap->{Self}->Log( \%loghash1 );
-
-      # send another message to logger (for MonaLisa)
-      my %loghash2 = (
-		      MonaLisa => 1,
-		      Cluster => $T0::System{Name},
-		      Node => $heap->{Node},
-		      CopyTime => $heap->{HashRef}->{time},
-		     );
-      $heap->{Self}->Log( \%loghash2 );
     }
   else
     {
       $heap->{Self}->Verbose("Copy " . $heap->{HashRef}->{id} . " failed\n");
-
-      # send message to logger
-#      my %loghash1 = (
-#		      CopyID => $heap->{HashRef}->{id},
-#		      Status => $heap->{HashRef}->{status},
-#		     );
-#      $heap->{Self}->Log( \%loghash1 );
     }
 
   # send report back to manager
