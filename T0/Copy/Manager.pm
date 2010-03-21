@@ -160,7 +160,7 @@ sub process_file
   # checksum format workaround
   if ( defined($work->{CHECKSUM}) ) {
       if ( $work->{CHECKSUM} =~ m/0*([a-f0-9]+)(.*)/ ) {
-	  if ( $2 eq '' ) {
+	  if ( lenght($2) == 0 and length($1) <= 8 ) {
 	      $work->{CHECKSUM} = $1;
 	  }
 	  else {
