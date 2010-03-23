@@ -59,7 +59,7 @@ sub _init
 		      set_rotate_alarm => 'set_rotate_alarm',
 		 ],
 	],
-    ClientArgs => [ $self ],
+    ListenerArgs => [ $self ],
   );
 
   if ( defined($self->{Logfile}) )

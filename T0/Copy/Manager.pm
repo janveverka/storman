@@ -60,7 +60,7 @@ sub _init
 				      broadcast	=> 'broadcast',
 				     ],
 			   ],
-       ClientArgs => [ $self ],
+       ListenerArgs => [ $self ],
       );
 
   $self->{State} = 'Running';
