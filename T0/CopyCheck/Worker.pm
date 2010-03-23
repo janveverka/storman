@@ -6,7 +6,6 @@ use POE::Filter::Reference;
 use POE::Component::Client::TCP;
 use Sys::Hostname;
 use File::Basename;
-use XML::Twig;
 use T0::Util;
 use T0::Castor::RfstatHelper;
 
