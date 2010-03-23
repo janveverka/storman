@@ -1,7 +1,6 @@
 use strict;
 package T0::Util;
 use Sys::Hostname;
-use XML::Simple;
 use POE;
 
 our (@ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION);
@@ -244,79 +243,6 @@ sub strhash
 {
   my $ref = shift;
   return join(', ', map { "$_ => $ref->{$_}" } sort keys %$ref);
-}
-
-sub GetEventsFromJobReport
-{
-  my $file = shift || 'FrameworkJobReport.xml';
-  my ($t,$p);
-  $p = XML::Simple->new( );
-  eval
-  {
-    $t = $p->XMLin( $file );
-  };
-  if ( $@ )
-  {
-    carp "GetEventsFromJobReport: $@\n";
-    return undef;
-  }
-  return $t->{InputFile}{EventsRead};
-}
-
-sub GetRootFileInfo
-{
-# Look up info on the root files using the FrameworkJobReport and PoolCatalog
-# XML files
-  my ($t,$p,$pfn,@a,@b);
-  my %h = @_;
-  $p = XML::Simple->new( );
-
-  eval
-  {
-    $t = $p->XMLin( $h{FrameworkJobReport} || 'FrameworkJobReport.xml' );
-    if ( ref($t->{File}) eq 'ARRAY' ) { @a = @{$t->{File}}; }
-    else { push @a, $t->{File}; }
-    foreach ( @a)
-    {
-      ($pfn = $_->{PFN}) =~ s%^[^:]*:%%;
-      $pfn =~ s%^\.\/%%;
-      $h{$pfn}{NbEvents} = $_->{TotalEvents};
-      $h{$pfn}{Module}	 = $_->{ModuleLabel};
-#     $h{$pfn}{Branches} = $_->{Branches};
-#     $h{$pfn}{Runs}	 = $_->{Runs};
-    }
-
-    $t = $p->XMLin( $h{PoolFileCatalog} || 'PoolFileCatalog.xml' );
-    if ( ref($t->{File}) eq 'ARRAY' ) { @b = @{$t->{File}}; }
-    else { push @b, $t->{File}; }
-    foreach ( @b )
-    {
-      ($pfn = $_->{physical}{pfn}{name}) =~ s%^[^:]*:%%;
-      $pfn =~ s%^\.\/%%;
-      $h{$pfn}{ID} = $_->{ID};
-    }
-
-    foreach $pfn ( keys %h )
-    {
-      next if defined $h{$pfn}{ID};
-      open POOLID, "pool_extractFileIdentifier $pfn |" or die "pool_extractFileIdentifier $pfn: $!\n";
-      while ( <POOLID> )
-      {
-        if ( m%^(\S+)\s+\($pfn\)$% )
-        {
-          $h{$pfn}{ID} = $1;
-        }
-      }
-      close POOLID or die "close pool_extractFileIdentifier $pfn: $!\n";
-    }
-  };
-  if ( $@ )
-  {
-    carp "GetRootFileInfo: $@\n";
-    return undef;
-  }
-
-  return \%h;
 }
 
 sub SetProductMap
