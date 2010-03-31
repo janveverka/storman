@@ -297,8 +297,8 @@ sub server_input {
       }
       if ( $heap->{DatabaseHandle} ) {
 	my $sql = "insert into " . $heap->{DatabaseUser} . ".streamer ";
-	$sql .= "(STREAMER_ID,RUN_ID,LUMI_ID,INSERT_TIME,FILESIZE,EVENTS,LFN,USED,STREAM_ID) ";
-	$sql .= "values (streamer_SEQ.nextval,?,?,?,?,?,?,0,(SELECT id FROM stream WHERE name = ?))";
+	$sql .= "(STREAMER_ID,RUN_ID,LUMI_ID,INSERT_TIME,FILESIZE,EVENTS,LFN,STREAM_ID) ";
+	$sql .= "values (streamer_SEQ.nextval,?,?,?,?,?,?,(SELECT id FROM stream WHERE name = ?))";
 	if ( ! ( $heap->{StmtInsertStreamer} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
 	  undef $heap->{DatabaseHandle};
