@@ -206,9 +206,9 @@ sub server_input {
       if ( $heap->{DatabaseHandle} ) {
 	my $sql = "insert into " . $heap->{DatabaseUser} . ".cmssw_version ";
 	$sql .= "(ID,NAME) ";
-	$sql .= "SELECT " . $heap->{DatabaseUser} . ".cmssw_version_SEQ.nextval, :name FROM DUAL ";
+	$sql .= "SELECT cmssw_version_SEQ.nextval, :name FROM DUAL ";
 	$sql .= "WHERE NOT EXISTS ";
-	$sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".cmssw_version WHERE NAME = :name)";
+	$sql .= "(SELECT id FROM " . $heap->{DatabaseUser} . ".cmssw_version WHERE NAME = :name)";
 	if ( ! ( $heap->{StmtInsertCMSSWVersion} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
 	  undef $heap->{DatabaseHandle};
@@ -255,7 +255,7 @@ sub server_input {
       }
       if ( $heap->{DatabaseHandle} ) {
 	my $sql = "select COUNT(*) from " . $heap->{DatabaseUser} . ".stream ";
-	$sql .= "where name = ?";
+	$sql .= "where name = :stream";
 	if ( ! ( $heap->{StmtFindStream} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
 	  undef $heap->{DatabaseHandle};
@@ -263,7 +263,10 @@ sub server_input {
       }
       if ( $heap->{DatabaseHandle} ) {
 	my $sql = "insert into " . $heap->{DatabaseUser} . ".stream ";
-	$sql .= "(ID,NAME) values (stream_SEQ.nextval,?)";
+	$sql .= "(ID,NAME) ";
+	$sql .= "SELECT stream_SEQ.nextval,:stream FROM DUAL ";
+	$sql .= "WHERE NOT EXISTS ";
+	$sql .= "(SELECT id FROM " . $heap->{DatabaseUser} . ".stream WHERE name = :stream)";
 	if ( ! ( $heap->{StmtInsertStream} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
 	  undef $heap->{DatabaseHandle};
@@ -281,7 +284,11 @@ sub server_input {
       if ( $heap->{DatabaseHandle} ) {
 	my $sql = "INSERT INTO " . $heap->{DatabaseUser} . ".run_stream_cmssw_assoc ";
 	$sql .= "(RUN_ID,STREAM_ID,RUN_VERSION,OVERRIDE_VERSION) ";
-	$sql .= "VALUES (:run,(SELECT id FROM stream WHERE name = :stream),(SELECT id FROM cmssw_version WHERE name = :appversion),(SELECT id FROM cmssw_version WHERE name = :appversion))";
+	$sql .= "SELECT :run,(SELECT id FROM stream WHERE name = :stream),id,id FROM cmssw_version ";
+	$sql .= "WHERE name = :appversion AND NOT EXISTS ";
+	$sql .= "(SELECT run_id,stream_id FROM " . $heap->{DatabaseUser} . ".run_stream_cmssw_assoc ";
+	$sql .= "WHERE run_id = :run ";
+	$sql .= "AND stream_id = ( SELECT id FROM stream WHERE name = :stream ))";
 	if ( ! ( $heap->{StmtInsertRunStreamVersionAssoc} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
 	  undef $heap->{DatabaseHandle};
@@ -430,7 +437,7 @@ sub server_input {
 	if ( $hash_ref->{status} ==  0 ) {
 	  $sth = $heap->{StmtFindStream};
 	  eval {
-	    $sth->bind_param(1,$work->{STREAM});
+	    $sth->bind_param(":stream",$work->{STREAM});
 	    $sth->execute();
 	    $count = $sth->fetchrow_array();
 	    $sth->finish();
@@ -449,7 +456,7 @@ sub server_input {
 	if ( $hash_ref->{status} ==  0 and $count == 0 ) {
 	  $sth = $heap->{StmtInsertStream};
 	  eval {
-	    $sth->bind_param(1,$work->{STREAM});
+	    $sth->bind_param(":stream",$work->{STREAM});
 	    $sth->execute();
 	  };
 
