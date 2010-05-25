@@ -449,7 +449,7 @@ sub job_done {
       if ( defined $input->{work}->{LFN}
 	   and ( (not defined($input->{work}->{DeleteAfterCheck})) || $input->{work}->{DeleteAfterCheck} == 0) )
 	{
-	  if ( $input->{work}->{InjectIntoTier0} == 1 )
+	  if ( $input->{work}->{InjectIntoTier0} == 1 || exists $input->{work}->{INDEXPFN} )
 	    {
 	      my %loghash3 = (
 			      Tier0Inject => '1',
