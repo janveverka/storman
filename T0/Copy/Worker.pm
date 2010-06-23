@@ -328,6 +328,8 @@ sub server_input {
 
   if ( $command =~ m%DoThis% )
   {
+    $heap->{State} = 'Busy';
+
     $heap->{HashRef} = $hash_ref;
 
     my $work = $hash_ref->{work};
@@ -405,7 +407,7 @@ sub server_input {
     $heap->{Self}->{Debug} && dump_ref($setup);
     map { $self->{$_} = $setup->{$_} } keys %$setup;
 
-    if ( $heap->{State} eq 'Running' )
+    if ( $heap->{State} eq 'Idle' )
       {
 	$kernel->yield('get_work');
       }
@@ -417,7 +419,7 @@ sub server_input {
     $heap->{Self}->Quiet("Got $command...\n");
     if ( $heap->{State} eq 'Created' )
       {
-	$heap->{State} = 'Running';
+	$heap->{State} = 'Idle';
 	$kernel->yield('get_work');
       }
     return;
@@ -503,8 +505,9 @@ sub job_done
   $heap->{HashRef}->{command} = 'JobDone';
   $self->send( $heap, $heap->{HashRef} );
 
-  if ( ($heap->{State} eq 'Running') )
+  if ( ($heap->{State} eq 'Busy') )
     {
+      $heap->{State} = 'Idle';
       $kernel->yield('get_work');
     }
   else
