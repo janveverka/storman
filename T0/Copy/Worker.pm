@@ -182,7 +182,7 @@ sub prepare_work
 
       $work->{InjectIntoTier0} = 0;
 
-      if ( $work->{SplitMode} eq 'tier0StreamerLFN' )
+      if ( $work->{SplitMode} eq 'tier0StreamerNewPoolsLFN' )
 	{
 	  my $run = $work->{RUNNUMBER};
 
@@ -196,6 +196,31 @@ sub prepare_work
 	  else
 	    {
 	      $lfndir = sprintf("/store/t0streamer/%s/%s/%03d/%03d/%03d", $work->{SETUPLABEL}, $work->{STREAM},
+				$run/1000000, ($run%1000000)/1000, $run%1000);
+	    }
+
+	  $work->{TargetDir} .= $lfndir;
+
+	  $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
+
+	  $work->{LFN} = $lfndir . "/" . $work->{FILENAME};
+
+	  $work->{InjectIntoTier0} = 1;
+	}
+      elsif ( $work->{SplitMode} eq 'tier0StreamerLFN' )
+	{
+	  my $run = $work->{RUNNUMBER};
+
+	  my $lfndir;
+
+	  if ( ( not defined($work->{STREAM}) ) or $work->{STREAM} eq '' )
+	    {
+	      $lfndir = sprintf("/store/streamer/%s/%03d/%03d/%03d", $work->{SETUPLABEL},
+				$run/1000000, ($run%1000000)/1000, $run%1000);
+	    }
+	  else
+	    {
+	      $lfndir = sprintf("/store/streamer/%s/%s/%03d/%03d/%03d", $work->{SETUPLABEL}, $work->{STREAM},
 				$run/1000000, ($run%1000000)/1000, $run%1000);
 	    }
 
