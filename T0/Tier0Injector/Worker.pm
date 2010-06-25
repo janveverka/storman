@@ -225,12 +225,12 @@ sub server_input {
       }
       if ( $heap->{DatabaseHandle} ) {
 	my $sql = "insert into " . $heap->{DatabaseUser} . ".run ";
-	$sql .= "(RUN_ID,HLTKEY,RUN_VERSION,REPACK_VERSION,EXPRESS_VERSION,START_TIME,END_TIME,RUN_STATUS) ";
+	$sql .= "(RUN_ID,HLTKEY,RUN_VERSION,REPACK_VERSION,EXPRESS_VERSION,START_TIME,RUN_STATUS) ";
 	$sql .= "VALUES (:run,:hltkey,";
         $sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".cmssw_version WHERE NAME = :runversion),";
         $sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".cmssw_version WHERE NAME = :repackversion),";
         $sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".cmssw_version WHERE NAME = :expressversion),";
-	$sql .= ":starttime,:endtime,";
+	$sql .= ":starttime,";
 	$sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".run_status WHERE STATUS = 'Active'))";
 	if ( ! ( $heap->{StmtInsertRun} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
@@ -238,16 +238,19 @@ sub server_input {
 	}
       }
       if ( $heap->{DatabaseHandle} ) {
-	my $sql = "select COUNT(*) from " . $heap->{DatabaseUser} . ".lumi_section ";
-	$sql .= "where lumi_id = ? and run_id = ?";
+	my $sql = "SELECT COUNT(*) FROM " . $heap->{DatabaseUser} . ".lumi_section ";
+	$sql .= "WHERE lumi_id = :lumi AND run_id = :run";
 	if ( ! ( $heap->{StmtFindLumi} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
 	  undef $heap->{DatabaseHandle};
 	}
       }
       if ( $heap->{DatabaseHandle} ) {
-	my $sql = "insert into " . $heap->{DatabaseUser} . ".lumi_section ";
-	$sql .= "(LUMI_ID,RUN_ID,START_TIME) values (?,?,?)";
+	my $sql = "INSERT INTO " . $heap->{DatabaseUser} . ".lumi_section ";
+	$sql .= "(lumi_id,run_id) ";
+	$sql .= "SELECT :lumi,:run FROM DUAL ";
+	$sql .= "WHERE NOT EXISTS ";
+	$sql .= "(SELECT * FROM " . $heap->{DatabaseUser} . ".lumi_section WHERE lumi_id = :lumi AND run_id = :run)";
 	if ( ! ( $heap->{StmtInsertLumi} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
 	  undef $heap->{DatabaseHandle};
@@ -375,8 +378,6 @@ sub server_input {
 	    $sth->bind_param(":expressversion",$work->{APP_VERSION});
 	    $sth->bind_param(":hltkey",$work->{HLTKEY});
 	    $sth->bind_param(":starttime",int($work->{START_TIME}));
-	    $sth->bind_param(":endtime",int($work->{STOP_TIME}));
-	    $sth->bind_param(":endtime",int($work->{STOP_TIME}));
 	    $sth->execute();
 	  };
 
@@ -396,8 +397,8 @@ sub server_input {
 	if ( $hash_ref->{status} ==  0 ) {
 	  $sth = $heap->{StmtFindLumi};
 	  eval {
-	    $sth->bind_param(1,int($work->{LUMISECTION}));
-	    $sth->bind_param(2,int($work->{RUNNUMBER}));
+	    $sth->bind_param(":lumi",int($work->{LUMISECTION}));
+	    $sth->bind_param(":run",int($work->{RUNNUMBER}));
 	    $sth->execute();
 	    $count = $sth->fetchrow_array();
 	    $sth->finish();
@@ -416,9 +417,8 @@ sub server_input {
 	if ( $hash_ref->{status} ==  0 and $count == 0 ) {
 	  $sth = $heap->{StmtInsertLumi};
 	  eval {
-	    $sth->bind_param(1,int($work->{LUMISECTION}));
-	    $sth->bind_param(2,int($work->{RUNNUMBER}));
-	    $sth->bind_param(3,int($work->{START_TIME}));
+	    $sth->bind_param(":lumi",int($work->{LUMISECTION}));
+	    $sth->bind_param(":run",int($work->{RUNNUMBER}));
 	    $sth->execute();
 	  };
 
