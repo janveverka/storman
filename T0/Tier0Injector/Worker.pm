@@ -225,12 +225,12 @@ sub server_input {
       }
       if ( $heap->{DatabaseHandle} ) {
 	my $sql = "insert into " . $heap->{DatabaseUser} . ".run ";
-	$sql .= "(RUN_ID,HLTKEY,RUN_VERSION,REPACK_VERSION,EXPRESS_VERSION,START_TIME,RUN_STATUS) ";
+	$sql .= "(RUN_ID,HLTKEY,RUN_VERSION,REPACK_VERSION,EXPRESS_VERSION,START_TIME,END_TIME,RUN_STATUS) ";
 	$sql .= "VALUES (:run,:hltkey,";
         $sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".cmssw_version WHERE NAME = :runversion),";
         $sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".cmssw_version WHERE NAME = :repackversion),";
         $sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".cmssw_version WHERE NAME = :expressversion),";
-	$sql .= ":starttime,";
+	$sql .= ":starttime,0,";
 	$sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".run_status WHERE STATUS = 'Active'))";
 	if ( ! ( $heap->{StmtInsertRun} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
@@ -248,9 +248,7 @@ sub server_input {
       if ( $heap->{DatabaseHandle} ) {
 	my $sql = "INSERT INTO " . $heap->{DatabaseUser} . ".lumi_section ";
 	$sql .= "(lumi_id,run_id) ";
-	$sql .= "SELECT :lumi,:run FROM DUAL ";
-	$sql .= "WHERE NOT EXISTS ";
-	$sql .= "(SELECT * FROM " . $heap->{DatabaseUser} . ".lumi_section WHERE lumi_id = :lumi AND run_id = :run)";
+	$sql .= "VALUES (:lumi,:run)";
 	if ( ! ( $heap->{StmtInsertLumi} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
 	  undef $heap->{DatabaseHandle};
@@ -288,10 +286,7 @@ sub server_input {
 	my $sql = "INSERT INTO " . $heap->{DatabaseUser} . ".run_stream_cmssw_assoc ";
 	$sql .= "(RUN_ID,STREAM_ID,RUN_VERSION,OVERRIDE_VERSION) ";
 	$sql .= "SELECT :run,(SELECT id FROM stream WHERE name = :stream),id,id FROM cmssw_version ";
-	$sql .= "WHERE name = :appversion AND NOT EXISTS ";
-	$sql .= "(SELECT run_id,stream_id FROM " . $heap->{DatabaseUser} . ".run_stream_cmssw_assoc ";
-	$sql .= "WHERE run_id = :run ";
-	$sql .= "AND stream_id = ( SELECT id FROM stream WHERE name = :stream ))";
+	$sql .= "WHERE name = :appversion ";
 	if ( ! ( $heap->{StmtInsertRunStreamVersionAssoc} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
 	  undef $heap->{DatabaseHandle};
@@ -415,20 +410,35 @@ sub server_input {
 	# insert lumi section if needed
 	#
 	if ( $hash_ref->{status} ==  0 and $count == 0 ) {
-	  $sth = $heap->{StmtInsertLumi};
-	  eval {
-	    $sth->bind_param(":lumi",int($work->{LUMISECTION}));
-	    $sth->bind_param(":run",int($work->{RUNNUMBER}));
-	    $sth->execute();
-	  };
+	    $sth = $heap->{StmtInsertLumi};
+	    eval {
+		$sth->bind_param(":lumi",int($work->{LUMISECTION}));
+		$sth->bind_param(":run",int($work->{RUNNUMBER}));
+		$sth->execute();
+	    };
 
-	  if ( $@ ) {
-	    $heap->{Self}->Quiet("Could not insert lumi section $work->{LUMISECTION} for run $work->{RUNNUMBER}\n");
-	    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
-	    $hash_ref->{status} = 1;
-	  } else {
-	    $heap->{Self}->Quiet("Inserted lumi section $work->{LUMISECTION} for run $work->{RUNNUMBER}\n");
-	  }
+	    if ( $@ ) {
+		# check again if row was already inserted (by RunLumi closing logic) before failing
+		$sth = $heap->{StmtFindLumi};
+		eval {
+		    $sth->bind_param(":lumi",int($work->{LUMISECTION}));
+		    $sth->bind_param(":run",int($work->{RUNNUMBER}));
+		    $sth->execute();
+		    $count = $sth->fetchrow_array();
+		    $sth->finish();
+		};
+
+		if ( $@ or $count == 0 ) {
+		    $heap->{Self}->Quiet("Could not insert lumi section $work->{LUMISECTION} for run $work->{RUNNUMBER}\n");
+		    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+		    $hash_ref->{status} = 1;
+		} else {
+		    $heap->{Self}->Quiet("Insert failed, but lumi section $work->{LUMISECTION} for run $work->{RUNNUMBER} already present\n");
+		}
+	    }
+	    else {
+		$heap->{Self}->Quiet("Inserted lumi section $work->{LUMISECTION} for run $work->{RUNNUMBER}\n");
+	    }
 	}
 
 	#
@@ -493,21 +503,36 @@ sub server_input {
 	# insert run_stream_cmssw_assoc if needed
 	#
 	if ( $hash_ref->{status} ==  0 and $count == 0 ) {
-	  $sth = $heap->{StmtInsertRunStreamVersionAssoc};
-	  eval {
-	    $sth->bind_param(":run",$work->{RUNNUMBER});
-	    $sth->bind_param(":stream",$work->{STREAM});
-	    $sth->bind_param(":appversion",$work->{APP_VERSION});
-	    $sth->execute();
-	  };
+	    $sth = $heap->{StmtInsertRunStreamVersionAssoc};
+	    eval {
+		$sth->bind_param(":run",$work->{RUNNUMBER});
+		$sth->bind_param(":stream",$work->{STREAM});
+		$sth->bind_param(":appversion",$work->{APP_VERSION});
+		$sth->execute();
+	    };
 
-	  if ( $@ ) {
-	    $heap->{Self}->Quiet("Could not insert run_stream_cmssw_assoc for run $work->{RUNNUMBER} and stream $work->{STREAM}\n");
-	    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
-	    $hash_ref->{status} = 1;
-	  } else {
-	    $heap->{Self}->Quiet("Inserted run_stream_cmssw_assoc for run $work->{RUNNUMBER} and stream $work->{STREAM}\n");
-	  }
+	    if ( $@ ) {
+		# check again if row was already inserted (by InsertRunConfig) before failing
+		$sth = $heap->{StmtFindRunStreamVersionAssoc};
+		eval {
+		    $sth->bind_param(":run",$work->{RUNNUMBER});
+		    $sth->bind_param(":stream",$work->{STREAM});
+		    $sth->execute();
+		    $count = $sth->fetchrow_array();
+		    $sth->finish();
+		};
+
+		if ( $@ or $count == 0 ) {
+		    $heap->{Self}->Quiet("Could not insert run_stream_cmssw_assoc for run $work->{RUNNUMBER} and stream $work->{STREAM}\n");
+		    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+		    $hash_ref->{status} = 1;
+		} else {
+		    $heap->{Self}->Quiet("Insert failed, but run_stream_cmssw_assoc for run $work->{RUNNUMBER} and stream $work->{STREAM} already present\n");
+		}
+	    }
+	    else {
+		$heap->{Self}->Quiet("Inserted run_stream_cmssw_assoc for run $work->{RUNNUMBER} and stream $work->{STREAM}\n");
+	    }
 	}
 
 	#
