@@ -348,7 +348,7 @@ sub server_input {
 	# check if run is already in database
 	#
 	if ( $hash_ref->{status} ==  0 ) {
-	    my $end_time = undef;
+	    my $status = undef;
 	    $sth = $heap->{StmtFindRun};
 	    eval {
 		$sth->bind_param(":run",int($work->{RUNNUMBER}));
