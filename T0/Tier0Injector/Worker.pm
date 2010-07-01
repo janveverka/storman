@@ -216,8 +216,10 @@ sub server_input {
       }
 
       if ( $heap->{DatabaseHandle} ) {
-	my $sql = "select end_time from " . $heap->{DatabaseUser} . ".run ";
-	$sql .= "where run_id = :run";
+	my $sql = "SELECT b.status FROM " . $heap->{DatabaseUser} . ".run a ";
+	$sql .= "INNER JOIN " . $heap->{DatabaseUser} . ".run_status b ON ";
+	$sql .= "b.run_status = a.id ";
+	$sql .= "WHERE a.run_id = :run";
 	if ( ! ( $heap->{StmtFindRun} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
 	  undef $heap->{DatabaseHandle};
@@ -351,7 +353,7 @@ sub server_input {
 	    eval {
 		$sth->bind_param(":run",int($work->{RUNNUMBER}));
 		$sth->execute();
-		$end_time = $sth->fetchrow_array();
+		$status = $sth->fetchrow_array();
 		$sth->finish();
 	    };
 
@@ -359,14 +361,17 @@ sub server_input {
 		$heap->{Self}->Quiet("Could not check for run $work->{RUNNUMBER}\n");
 		$heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
 		$hash_ref->{status} = 1;
-	    } elsif ( ! defined($end_time) ) {
+	    } elsif ( ! defined($status) ) {
 		$count = 0;
-	    } elsif ( $end_time == 0 ) {
-		$count = 1;
 	    } else {
-		$heap->{Self}->Quiet("Run $work->{RUNNUMBER} already closed, injections not allowed\n");
-		$hash_ref->{status} = 1;
+		$count = 1;
 	    }
+#	    } elsif ( $status eq 'Active' ) {
+#		$count = 1;
+#	    } else {
+#		$heap->{Self}->Quiet("Run $work->{RUNNUMBER} in closeout, injections not allowed\n");
+#		$hash_ref->{status} = 1;
+#	    }
 	}
 
 	#
