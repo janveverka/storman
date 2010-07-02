@@ -218,7 +218,7 @@ sub server_input {
       if ( $heap->{DatabaseHandle} ) {
 	my $sql = "SELECT b.status FROM " . $heap->{DatabaseUser} . ".run a ";
 	$sql .= "INNER JOIN " . $heap->{DatabaseUser} . ".run_status b ON ";
-	$sql .= "b.run_status = a.id ";
+	$sql .= "b.id = a.run_status ";
 	$sql .= "WHERE a.run_id = :run";
 	if ( ! ( $heap->{StmtFindRun} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
