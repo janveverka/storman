@@ -302,8 +302,8 @@ sub server_input {
 		foreach ( @$fileList ) {
 		    $heap->{Self}->Quiet("Updated transfer status for $_ to $fileStatus\n");
 		}
+		$hash_ref->{commit} = 1;
 	    } else {
-		$hash_ref->{status} = 1;
 		for my $tuple (0..@$fileList-1) {
 		    my $status = $tuple_status[$tuple];
 		    if ( $status and ref $status and $status->[0] ) {
@@ -314,6 +314,7 @@ sub server_input {
 			$hash_ref->{commit} = 1;
 		    }
 		}
+		$hash_ref->{status} = 1;
 	    }
 	}
       else
