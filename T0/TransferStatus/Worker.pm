@@ -322,6 +322,7 @@ sub server_input {
 	   foreach ( @$fileList ) {
 		    $heap->{Self}->Quiet("Could not update $_ to unknown status $fileStatus\n");
 		}
+	   $hash_ref->{status} = 1;
 	}
 
       eval {
