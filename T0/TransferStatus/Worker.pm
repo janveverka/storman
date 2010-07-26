@@ -7,6 +7,7 @@ use POE::Component::Client::TCP;
 use Sys::Hostname;
 use T0::Util;
 use DBI;
+use Data::Dumper;
 
 our (@ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION);
 
@@ -162,7 +163,13 @@ sub server_input {
     # mark start time
     $heap->{WorkStarted} = time;
 
-    # nothing has gone wrong yet
+    # set to 1 if we have to commit anything
+    #
+    # we rollback otherwise, even though there won't
+    # be anything to rollback (better safe than sorry)
+    $hash_ref->{commit} = 0;
+
+    # keep overall status
     $hash_ref->{status} = 0;
 
     #
@@ -199,58 +206,69 @@ sub server_input {
       }
 
       if ( $heap->{DatabaseHandle} ) {
-	my $sql = "merge into " . $heap->{DatabaseName} . ".files_trans_new ";
-	$sql .= "using dual on (" . $heap->{DatabaseName} . ".files_trans_new.FILENAME = ?) ";
-	$sql .= "when matched then update set ITIME = CURRENT_TIMESTAMP ";
-	$sql .= "when not matched then insert (FILENAME,ITIME) values (?,CURRENT_TIMESTAMP)";
-	if ( ! ( $heap->{StmtInsertFileNew} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
-	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
-	  undef $heap->{DatabaseHandle};
-	}
+	  my $sql = "merge into " . $heap->{DatabaseName} . ".files_trans_new ";
+	  $sql .= "using dual on (" . $heap->{DatabaseName} . ".files_trans_new.FILENAME = ?) ";
+	  $sql .= "when matched then update set ITIME = CURRENT_TIMESTAMP ";
+	  $sql .= "when not matched then insert (FILENAME,ITIME) values (?,CURRENT_TIMESTAMP)";
+	  if ( ! ( $heap->{StmtInsertFileNew} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
+	      $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+	      undef $heap->{DatabaseHandle};
+	  }
       }
 
       if ( $heap->{DatabaseHandle} ) {
-	my $sql = "merge into " . $heap->{DatabaseName} . ".files_trans_copied ";
-	$sql .= "using dual on (" . $heap->{DatabaseName} . ".files_trans_copied.FILENAME = ?) ";
-	$sql .= "when matched then update set ITIME = CURRENT_TIMESTAMP ";
-	$sql .= "when not matched then insert (FILENAME,ITIME) values (?,CURRENT_TIMESTAMP)";
-	if ( ! ( $heap->{StmtInsertFileCopied} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
-	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
-	  undef $heap->{DatabaseHandle};
-	}
+	  my $sql = "merge into " . $heap->{DatabaseName} . ".files_trans_copied ";
+	  $sql .= "using dual on (" . $heap->{DatabaseName} . ".files_trans_copied.FILENAME = ?) ";
+	  $sql .= "when matched then update set ITIME = CURRENT_TIMESTAMP ";
+	  $sql .= "when not matched then insert (FILENAME,ITIME) values (?,CURRENT_TIMESTAMP)";
+	  if ( ! ( $heap->{StmtInsertFileCopied} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
+	      $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+	      undef $heap->{DatabaseHandle};
+	  }
       }
 
       if ( $heap->{DatabaseHandle} ) {
-	my $sql = "merge into " . $heap->{DatabaseName} . ".files_trans_checked ";
-	$sql .= "using dual on (" . $heap->{DatabaseName} . ".files_trans_checked.FILENAME = ?) ";
-	$sql .= "when matched then update set ITIME = CURRENT_TIMESTAMP ";
-	$sql .= "when not matched then insert (FILENAME,ITIME) values (?,CURRENT_TIMESTAMP)";
-	if ( ! ( $heap->{StmtInsertFileChecked} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
-	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
-	  undef $heap->{DatabaseHandle};
-	}
+	  my $sql = "merge into " . $heap->{DatabaseName} . ".files_trans_checked ";
+	  $sql .= "using dual on (" . $heap->{DatabaseName} . ".files_trans_checked.FILENAME = ?) ";
+	  $sql .= "when matched then update set ITIME = CURRENT_TIMESTAMP ";
+	  $sql .= "when not matched then insert (FILENAME,ITIME) values (?,CURRENT_TIMESTAMP)";
+	  if ( ! ( $heap->{StmtInsertFileChecked} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
+	      $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+	      undef $heap->{DatabaseHandle};
+	  }
       }
 
       if ( $heap->{DatabaseHandle} ) {
-	my $sql = "merge into " . $heap->{DatabaseName} . ".files_trans_inserted ";
-	$sql .= "using dual on (" . $heap->{DatabaseName} . ".files_trans_inserted.FILENAME = ?) ";
-	$sql .= "when matched then update set ITIME = CURRENT_TIMESTAMP ";
-	$sql .= "when not matched then insert (FILENAME,ITIME) values (?,CURRENT_TIMESTAMP)";
-	if ( ! ( $heap->{StmtInsertFileInserted} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
-	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
-	  undef $heap->{DatabaseHandle};
-	}
+	  my $sql = "merge into " . $heap->{DatabaseName} . ".files_trans_inserted ";
+	  $sql .= "using dual on (" . $heap->{DatabaseName} . ".files_trans_inserted.FILENAME = ?) ";
+	  $sql .= "when matched then update set ITIME = CURRENT_TIMESTAMP ";
+	  $sql .= "when not matched then insert (FILENAME,ITIME) values (?,CURRENT_TIMESTAMP)";
+	  if ( ! ( $heap->{StmtInsertFileInserted} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
+	      $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+	      undef $heap->{DatabaseHandle};
+	  }
       }
 
       if ( $heap->{DatabaseHandle} ) {
-	my $sql = "merge into " . $heap->{DatabaseName} . ".files_trans_repacked ";
-	$sql .= "using dual on (" . $heap->{DatabaseName} . ".files_trans_repacked.FILENAME = ?) ";
-	$sql .= "when matched then update set ITIME = CURRENT_TIMESTAMP ";
-	$sql .= "when not matched then insert (FILENAME,ITIME) values (?,CURRENT_TIMESTAMP)";
-	if ( ! ( $heap->{StmtInsertFileRepacked} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
-	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
-	  undef $heap->{DatabaseHandle};
-	}
+	  my $sql = "merge into files_trans_inserted ";
+	  $sql .= "using dual on ( files_trans_inserted.FILENAME = ?) ";
+	  $sql .= "when matched then update set ITIME = CURRENT_TIMESTAMP ";
+	  $sql .= "when not matched then insert (FILENAME,ITIME) values (?,CURRENT_TIMESTAMP)";
+	  if ( ! ( $heap->{StmtInsertFileInserted} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
+	      $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+	      undef $heap->{DatabaseHandle};
+	  }
+      }
+
+      if ( $heap->{DatabaseHandle} ) {
+	  my $sql = "merge into " . $heap->{DatabaseName} . ".files_trans_repacked ";
+	  $sql .= "using dual on (" . $heap->{DatabaseName} . ".files_trans_repacked.FILENAME = ?) ";
+	  $sql .= "when matched then update set ITIME = CURRENT_TIMESTAMP ";
+	  $sql .= "when not matched then insert (FILENAME,ITIME) values (?,CURRENT_TIMESTAMP)";
+	  if ( ! ( $heap->{StmtInsertFileRepacked} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
+	      $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+	      undef $heap->{DatabaseHandle};
+	  }
       }
 
       if ( $heap->{DatabaseHandle} ) {
@@ -270,22 +288,31 @@ sub server_input {
       elsif ( $fileStatus eq 'inserted' ) { $sth = $heap->{StmtInsertFileInserted}; }
       elsif ( $fileStatus eq 'repacked' ) { $sth = $heap->{StmtInsertFileRepacked}; }
 
-      if ( defined $fileStatus )
+      if ( defined $sth )
 	{
+	    my $tuples = undef;
+	    my @tuple_status = undef;
 	    eval {
 		$sth->bind_param_array(1,\@$fileList);
 		$sth->bind_param_array(2,\@$fileList);
-		$sth->execute_array( { ArrayTupleStatus => \my @tuple_status } );
+		$tuples = $sth->execute_array( { ArrayTupleStatus => \@tuple_status } );
 	    };
-	    
-	    if ( $@ ) {
-		foreach ( @$fileList ) {
-		    $heap->{Self}->Quiet("Could not update transfer status for $_ to $fileStatus\n");
-		}
-		$hash_ref->{status} = 1;
-	    } else {
+
+	    if ( ! $@ and $tuples ) {
 		foreach ( @$fileList ) {
 		    $heap->{Self}->Quiet("Updated transfer status for $_ to $fileStatus\n");
+		}
+	    } else {
+		$hash_ref->{status} = 1;
+		for my $tuple (0..@$fileList-1) {
+		    my $status = $tuple_status[$tuple];
+		    if ( $status and ref $status and $status->[0] ) {
+			$heap->{Self}->Quiet("Could not update transfer status for " . $fileList->[$tuple] . " to $fileStatus\n");
+			$heap->{Self}->Quiet("ERROR : " . $status->[1] . "\n");
+		    } else {
+			$heap->{Self}->Quiet("Updated transfer status for " . $fileList->[$tuple] ." to $fileStatus (unconfirmed)\n");
+			$hash_ref->{commit} = 1;
+		    }
 		}
 	    }
 	}
@@ -294,11 +321,10 @@ sub server_input {
 	   foreach ( @$fileList ) {
 		    $heap->{Self}->Quiet("Could not update $_ to unknown status $fileStatus\n");
 		}
-	   $hash_ref->{status} = 1;
 	}
 
       eval {
-	if ( $hash_ref->{status} == 0 ) {
+	if ( $hash_ref->{commit} == 1 ) {
 	  $heap->{DatabaseHandle}->commit();
 	} else {
 	  $heap->{DatabaseHandle}->rollback();
