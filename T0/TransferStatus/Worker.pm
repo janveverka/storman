@@ -7,7 +7,6 @@ use POE::Component::Client::TCP;
 use Sys::Hostname;
 use T0::Util;
 use DBI;
-use Data::Dumper;
 
 our (@ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION);
 
