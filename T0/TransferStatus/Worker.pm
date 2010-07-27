@@ -249,17 +249,6 @@ sub server_input {
       }
 
       if ( $heap->{DatabaseHandle} ) {
-	  my $sql = "merge into files_trans_inserted ";
-	  $sql .= "using dual on ( files_trans_inserted.FILENAME = ?) ";
-	  $sql .= "when matched then update set ITIME = CURRENT_TIMESTAMP ";
-	  $sql .= "when not matched then insert (FILENAME,ITIME) values (?,CURRENT_TIMESTAMP)";
-	  if ( ! ( $heap->{StmtInsertFileInserted} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
-	      $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
-	      undef $heap->{DatabaseHandle};
-	  }
-      }
-
-      if ( $heap->{DatabaseHandle} ) {
 	  my $sql = "merge into " . $heap->{DatabaseName} . ".files_trans_repacked ";
 	  $sql .= "using dual on (" . $heap->{DatabaseName} . ".files_trans_repacked.FILENAME = ?) ";
 	  $sql .= "when matched then update set ITIME = CURRENT_TIMESTAMP ";
