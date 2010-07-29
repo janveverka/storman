@@ -145,27 +145,70 @@ sub server_input {
   $heap->{Self}->Verbose("from server: $command\n");
   if ( $command =~ m%Sleep% )
   {
-    # ask again in 10 seconds
-    $kernel->delay_set( 'get_work', 10 );
+    # ask again in 30 seconds
+    $kernel->delay_set( 'get_work', 30 );
     return;
   }
 
   if ( $command =~ m%DoThis% )
   {
-    # save hash reference on heap, needed in job_done
-    $heap->{HashRef} = $hash_ref;
+    # go through workList and process content
+    my @streamList = ();
+    my @versionList = ();
+    my $run_hash_ref = {};
+    my $lfn_hash_ref = {};
+    foreach my $work ( @{$hash_ref->{workList}} ) {
 
-    # convinience variable
-    my $work = $hash_ref->{work};
+	my $run = int($work->{RUNNUMBER});
+	my $lumi = int($work->{LUMISECTION});
+	my $stream = $work->{STREAM};
+	my $version = $work->{APP_VERSION};
+	my $hltkey = $work->{HLTKEY};
+	my $starttime = int($work->{START_TIME});
+	my $filesize = int($work->{FILESIZE});
+	my $nevents = int($work->{NEVENTS});
+	my $lfn = $work->{LFN};
+
+	# HLTKEY missing for old messages
+	$hltkey = 'none' unless $hltkey;
+
+	# only keep base release from online version
+	my @tempList = split('_', $version);
+	$version = join('_', @tempList[0..3]);
+
+	push(@streamList, $stream);
+	push(@versionList, $version);
+
+	if ( not exists $run_hash_ref->{$run} ) {
+	    $run_hash_ref->{$run} = {};
+	    $run_hash_ref->{$run}->{lumis} = {};
+	    $run_hash_ref->{$run}->{streams} = {};
+	    $run_hash_ref->{$run}->{version} = $version;
+	    $run_hash_ref->{$run}->{hltkey} = $hltkey;
+	    $run_hash_ref->{$run}->{starttime} = $starttime;
+	}
+	$run_hash_ref->{$run}->{lumis}->{$lumi} = 1;
+	$run_hash_ref->{$run}->{streams}->{$stream} = 1;
+
+	if ( not exists $lfn_hash_ref->{lfn} ) {
+	    $lfn_hash_ref->{$lfn} = {};
+	    $lfn_hash_ref->{$lfn}->{run} = $run;
+	    $lfn_hash_ref->{$lfn}->{lumi} = $lumi;
+	    $lfn_hash_ref->{$lfn}->{stream} = $stream;
+	    $lfn_hash_ref->{$lfn}->{filesize} = $filesize;
+	    $lfn_hash_ref->{$lfn}->{nevents} = $nevents;
+
+	    # assume it did not work until proven otherwise
+	    $lfn_hash_ref->{$lfn}->{status} = 1;
+	}
+    }
+    delete $hash_ref->{workList};
 
     # mark start time
     $heap->{WorkStarted} = time;
 
 #    my $checksum = $work->{CHECKSUM};
 #    my $type = $work->{TYPE};
-
-    # HLTKEY missing for old messages
-    $work->{HLTKEY} = 'none' unless $work->{HLTKEY};
 
     # nothing has gone wrong yet
     $hash_ref->{status} = 0;
@@ -204,11 +247,20 @@ sub server_input {
       }
 
       if ( $heap->{DatabaseHandle} ) {
-	my $sql = "insert into " . $heap->{DatabaseUser} . ".cmssw_version ";
+	my $sql = "SELECT COUNT(*) FROM " . $heap->{DatabaseUser} . ".cmssw_version ";
+	$sql .= " WHERE name = ?";
+	if ( ! ( $heap->{StmtFindCMSSWVersion} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
+	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+	  undef $heap->{DatabaseHandle};
+	}
+      }
+
+      if ( $heap->{DatabaseHandle} ) {
+	my $sql = "INSERT INTO " . $heap->{DatabaseUser} . ".cmssw_version ";
 	$sql .= "(ID,NAME) ";
-	$sql .= "SELECT cmssw_version_SEQ.nextval, :name FROM DUAL ";
+	$sql .= "SELECT cmssw_version_SEQ.nextval, ? FROM DUAL ";
 	$sql .= "WHERE NOT EXISTS ";
-	$sql .= "(SELECT id FROM " . $heap->{DatabaseUser} . ".cmssw_version WHERE NAME = :name)";
+	$sql .= "(SELECT * FROM " . $heap->{DatabaseUser} . ".cmssw_version WHERE name = ?)";
 	if ( ! ( $heap->{StmtInsertCMSSWVersion} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
 	  undef $heap->{DatabaseHandle};
@@ -216,84 +268,82 @@ sub server_input {
       }
 
       if ( $heap->{DatabaseHandle} ) {
-	my $sql = "SELECT b.status FROM " . $heap->{DatabaseUser} . ".run a ";
-	$sql .= "INNER JOIN " . $heap->{DatabaseUser} . ".run_status b ON ";
-	$sql .= "b.id = a.run_status ";
-	$sql .= "WHERE a.run_id = :run";
+	my $sql = "SELECT COUNT(*) FROM " . $heap->{DatabaseUser} . ".run a ";
+	$sql .= "WHERE a.run_id = ?";
 	if ( ! ( $heap->{StmtFindRun} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
 	  undef $heap->{DatabaseHandle};
 	}
       }
+
       if ( $heap->{DatabaseHandle} ) {
 	my $sql = "insert into " . $heap->{DatabaseUser} . ".run ";
 	$sql .= "(RUN_ID,HLTKEY,RUN_VERSION,REPACK_VERSION,EXPRESS_VERSION,START_TIME,END_TIME,RUN_STATUS) ";
-	$sql .= "VALUES (:run,:hltkey,";
-        $sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".cmssw_version WHERE NAME = :runversion),";
-        $sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".cmssw_version WHERE NAME = :repackversion),";
-        $sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".cmssw_version WHERE NAME = :expressversion),";
-	$sql .= ":starttime,0,";
+	$sql .= "VALUES (?,?,";
+        $sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".cmssw_version WHERE NAME = ?),";
+        $sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".cmssw_version WHERE NAME = ?),";
+        $sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".cmssw_version WHERE NAME = ?),";
+	$sql .= "?,0,";
 	$sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".run_status WHERE STATUS = 'Active'))";
 	if ( ! ( $heap->{StmtInsertRun} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
 	  undef $heap->{DatabaseHandle};
 	}
       }
-      if ( $heap->{DatabaseHandle} ) {
-	my $sql = "SELECT COUNT(*) FROM " . $heap->{DatabaseUser} . ".lumi_section ";
-	$sql .= "WHERE lumi_id = :lumi AND run_id = :run";
-	if ( ! ( $heap->{StmtFindLumi} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
-	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
-	  undef $heap->{DatabaseHandle};
-	}
-      }
+
       if ( $heap->{DatabaseHandle} ) {
 	my $sql = "INSERT INTO " . $heap->{DatabaseUser} . ".lumi_section ";
 	$sql .= "(lumi_id,run_id) ";
-	$sql .= "VALUES (:lumi,:run)";
+	$sql .= "SELECT ?,? FROM DUAL ";
+	$sql .= "WHERE NOT EXISTS ";
+	$sql .= "(SELECT * FROM " . $heap->{DatabaseUser} . ".lumi_section ";
+	$sql .= "WHERE lumi_id = ? AND run_id = ?)";
 	if ( ! ( $heap->{StmtInsertLumi} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
 	  undef $heap->{DatabaseHandle};
 	}
       }
+
       if ( $heap->{DatabaseHandle} ) {
-	my $sql = "select COUNT(*) from " . $heap->{DatabaseUser} . ".stream ";
-	$sql .= "where name = :stream";
+	my $sql = "SELECT COUNT(*) FROM " . $heap->{DatabaseUser} . ".stream ";
+	$sql .= "where name = ?";
 	if ( ! ( $heap->{StmtFindStream} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
 	  undef $heap->{DatabaseHandle};
 	}
       }
+
       if ( $heap->{DatabaseHandle} ) {
-	my $sql = "insert into " . $heap->{DatabaseUser} . ".stream ";
+	my $sql = "INSERT INTO " . $heap->{DatabaseUser} . ".stream ";
 	$sql .= "(ID,NAME) ";
-	$sql .= "SELECT stream_SEQ.nextval,:stream FROM DUAL ";
-	$sql .= "WHERE NOT EXISTS ";
-	$sql .= "(SELECT id FROM " . $heap->{DatabaseUser} . ".stream WHERE name = :stream)";
+	$sql .= "VALUES (stream_SEQ.nextval,?)";
 	if ( ! ( $heap->{StmtInsertStream} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
 	  undef $heap->{DatabaseHandle};
 	}
       }
+
       if ( $heap->{DatabaseHandle} ) {
 	my $sql = "SELECT COUNT(*) FROM " . $heap->{DatabaseUser} . ".run_stream_cmssw_assoc ";
-	$sql .= "WHERE run_id = :run ";
-	$sql .= "AND stream_id = ( SELECT id FROM stream WHERE name = :stream )";
+	$sql .= "WHERE run_id = ? ";
+	$sql .= "AND stream_id = ( SELECT id FROM stream WHERE name = ? )";
 	if ( ! ( $heap->{StmtFindRunStreamVersionAssoc} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
 	  undef $heap->{DatabaseHandle};
 	}
       }
+
       if ( $heap->{DatabaseHandle} ) {
 	my $sql = "INSERT INTO " . $heap->{DatabaseUser} . ".run_stream_cmssw_assoc ";
 	$sql .= "(RUN_ID,STREAM_ID,RUN_VERSION,OVERRIDE_VERSION) ";
-	$sql .= "SELECT :run,(SELECT id FROM stream WHERE name = :stream),id,id FROM cmssw_version ";
-	$sql .= "WHERE name = :appversion ";
+	$sql .= "SELECT ?,(SELECT id FROM stream WHERE name = ?),id,id FROM cmssw_version ";
+	$sql .= "WHERE name = ?";
 	if ( ! ( $heap->{StmtInsertRunStreamVersionAssoc} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
 	  undef $heap->{DatabaseHandle};
 	}
       }
+
       if ( $heap->{DatabaseHandle} ) {
 	my $sql = "select COUNT(*) from " . $heap->{DatabaseUser} . ".streamer ";
 	$sql .= "where lfn = ?";
@@ -302,6 +352,7 @@ sub server_input {
 	  undef $heap->{DatabaseHandle};
 	}
       }
+
       if ( $heap->{DatabaseHandle} ) {
 	my $sql = "insert into " . $heap->{DatabaseUser} . ".streamer ";
 	$sql .= "(STREAMER_ID,RUN_ID,LUMI_ID,INSERT_TIME,FILESIZE,EVENTS,LFN,STREAM_ID) ";
@@ -322,280 +373,533 @@ sub server_input {
 	my $sth = undef;
 	my $count = 0;
 
-	# only keep base release from online version
-	my @versionArray = split('_', $work->{APP_VERSION});
-	$work->{APP_VERSION} = join('_', @versionArray[0..3]);
-
 	#
 	# insert cmssw version into T0AST if needed
 	#
-	if ( $hash_ref->{status} ==  0 and $count == 0 ) {
-	    $sth = $heap->{StmtInsertCMSSWVersion};
-	    eval {
-		$sth->bind_param(":name",$work->{APP_VERSION});
-		$sth->execute();
-		$sth->finish();
-	    };
+	if ( $hash_ref->{status} ==  0 ) {
 
-	    if ( $@ ) {
-		$heap->{Self}->Quiet("Could not insert CMSSW version $work->{APP_VERSION}\n");
-		$heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
-		$hash_ref->{status} = 1;
+	    $sth = $heap->{StmtFindCMSSWVersion};
+
+	    my %hash = map { $_, 1 } @versionList;
+	    @versionList = keys %hash;
+	    my @insertVersionList = ();
+
+	    # check which already exist
+	    foreach my $version ( @versionList ) {
+
+		eval {
+		    $sth->bind_param(1, $version);
+		    $sth->execute();
+		    $count = $sth->fetchrow_array();
+		};
+
+		if ( $@ ) {
+		    $heap->{Self}->Quiet("Could not check for CMSSW version $version\n");
+		    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+		    $hash_ref->{status} = 1;
+		    last;
+		}
+
+		if ( $count == 0 ) {
+		    push(@insertVersionList, $version);
+		}
+	    }
+
+	    # insert what is needed
+	    if ( $hash_ref->{status} == 0 and scalar(@insertVersionList) > 0 ) {
+
+		$sth = $heap->{StmtInsertCMSSWVersion};
+
+		my $tuples = undef;
+		my @tuple_status = undef;
+		eval {
+		    $sth->bind_param_array(1, \@insertVersionList);
+		    $sth->bind_param_array(2, \@insertVersionList);
+		    $tuples = $sth->execute_array({ ArrayTupleStatus => \@tuple_status });
+		};
+
+		if ( ! $@ and $tuples ) {
+		    foreach ( @insertVersionList ) {
+			$heap->{Self}->Quiet("Inserted CMSSW version $_\n");
+		    }
+		} else {
+		    foreach ( @insertVersionList ) {
+			$heap->{Self}->Quiet("Could not insert CMSSW version $_\n");
+		    }
+		    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+		    $hash_ref->{status} = 1;
+		}
+
+		eval {
+		    if ( $hash_ref->{status} == 0 ) {
+			$heap->{DatabaseHandle}->commit();
+		    } else {
+			$heap->{DatabaseHandle}->rollback();
+		    }
+		};
+
+		if ( $@ ) {
+		    $heap->{Self}->Quiet("Database Error: Commit or rollback failed!\n");
+		    $heap->{Self}->Quiet("Invalidating database handle!\n");
+		    $hash_ref->{status} = 1;
+		    eval { $heap->{DatabaseHandle}->disconnect() } if ( $heap->{DatabaseHandle} );
+		    undef $heap->{DatabaseHandle};
+		}
 	    }
 	}
 
 	#
-	# check if run is already in database
+	# insert run into T0AST if needed
 	#
 	if ( $hash_ref->{status} ==  0 ) {
-	    my $status = undef;
+
 	    $sth = $heap->{StmtFindRun};
-	    eval {
-		$sth->bind_param(":run",int($work->{RUNNUMBER}));
-		$sth->execute();
-		$status = $sth->fetchrow_array();
-		$sth->finish();
-	    };
 
-	    if ( $@ ) {
-		$heap->{Self}->Quiet("Could not check for run $work->{RUNNUMBER}\n");
-		$heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
-		$hash_ref->{status} = 1;
-	    } elsif ( ! defined($status) ) {
-		$count = 0;
-	    } else {
-		$count = 1;
+	    my @insertRunList = ();
+
+	    # check which already exist
+	    foreach my $run ( keys %$run_hash_ref ) {
+
+		eval {
+		    $sth->bind_param(1, $run);
+		    $sth->execute();
+		    $count = $sth->fetchrow_array();
+		};
+
+		if ( $@ ) {
+		    $heap->{Self}->Quiet("Could not check for run $run\n");
+		    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+		    $hash_ref->{status} = 1;
+		    last;
+		}
+
+		if ( $count == 0 ) {
+		    push(@insertRunList, $run);
+		}
 	    }
-#	    } elsif ( $status eq 'Active' ) {
-#		$count = 1;
-#	    } else {
-#		$heap->{Self}->Quiet("Run $work->{RUNNUMBER} in closeout, injections not allowed\n");
-#		$hash_ref->{status} = 1;
-#	    }
+
+	    # insert what is needed
+	    if ( $hash_ref->{status} ==  0 and scalar(@insertRunList) > 0 ) {
+
+		$sth = $heap->{StmtInsertRun};
+
+		my @bindRunList = ();
+		my @bindHltkeyList = ();
+		my @bindVersionList = ();
+		my @bindStarttimeList = ();
+
+		foreach my $run ( @insertRunList) {
+		    push(@bindRunList, $run);
+		    push(@bindHltkeyList, $run_hash_ref->{$run}->{hltkey});
+		    push(@bindVersionList, $run_hash_ref->{$run}->{version});
+		    push(@bindStarttimeList, $run_hash_ref->{$run}->{starttime});
+		}
+
+		my $tuples = undef;
+		my @tuple_status = undef;
+		eval {
+		    $sth->bind_param_array(1, \@bindRunList);
+		    $sth->bind_param_array(2, \@bindHltkeyList);
+		    $sth->bind_param_array(3, \@bindVersionList);
+		    $sth->bind_param_array(4, \@bindVersionList);
+		    $sth->bind_param_array(5, \@bindVersionList);
+		    $sth->bind_param_array(6, \@bindStarttimeList);
+		    $tuples = $sth->execute_array({ ArrayTupleStatus => \@tuple_status });
+		};
+
+		if ( ! $@ and $tuples ) {
+		    foreach ( @insertRunList ) {
+			$heap->{Self}->Quiet("Inserted run $_\n");
+		    }
+		} else {
+		    foreach ( @insertRunList ) {
+			$heap->{Self}->Quiet("Could not insert run $_\n");
+		    }
+		    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+		    $hash_ref->{status} = 1;
+		}
+
+		eval {
+		    if ( $hash_ref->{status} == 0 ) {
+			$heap->{DatabaseHandle}->commit();
+		    } else {
+			$heap->{DatabaseHandle}->rollback();
+		    }
+		};
+
+		if ( $@ ) {
+		    $heap->{Self}->Quiet("Database Error: Commit or rollback failed!\n");
+		    $heap->{Self}->Quiet("Invalidating database handle!\n");
+		    $hash_ref->{status} = 1;
+		    eval { $heap->{DatabaseHandle}->disconnect() } if ( $heap->{DatabaseHandle} );
+		    undef $heap->{DatabaseHandle};
+		}
+	    }
 	}
 
 	#
-	# insert run if needed
+	# insert lumi section into T0AST if needed
 	#
-	if ( $hash_ref->{status} ==  0 and $count == 0 ) {
-	    $sth = $heap->{StmtInsertRun};
-	    eval {
-		$sth->bind_param(":run",int($work->{RUNNUMBER}));
-		$sth->bind_param(":runversion",$work->{APP_VERSION});
-		$sth->bind_param(":repackversion",$work->{APP_VERSION});
-		$sth->bind_param(":expressversion",$work->{APP_VERSION});
-		$sth->bind_param(":hltkey",$work->{HLTKEY});
-		$sth->bind_param(":starttime",int($work->{START_TIME}));
-		$sth->execute();
-	    };
-
-	    if ( $@ ) {
-		$heap->{Self}->Quiet("Could not insert run $work->{RUNNUMBER}\n");
-		$heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
-		$hash_ref->{status} = 1;
-	    } else {
-		$heap->{Self}->Quiet("Inserted run $work->{RUNNUMBER}\n");
-		$heap->{Self}->Quiet("Run = $work->{RUNNUMBER}, Version = $work->{APP_VERSION}, HLTKey = $work->{HLTKEY}\n");
-	    }
-	}
-
-	#
-	# check if lumi section is already in database
+	# insert straight away, most likely won't exist already
 	#
 	if ( $hash_ref->{status} ==  0 ) {
-	    $sth = $heap->{StmtFindLumi};
-	    eval {
-		$sth->bind_param(":lumi",int($work->{LUMISECTION}));
-		$sth->bind_param(":run",int($work->{RUNNUMBER}));
-		$sth->execute();
-		$count = $sth->fetchrow_array();
-		$sth->finish();
-	    };
-	    
-	    if ( $@ ) {
-		$heap->{Self}->Quiet("Could not check for lumi section $work->{LUMISECTION} for run $work->{RUNNUMBER}\n");
-		$heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
-		$hash_ref->{status} = 1;
-	    }
-	}
 
-	#
-	# insert lumi section if needed
-	#
-	if ( $hash_ref->{status} ==  0 and $count == 0 ) {
 	    $sth = $heap->{StmtInsertLumi};
+
+	    my @insertRunList = ();
+	    my @insertLumiList = ();
+
+	    foreach my $run ( keys %$run_hash_ref ) {
+		foreach my $lumi ( keys %{$run_hash_ref->{$run}->{lumis}} ) {
+		    push(@insertRunList, $run);
+		    push(@insertLumiList, $lumi);
+		}
+	    }
+
+	    my $tuples = undef;
+	    my @tuple_status = undef;
 	    eval {
-		$sth->bind_param(":lumi",int($work->{LUMISECTION}));
-		$sth->bind_param(":run",int($work->{RUNNUMBER}));
-		$sth->execute();
+		$sth->bind_param_array(1, \@insertLumiList);
+		$sth->bind_param_array(2, \@insertRunList);
+		$sth->bind_param_array(3, \@insertLumiList);
+		$sth->bind_param_array(4, \@insertRunList);
+		$tuples = $sth->execute_array({ ArrayTupleStatus => \@tuple_status });
+	    };
+
+	    if ( ! $@ and $tuples ) {
+		foreach my $run ( keys %$run_hash_ref ) {
+		    foreach my $lumi ( keys %{$run_hash_ref->{$run}->{lumis}} ) {
+			$heap->{Self}->Quiet("Inserted lumi section $lumi for run $run\n");
+		    }
+		}
+	    } else {
+		foreach my $run ( keys %$run_hash_ref ) {
+		    foreach my $lumi ( keys %{$run_hash_ref->{$run}->{lumis}} ) {
+			$heap->{Self}->Quiet("Could not insert lumi section $lumi for run $run\n");
+		    }
+		}
+		$heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+		$hash_ref->{status} = 1;
+	    }
+
+	    eval {
+		if ( $hash_ref->{status} == 0 ) {
+		    $heap->{DatabaseHandle}->commit();
+		} else {
+		    $heap->{DatabaseHandle}->rollback();
+		}
 	    };
 
 	    if ( $@ ) {
-		# check again if row was already inserted (by RunLumi closing logic) before failing
-		$sth = $heap->{StmtFindLumi};
-		eval {
-		    $sth->bind_param(":lumi",int($work->{LUMISECTION}));
-		    $sth->bind_param(":run",int($work->{RUNNUMBER}));
-		    $sth->execute();
-		    $count = $sth->fetchrow_array();
-		    $sth->finish();
-		};
-
-		if ( $@ or $count == 0 ) {
-		    $heap->{Self}->Quiet("Could not insert lumi section $work->{LUMISECTION} for run $work->{RUNNUMBER}\n");
-		    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
-		    $hash_ref->{status} = 1;
-		} else {
-		    $heap->{Self}->Quiet("Insert failed, but lumi section $work->{LUMISECTION} for run $work->{RUNNUMBER} already present\n");
-		}
-	    }
-	    else {
-		$heap->{Self}->Quiet("Inserted lumi section $work->{LUMISECTION} for run $work->{RUNNUMBER}\n");
+		$heap->{Self}->Quiet("Database Error: Commit or rollback failed!\n");
+		$heap->{Self}->Quiet("Invalidating database handle!\n");
+		$hash_ref->{status} = 1;
+		eval { $heap->{DatabaseHandle}->disconnect() } if ( $heap->{DatabaseHandle} );
+		undef $heap->{DatabaseHandle};
 	    }
 	}
 
 	#
-	# check if stream is already in database
+	# insert stream into T0AST if needed
 	#
 	if ( $hash_ref->{status} ==  0 ) {
+
 	    $sth = $heap->{StmtFindStream};
-	    eval {
-		$sth->bind_param(":stream",$work->{STREAM});
-		$sth->execute();
-		$count = $sth->fetchrow_array();
-		$sth->finish();
-	    };
-	    
-	    if ( $@ ) {
-		$heap->{Self}->Quiet("Could not check for stream $work->{STREAM}\n");
-		$heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
-		$hash_ref->{status} = 1;
-	    }
-	}
 
-	#
-	# insert stream if needed
-	#
-	if ( $hash_ref->{status} ==  0 and $count == 0 ) {
-	    $sth = $heap->{StmtInsertStream};
-	    eval {
-		$sth->bind_param(":stream",$work->{STREAM});
-		$sth->execute();
-	    };
-	    
-	    if ( $@ ) {
-		$heap->{Self}->Quiet("Could not insert stream $work->{STREAM}\n");
-		$heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
-		$hash_ref->{status} = 1;
-	    } else {
-		$heap->{Self}->Quiet("Inserted stream $work->{STREAM}\n");
-	    }
-	}
+	    my %hash = map { $_, 1 } @streamList;
+	    @streamList = keys %hash;
+	    my @insertStreamList = ();
 
-	#
-	# check if run_stream_cmssw_assoc already in database
-	#
-	if ( $hash_ref->{status} ==  0 ) {
-	    $sth = $heap->{StmtFindRunStreamVersionAssoc};
-	    eval {
-		$sth->bind_param(":run",$work->{RUNNUMBER});
-		$sth->bind_param(":stream",$work->{STREAM});
-		$sth->execute();
-		$count = $sth->fetchrow_array();
-		$sth->finish();
-	    };
-	    
-	    if ( $@ ) {
-		$heap->{Self}->Quiet("Could not check for run_stream_cmssw_assoc for run $work->{RUNNUMBER} and stream $work->{STREAM}\n");
-		$heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
-		$hash_ref->{status} = 1;
-	    }
-	}
+	    foreach my $stream ( @streamList ) {
 
-	#
-	# insert run_stream_cmssw_assoc if needed
-	#
-	if ( $hash_ref->{status} ==  0 and $count == 0 ) {
-	    $sth = $heap->{StmtInsertRunStreamVersionAssoc};
-	    eval {
-		$sth->bind_param(":run",$work->{RUNNUMBER});
-		$sth->bind_param(":stream",$work->{STREAM});
-		$sth->bind_param(":appversion",$work->{APP_VERSION});
-		$sth->execute();
-	    };
-
-	    if ( $@ ) {
-		# check again if row was already inserted (by InsertRunConfig) before failing
-		$sth = $heap->{StmtFindRunStreamVersionAssoc};
 		eval {
-		    $sth->bind_param(":run",$work->{RUNNUMBER});
-		    $sth->bind_param(":stream",$work->{STREAM});
+		    $sth->bind_param(1, $stream);
 		    $sth->execute();
 		    $count = $sth->fetchrow_array();
-		    $sth->finish();
 		};
-
-		if ( $@ or $count == 0 ) {
-		    $heap->{Self}->Quiet("Could not insert run_stream_cmssw_assoc for run $work->{RUNNUMBER} and stream $work->{STREAM}\n");
+	    
+		if ( $@ ) {
+		    $heap->{Self}->Quiet("Could not check for stream $stream\n");
 		    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
 		    $hash_ref->{status} = 1;
-		} else {
-		    $heap->{Self}->Quiet("Insert failed, but run_stream_cmssw_assoc for run $work->{RUNNUMBER} and stream $work->{STREAM} already present\n");
+		    last;
+		}
+
+		if ( $count == 0 ) {
+		    push(@insertStreamList, $stream);
 		}
 	    }
-	    else {
-		$heap->{Self}->Quiet("Inserted run_stream_cmssw_assoc for run $work->{RUNNUMBER} and stream $work->{STREAM}\n");
+
+	    if ( $hash_ref->{status} ==  0 and scalar(@insertStreamList) > 0 ) {
+
+		$sth = $heap->{StmtInsertStream};
+
+		my $tuples = undef;
+		my @tuple_status = undef;
+		eval {
+		    $sth->bind_param_array(1, \@insertStreamList);
+		    $tuples = $sth->execute_array({ ArrayTupleStatus => \@tuple_status });
+		};
+
+		if ( ! $@ and $tuples ) {
+		    foreach ( @insertStreamList ) {
+			$heap->{Self}->Quiet("Inserted stream $_\n");
+		    }
+		} else {
+
+		    # don't accept failure as-is, check if streams are all there
+		    $heap->{Self}->Quiet("Error in bulk stream insertion\n");
+		    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+		    $heap->{Self}->Quiet("Double checking for completion\n");
+
+		    $sth = $heap->{StmtFindStream};
+
+		    foreach my $stream ( @insertStreamList ) {
+
+			eval {
+			    $sth->bind_param(1, $stream);
+			    $sth->execute();
+			    $count = $sth->fetchrow_array();
+			};
+	    
+			if ( $@ ) {
+			    $heap->{Self}->Quiet("Could not check for stream $stream\n");
+			    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+			    $hash_ref->{status} = 1;
+			    last;
+			}
+
+			if ( $count == 0 ) {
+			    $heap->{Self}->Quiet("Could not insert stream $stream\n");
+			    $hash_ref->{status} = 1;
+			} else {
+			    $heap->{Self}->Quiet("Inserted stream $stream\n");
+			}
+		    }
+		}
+
+		eval {
+		    if ( $hash_ref->{status} == 0 ) {
+			$heap->{DatabaseHandle}->commit();
+		    } else {
+			$heap->{DatabaseHandle}->rollback();
+		    }
+		};
+
+		if ( $@ ) {
+		    $heap->{Self}->Quiet("Database Error: Commit or rollback failed!\n");
+		    $heap->{Self}->Quiet("Invalidating database handle!\n");
+		    $hash_ref->{status} = 1;
+		    eval { $heap->{DatabaseHandle}->disconnect() } if ( $heap->{DatabaseHandle} );
+		    undef $heap->{DatabaseHandle};
+		}
 	    }
 	}
 
 	#
-	# check if streamer is already in database
+	# insert version for run/stream into T0AST if needed
 	#
 	if ( $hash_ref->{status} ==  0 ) {
-	    $sth = $heap->{StmtFindStreamer};
-	    eval {
-		$sth->bind_param(1,$work->{LFN});
-		$sth->execute();
-		$count = $sth->fetchrow_array();
-		$sth->finish();
-	    };
+
+	    $sth = $heap->{StmtFindRunStreamVersionAssoc};
+
+	    my @insertRunList = ();
+	    my @insertStreamList = ();
+	    my @insertVersionList = ();
+
+	    foreach my $run ( keys %$run_hash_ref ) {
+		foreach my $stream ( keys %{$run_hash_ref->{$run}->{streams}} ) {
+
+		    eval {
+			$sth->bind_param(1, $run);
+			$sth->bind_param(2, $stream);
+			$sth->execute();
+			$count = $sth->fetchrow_array();
+		    };
 	    
-	    if ( $@ ) {
-		$heap->{Self}->Quiet("Could not check for streamer with LFN $work->{LFN}\n");
-		$heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
-		$hash_ref->{status} = 1;
+		    if ( $@ ) {
+			$heap->{Self}->Quiet("Could not check for run_stream_cmssw_assoc for run $run and stream $stream\n");
+			$heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+			$hash_ref->{status} = 1;
+		    }
+
+		    if ( $count == 0 ) {
+			push(@insertRunList, $run);
+			push(@insertStreamList, $stream);
+			push(@insertVersionList, $run_hash_ref->{$run}->{version});
+		    }
+		}
+	    }
+
+	    if ( $hash_ref->{status} == 0 and scalar(@insertRunList) > 0 ) {
+
+		$sth = $heap->{StmtInsertRunStreamVersionAssoc};
+
+		my $tuples = undef;
+		my @tuple_status = undef;
+		eval {
+		    $sth->bind_param_array(1, \@insertRunList);
+		    $sth->bind_param_array(2, \@insertStreamList);
+		    $sth->bind_param_array(3, \@insertVersionList);
+		    $tuples = $sth->execute_array({ ArrayTupleStatus => \@tuple_status });
+		};
+
+		if ( ! $@ and $tuples ) {
+		    foreach my $run ( @insertRunList) {
+			foreach my $stream ( keys %{$run_hash_ref->{$run}->{streams}} ) {
+			    $heap->{Self}->Quiet("Inserted run_stream_cmssw_assoc for run $run and stream $stream\n");
+			}
+		    }
+		} else {
+
+		    # don't accept failure as-is, check if streams are all there
+		    $heap->{Self}->Quiet("Error in bulk run_stream_cmssw_assoc insertion\n");
+		    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+		    $heap->{Self}->Quiet("Double checking for completion\n");
+
+		    $sth = $heap->{StmtFindRunStreamVersionAssoc};
+
+		    foreach my $run ( keys %$run_hash_ref ) {
+			foreach my $stream ( keys %{$run_hash_ref->{$run}->{streams}} ) {
+
+			    eval {
+				$sth->bind_param(1, $run);
+				$sth->bind_param(2, $stream);
+				$sth->execute();
+				$count = $sth->fetchrow_array();
+			    };
+
+			    if ( $@ ) {
+				$heap->{Self}->Quiet("Could not check for run_stream_cmssw_assoc for run $run and stream $stream\n");
+				$heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+				$hash_ref->{status} = 1;
+				last;
+			    }
+
+			    if ( $count == 0 ) {
+				$heap->{Self}->Quiet("Could not insert run_stream_cmssw_assoc for run $run and stream $stream\n");
+				$hash_ref->{status} = 1;
+			    } else {
+				$heap->{Self}->Quiet("Inserted run_stream_cmssw_assoc for run $run and stream $stream\n");
+			    }
+			}
+		    }
+		}
+	    
+		eval {
+		    if ( $hash_ref->{status} == 0 ) {
+			$heap->{DatabaseHandle}->commit();
+		    } else {
+			$heap->{DatabaseHandle}->rollback();
+		    }
+		};
+
+		if ( $@ ) {
+		    $heap->{Self}->Quiet("Database Error: Commit or rollback failed!\n");
+		    $heap->{Self}->Quiet("Invalidating database handle!\n");
+		    $hash_ref->{status} = 1;
+		    eval { $heap->{DatabaseHandle}->disconnect() } if ( $heap->{DatabaseHandle} );
+		    undef $heap->{DatabaseHandle};
+		}
 	    }
 	}
+	#
+	# insert streamer into T0AST if needed
+	#
+	if ( $hash_ref->{status} ==  0 ) {
 
-	#
-	# insert streamer if needed
-	#
-	if ( $hash_ref->{status} ==  0 and $count == 0 ) {
+	    # start assuming failure here
+	    $hash_ref->{status} ==  1; 
+
 	    $sth = $heap->{StmtInsertStreamer};
-	    eval {
-		$sth->bind_param(1,int($work->{RUNNUMBER}));
-		$sth->bind_param(2,int($work->{LUMISECTION}));
-		$sth->bind_param(3,time());
-		$sth->bind_param(4,int($work->{FILESIZE}));
-		$sth->bind_param(5,int($work->{NEVENTS}));
-		$sth->bind_param(6,$work->{LFN});
-		$sth->bind_param(7,$work->{STREAM});
-		$sth->execute();
-	    };
-	    
-	    if ( $@ ) {
-		$heap->{Self}->Quiet("Could not insert streamer with LFN $work->{LFN}\n");
-		$heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
-		$hash_ref->{status} = 1;
-	    } else {
-		$heap->{Self}->Quiet("Inserted streamer with LFN $work->{LFN}\n");
+
+	    my @insertLfnList = ();
+	    my @insertRunList = ();
+	    my @insertLumiList = ();
+	    my @insertStreamList = ();
+	    my @insertFilesizeList = ();
+	    my @insertNeventsList = ();
+
+	    foreach my $lfn ( keys %$lfn_hash_ref ) {
+		push(@insertLfnList, $lfn);
+		push(@insertRunList, $lfn_hash_ref->{$lfn}->{run});
+		push(@insertLumiList, $lfn_hash_ref->{$lfn}->{lumi});
+		push(@insertStreamList, $lfn_hash_ref->{$lfn}->{stream});
+		push(@insertFilesizeList, $lfn_hash_ref->{$lfn}->{filesize});
+		push(@insertNeventsList, $lfn_hash_ref->{$lfn}->{nevents});
 	    }
-	} elsif ( $hash_ref->{status} ==  0 and $count > 0 ) {
-	    $heap->{Self}->Quiet("Streamer with LFN $work->{LFN} already exists\n");
-	    $hash_ref->{status} = 1;
+
+	    my $tuples = undef;
+	    my @tuple_status = undef;
+	    eval {
+		$sth->bind_param_array(1, \@insertRunList);
+		$sth->bind_param_array(2, \@insertLumiList);
+		$sth->bind_param_array(3, time());
+		$sth->bind_param_array(4, \@insertFilesizeList);
+		$sth->bind_param_array(5, \@insertNeventsList);
+		$sth->bind_param_array(6, \@insertLfnList);
+		$sth->bind_param_array(7, \@insertStreamList);
+		$tuples = $sth->execute_array({ ArrayTupleStatus => \@tuple_status });
+	    };
+
+	    if ( ! $@ and $tuples ) {
+		foreach ( keys %$lfn_hash_ref ) {
+		    $heap->{Self}->Quiet("Inserted streamer with LFN $_\n");
+		    $lfn_hash_ref->{$_}->{status} = 0;
+		    $hash_ref->{status} = 0;
+		}
+	    } else {
+		my @lfnList = keys %$lfn_hash_ref;
+		for my $tuple (0..scalar(@lfnList)-1) {
+		    my $lfn = $lfnList[$tuple];
+		    my $status = $tuple_status[$tuple];
+		    if ( $status and ref $status and $status->[0] ) {
+			$heap->{Self}->Quiet("Could not insert streamer with LFN $lfn\n");
+			$heap->{Self}->Quiet("ERROR : " . $status->[1] . "\n");
+		    } else {
+
+			# possibly inserted streamer, double check
+			$sth = $heap->{StmtFindStreamer};
+
+			eval {
+			    $sth->bind_param(1, $lfn);
+			    $sth->execute();
+			    $count = $sth->fetchrow_array();
+			};
+
+			if ( $@ ) {
+			    $heap->{Self}->Quiet("Could not check for streamer with LFN $lfn\n");
+			    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+			    last;
+			} elsif ( $count == 0 ) {
+			    $heap->{Self}->Quiet("Could not insert streamer with LFN $lfn\n");
+			} else {
+			    $heap->{Self}->Quiet("Inserted streamer with LFN $lfn\n");
+			    $lfn_hash_ref->{$lfn}->{status} = 0;
+			    $hash_ref->{status} = 0;
+			}
+		    }
+		}
+	    }
+
+	    eval {
+		if ( $hash_ref->{status} == 0 ) {
+		    $heap->{DatabaseHandle}->commit();
+		} else {
+		    $heap->{DatabaseHandle}->rollback();
+		}
+	    };
+
+	    if ( $@ ) {
+		$heap->{Self}->Quiet("Database Error: Commit or rollback failed!\n");
+		$heap->{Self}->Quiet("Invalidating database handle!\n");
+		$hash_ref->{status} = 1;
+		eval { $heap->{DatabaseHandle}->disconnect() } if ( $heap->{DatabaseHandle} );
+		undef $heap->{DatabaseHandle};
+	    }
 	}
 
-
+	# should not be needed, for safety
 	eval {
 	  if ( $hash_ref->{status} == 0 ) {
 	    $heap->{DatabaseHandle}->commit();
@@ -615,11 +919,26 @@ sub server_input {
 	$hash_ref->{status} = 1;
       }
 
-    if ( $hash_ref->{status} == 0 ) {
-      $heap->{Self}->Quiet("Injection for ", $work->{LFN}, " succeeded\n");
-    } else {
-      $heap->{Self}->Quiet("Injection for ", $work->{LFN}, " failed\n");
+    foreach my $lfn ( keys %$lfn_hash_ref ) {
+	my $status = $lfn_hash_ref->{$lfn}->{status};
+	if ( $status == 0 ) {
+	    $heap->{Self}->Quiet("Injection for ", $lfn, " succeeded\n");
+	} else {
+	    $heap->{Self}->Quiet("Injection for ", $lfn, " failed\n");
+	}
     }
+
+    
+    # cleanup lfn hash_ref
+    delete $lfn_hash_ref->{run};
+    delete $lfn_hash_ref->{lumi};
+    delete $lfn_hash_ref->{stream};
+    delete $lfn_hash_ref->{filesize};
+    delete $lfn_hash_ref->{nevents};
+
+    # save some information needed in job_done and Manager
+    $heap->{HashRef} = $hash_ref;
+    $heap->{HashRef}->{lfns} = $lfn_hash_ref;
 
     $kernel->yield('job_done');
 
@@ -699,18 +1018,13 @@ sub job_done
 {
   my ( $self, $heap, $kernel ) = @_[ OBJECT, HEAP, KERNEL ];
 
-  # send report back to manager
+  # send report back to manager, cleanup before
   $heap->{HashRef}->{command} = 'JobDone';
   $self->send( $heap, $heap->{HashRef} );
 
-  #delete $heap->{HashRef};
-
-  if ( ($heap->{State} eq 'Running') )
-    {
-      $kernel->yield('get_work');
-    }
-  else
-    {
+  if ( ($heap->{State} eq 'Running') ) {
+      $kernel->delay_set( 'get_work', 30 );
+  } else {
       Print "Shutting down...\n";
       $kernel->yield('shutdown');
       exit;

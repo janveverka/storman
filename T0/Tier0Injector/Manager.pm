@@ -342,16 +342,27 @@ sub send_work
     }
 
   if ( $self->{State} eq 'Running' )
-    {
-      ($priority, $id, $work) = $self->{Queue}->dequeue_next();
+  {
+      my @workList = ();
+      my $count = 0;
+      my ($temp1, $temp2) = (undef, undef);
+      while ( ($temp1, $temp2, $work) = $self->{Queue}->dequeue_next() )
+      {
+	  $priority = $temp1;
+	  $id = $temp2;
+	  push(@workList, $work);
+	  $count++;
+	  last if ( $count == 500 );
+      }
+
       if ( defined $id )
-	{
+      {
 	  $self->Quiet("Send: Tier0Injector job ",$id," to $client\n");
 	  %text = (
 		   'command'	=> 'DoThis',
 		   'client'	=> $client,
 		   'priority'	=> $priority,
-		   'work'	=> $work,
+		   'workList'	=> \@workList,
 		   'id'         => $id,
 		  );
 	  $heap->{client}->put( \%text );
@@ -421,28 +432,32 @@ sub job_done {
 #        print "Inside JobDone: $key => $value\n";
 #    }
 
+  # at least partial success
   if ( $input->{status} == 0 )
     {
       $self->Quiet("JobDone: Tier0Injector id = $input->{id} succeeded\n");
 
-      my %loghash1 = (
-		      TransferStatus => '1',
-		      STATUS => 'inserted',
-		      FILENAME => basename($input->{work}->{LFN}),
-		      STOP_TIME => $input->{work}->{STOP_TIME},
-		      T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},
-		     );
+      # now loop over the lfns and create TransferStatus messages
+      foreach my $lfn ( keys %{$input->{lfns}} ) {
 
-      if ( exists $input->{work}->{Resent} )
-	{
-	  $loghash1{Resent} = $input->{work}->{Resent};
-	}
-      $self->Log( \%loghash1 );
-    }
-  else
-    {
+ 	  if ( $input->{lfns}->{$lfn}->{status} == 0 ) {
+
+	      my %loghash1 = (
+			      TransferStatus => '1',
+			      STATUS => 'inserted',
+			      FILENAME => basename($lfn),
+			      );
+	  
+	      if ( exists $input->{work}->{Resent} )
+	      {
+		  $loghash1{Resent} = $input->{work}->{Resent};
+	      }
+	      $self->Log( \%loghash1 );
+	  }
+      }
+  } else {
       $self->Quiet("JobDone: Tier0Injector id = $input->{id} failed, status = $input->{status}\n");
-    }
+  }
 }
 
 1;
