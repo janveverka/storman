@@ -222,6 +222,17 @@ sub server_input {
 
       if ( $heap->{DatabaseHandle} ) {
 	$heap->{Self}->Quiet("Database handle timed out, disconnecting\n");
+	$heap->{StmtFindCMSSWVersion} = undef;
+	$heap->{StmtInsertCMSSWVersion} = undef;
+	$heap->{StmtFindRun} = undef;
+	$heap->{StmtInsertRun} = undef;
+	$heap->{StmtInsertLumi} = undef;
+	$heap->{StmtFindStream} = undef;
+	$heap->{StmtInsertStream} = undef;
+	$heap->{StmtFindRunStreamVersionAssoc} = undef;
+	$heap->{StmtInsertRunStreamVersionAssoc} = undef;
+	$heap->{StmtFindStreamer} = undef;
+	$heap->{StmtInsertStreamer} = undef;
 	eval { $heap->{DatabaseHandle}->disconnect() };
       }
       undef $heap->{DatabaseHandle};
