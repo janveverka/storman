@@ -278,32 +278,50 @@ sub server_input {
 
       if ( defined $sth )
 	{
-	    my $tuples = undef;
-	    my @tuple_status = undef;
-	    eval {
-		$sth->bind_param_array(1,\@$fileList);
-		$sth->bind_param_array(2,\@$fileList);
-		$tuples = $sth->execute_array( { ArrayTupleStatus => \@tuple_status } );
-	    };
+	    foreach $filename ( @$fileList ) {
 
-	    if ( ! $@ and $tuples ) {
-		foreach ( @$fileList ) {
-		    $heap->{Self}->Quiet("Updated transfer status for $_ to $fileStatus\n");
+		eval {
+		    $sth->bind_param(1, $filename);
+		    $sth->bind_param(2, $filename);
+		    $sth->execute();
+		};
+
+		if ( $@ ) {
+		    $heap->{Self}->Quiet("Could not update transfer status for $filename to $fileStatus\n");
+		    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+		    $hash_ref->{status} = 1;
+		    last;
+		} else {
+		    $heap->{Self}->Quiet("Updated transfer status for $filename to $fileStatus\n");
+		    $hash_ref->{commit} = 1;
 		}
-		$hash_ref->{commit} = 1;
-	    } else {
-		for my $tuple (0..@$fileList-1) {
-		    my $status = $tuple_status[$tuple];
-		    if ( $status and ref $status and $status->[0] ) {
-			$heap->{Self}->Quiet("Could not update transfer status for " . $fileList->[$tuple] . " to $fileStatus\n");
-			$heap->{Self}->Quiet("ERROR : " . $status->[1] . "\n");
-		    } else {
-			$heap->{Self}->Quiet("Updated transfer status for " . $fileList->[$tuple] ." to $fileStatus (unconfirmed)\n");
-			$hash_ref->{commit} = 1;
-		    }
-		}
-		$hash_ref->{status} = 1;
-	    }
+
+#	    my $tuples = undef;
+#	    my @tuple_status = undef;
+#	    eval {
+#		$sth->bind_param_array(1,\@$fileList);
+#		$sth->bind_param_array(2,\@$fileList);
+#		$tuples = $sth->execute_array( { ArrayTupleStatus => \@tuple_status } );
+#	    };
+#
+#	    if ( ! $@ and $tuples ) {
+#		foreach ( @$fileList ) {
+#		    $heap->{Self}->Quiet("Updated transfer status for $_ to $fileStatus\n");
+#		}
+#		$hash_ref->{commit} = 1;
+#	    } else {
+#		for my $tuple (0..@$fileList-1) {
+#		    my $status = $tuple_status[$tuple];
+#		    if ( $status and ref $status and $status->[0] ) {
+#			$heap->{Self}->Quiet("Could not update transfer status for " . $fileList->[$tuple] . " to $fileStatus\n");
+#			$heap->{Self}->Quiet("ERROR : " . $status->[1] . "\n");
+#		    } else {
+#			$heap->{Self}->Quiet("Updated transfer status for " . $fileList->[$tuple] ." to $fileStatus (unconfirmed)\n");
+#			$hash_ref->{commit} = 1;
+#		    }
+#		}
+#		$hash_ref->{status} = 1;
+#	    }
 	}
       else
 	{
