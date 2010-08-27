@@ -278,7 +278,7 @@ sub server_input {
 
       if ( defined $sth )
 	{
-	    foreach $filename ( @$fileList ) {
+	    foreach my $filename ( @$fileList ) {
 
 		eval {
 		    $sth->bind_param(1, $filename);
