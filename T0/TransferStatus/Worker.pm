@@ -290,11 +290,11 @@ sub server_input {
 		    $heap->{Self}->Quiet("Could not update transfer status for $filename to $fileStatus\n");
 		    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
 		    $hash_ref->{status} = 1;
-		    last;
 		} else {
 		    $heap->{Self}->Quiet("Updated transfer status for $filename to $fileStatus\n");
 		    $hash_ref->{commit} = 1;
 		}
+	    }
 
 #	    my $tuples = undef;
 #	    my @tuple_status = undef;
