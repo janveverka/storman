@@ -192,7 +192,7 @@ sub server_input {
 					       $heap->{DatabasePassword},
 					       {
 						RaiseError => 1,
-						AutoCommit => 0
+						AutoCommit => 1
 					       });
       };
 
