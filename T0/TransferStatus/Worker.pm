@@ -192,7 +192,7 @@ sub server_input {
 					       $heap->{DatabasePassword},
 					       {
 						RaiseError => 1,
-						AutoCommit => 1
+						AutoCommit => 0
 					       });
       };
 
@@ -290,9 +290,11 @@ sub server_input {
 		    $heap->{Self}->Quiet("Could not update transfer status for $filename to $fileStatus\n");
 		    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
 		    $hash_ref->{status} = 1;
+		    $heap->{DatabaseHandle}->rollback();
 		} else {
 		    $heap->{Self}->Quiet("Updated transfer status for $filename to $fileStatus\n");
 		    $hash_ref->{commit} = 1;
+		    $heap->{DatabaseHandle}->commit();
 		}
 	    }
 
