@@ -32,9 +32,11 @@ sub Quiet   { T0::Util::Quiet(   (shift)->{Quiet},   ("RFSTATHELPER:\t", @_) ); 
 sub checkFileExists {
 
   my $pfn = shift;
+  my $retries = shift;
+  my $retry_backoff = shift;
 
   my ( $status, $stats_number, $stats_fields, $stats_data ) = 
-    T0::Castor::RfstatLite->new( $pfn, 5 );
+    T0::Castor::RfstatLite->new( $pfn, $retries, $retry_backoff );
 
   if( $status == 0 ) {
     return 0;
@@ -56,7 +58,7 @@ sub checkDirExists {
   my $pfn = shift;
 
   my ( $status, $stats_number, $stats_fields, $stats_data ) = 
-    T0::Castor::RfstatLite->new( $pfn, 5 );
+    T0::Castor::RfstatLite->new( $pfn, 5, 2 );
 
   # The target doesn't exists.
   if ( $status != 0 )

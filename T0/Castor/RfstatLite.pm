@@ -73,7 +73,7 @@ sub new {
     $self->{status} = $?;
 
     # Continue retrying
-    if( $self->{status} != 0 && $self->{status} != 256 && ( defined($self->{retries}) && $self->{retries}>0 ) ){
+    if( $self->{status} != 0 && ( defined($self->{retries}) && $self->{retries}>0 ) ){
 
       $self->Quiet("Retrying rfstat on ", $self->{PFN}, "...\n");
       $self->{retries}--;
