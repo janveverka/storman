@@ -165,8 +165,6 @@ sub server_input {
     # Call rfstat and check the file.
     # RfstatRetries is the number of retries in case of receiving error from rfstat command.
     # RfstatRetryBackoff is the delay between tries.
-    my $size = T0::Castor::RfstatHelper::getFileSize( $hash_ref->{work}->{PFN}, $self->{RfstatRetries}, $self->{RfstatRetryBackoff} );
-
     my $status = check_size($self,$work->{PFN},$work->{FILESIZE},$self->{RfstatRetries},$self->{RfstatRetryBackoff});
 
     $hash_ref->{status} = $status;
