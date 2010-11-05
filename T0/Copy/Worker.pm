@@ -8,6 +8,7 @@ use Sys::Hostname;
 use File::Basename;
 use T0::Util;
 use T0::Castor::Rfcp;
+use LWP::Simple;
 
 our (@ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION);
 
@@ -59,6 +60,13 @@ sub new
 				 copy_done => 'copy_done',
 				 job_done => 'job_done',
 				 get_work => 'get_work',
+				 should_get_work => 'should_get_work',
+				 get_client_id => 'get_client_id',
+                 get_beam_status => 'get_beam_status',
+                 get_bandwidth => 'get_bandwidth',
+				 update_client_id => 'update_client_id',
+                 update_beam_status => 'update_beam_status',
+                 update_bandwidth => 'update_bandwidth',
 				]
 	],
   );
@@ -67,7 +75,7 @@ sub new
 }
 
 sub start_task {
-  my ( $heap, $self ) = @_[ HEAP, ARG0 ];
+  my ( $heap, $self, $kernel ) = @_[ HEAP, ARG0, KERNEL ];
 
   # keep reference to myself
   $heap->{Self} = $self;
@@ -99,6 +107,8 @@ sub start_task {
 	  $heap->{UseRfcpChecksum} = 1;
       }
   }
+  $kernel->yield( 'update_bandwidth' );   # Calculate bandwidth usage every minute
+  $kernel->yield( 'update_beam_status' ); # Get beam status every minute
 }
 
 sub ReadConfig
@@ -347,7 +357,7 @@ sub server_input {
   if ( $command =~ m%Sleep% )
   {
     # ask again in 10 seconds
-    $kernel->delay_set( 'get_work', 10 );
+    $kernel->delay( should_get_work => 10 );
     return;
   }
 
@@ -434,7 +444,7 @@ sub server_input {
 
     if ( $heap->{State} eq 'Idle' )
       {
-	$kernel->yield('get_work');
+	$kernel->yield('should_get_work');
       }
     return;
   }
@@ -445,7 +455,7 @@ sub server_input {
     if ( $heap->{State} eq 'Created' )
       {
 	$heap->{State} = 'Idle';
-	$kernel->yield('get_work');
+	$kernel->yield('should_get_work');
       }
     return;
   }
@@ -465,6 +475,14 @@ sub server_input {
     return;
   }
 
+  if ( $command =~ m/SetID/ ) {
+    my $clientID = $hash_ref->{clientID};
+    $heap->{Self}->Verbose("Got $command = $clientID\n");
+    $heap->{clientID} = $clientID;
+    $kernel->delay( update_client_id => 300 ); # Update ID every 5 minutes
+    return;
+  }
+
   Print "Error: unrecognised input from server! \"$command\"\n";
   $kernel->yield('shutdown');
 }
@@ -479,6 +497,202 @@ sub connected
 		'hostname'      => $self->{Host},
              );
   $self->send( $heap, \%text );
+}
+
+sub should_get_work {
+  my ( $self, $kernel, $session, $heap, $hash_ref ) = @_[ OBJECT, KERNEL, SESSION, HEAP, ARG0 ];
+
+  my $delay = 60;
+  my $minWorkers = $self->{MinWorkers} || 3;
+  my $maxWorkers = $self->{MaxWorkers} || 99;
+  my $extraWorkers = $self->{ExtraWorkers} || 0;
+  my $id = $kernel->call( $session, 'get_client_id' );
+
+  # Check we got a proper ID, otherwise sleep, hoping we'll get a better one
+  if( $id < 1 or $id > 100 ) {
+    $self->Verbose("WARNING: Got $id as id, not within 1..100! Retrying in $delay seconds\n");
+    $kernel->delay( should_get_work => $delay );
+    return;
+  }
+
+  # If our ID is less than the minimum number of workers, request work
+  if( $id <= $minWorkers ) {
+    $kernel->yield('get_work');
+    return;
+  }
+
+  # Ensure we're not running too many workers
+  if( $id > $maxWorkers ) {
+    $self->Debug("We are ID $id, and maxWorkers is $maxWorkers. Sleeping 5 min.\n");
+    $kernel->delay( should_get_work => 300 );
+  }
+
+  # Treat nodes 12 and 13 on rack 7 differently as they have smaller disks
+  my $hostname = $self->{Host};
+  if( $hostname =~ /^srv-c2c07-1[23]$/xmsio
+    && $id <= $minWorkers + $extraWorkers ) {
+    $self->Debug("We are ID $id on $hostname. Would have requested work as $id <= $minWorkers + $extraWorkers\n");
+#    $kernel->yield('get_work');
+    return;
+  }
+
+  # Check run status
+  my $beamStatus = $kernel->call( $session, 'get_beam_status' );
+  if( $beamStatus =~ /^(?:SQUEEZE | ADJUST | STABLE )$/xms ) {
+    $self->Debug("Not interfill, beam is in $beamStatus. Sleeping $delay seconds");
+#    $kernel->delay( should_get_work => $delay );
+#    return;
+  }
+
+  # Check the bandwidth usage
+  my $inData = $kernel->call( $session, 'get_bandwidth', Data => 'rxbytes' );
+  my $outTier0 = $kernel->call( $session, 'get_bandwidth', Tier0 => 'txbytes' );
+  $self->Debug("We are ID $id on $hostname. Incoming bandwidth is $inData. Out: $outTier0\n");
+  if( $inData < 90 ) {
+    $self->Debug("Bandwidth is small ($inData), starting $id\n");
+#    $kernel->yield('get_work');
+    return;
+  }
+}
+
+# Return a cached version of the beam status
+sub get_beam_status {
+  my ( $self, $heap ) = @_[ OBJECT, HEAP ];
+
+  return 'UNKNOWN' if !exists $heap->{beamStatus};
+  return $heap->{beamStatus};
+}
+
+sub parse_csv {
+  my $text = shift;      # record containing comma-separated values
+  my @new  = ();
+  push(@new, $+) while $text =~ m{
+    # the first part groups the phrase inside the quotes.
+    # see explanation of this pattern in MRE
+    "([^\"\\]*(?:\\.[^\"\\]*)*)",?
+    |  ([^,]+),?
+    | ,
+  }gx;
+  push(@new, undef) if substr($text, -1,1) eq ',';
+  return @new;      # list of values that were comma-separated
+}  
+
+sub update_beam_status {
+  my ( $self, $heap, $kernel ) = @_[ OBJECT, HEAP, KERNEL ];
+
+  my $status = 'UNKNOWN';
+  $self->Debug("Faking beam status to: $status\n");
+  $heap->{beamStatus} = $status;
+  $kernel->delay( update_beam_status => 60 );
+  return;
+  my $level0_url =
+    'http://srv-c2d04-19.cms:9941/urn:xdaq-application:lid=400/retrieveCollection?fmt=plain&flash=urn:xdaq-flashlist:levelZeroFM_dynamic';
+  my $content = get $level0_url;
+  if( ! defined $content ) {
+    $self->Log("Could not get beam status from Level-0. Probably not running.");
+  }
+  else {
+    my ( $headers, $values ) = split /\n/, $content;
+    my %level0;
+    @level0{split/,/, $headers} = split /,/, $values;
+  }
+}
+
+# Return the bandwidth usage as already calculated per card or network
+sub get_bandwidth {
+  my ( $self, $heap, $network, $flow ) = @_[ OBJECT, HEAP, ARG1, ARG2 ];
+
+  return 0 if !exists $heap->{'network'}->{$network};
+  return $heap->{'network'}->{$network}->{$flow} || 0;
+}
+
+# Updates periodically the bandwidth usage
+sub update_bandwidth {
+  my ( $heap, $kernel ) = @_[ HEAP, KERNEL ];
+  
+  my $devfile   = '/proc/net/dev';
+  my $routefile = '/proc/net/route';
+  my %networkLookups = (
+    A00B => 'Service',
+    A03B => 'Data',
+    A08D => 'Tier0',
+  );
+    
+  my @columns;
+  open my $netdev, '<', $devfile or die "Can't open $devfile: $!";
+  LINE:
+  while( <$netdev> ) {
+
+#Inter-|   Receive                                                |  Transmit
+    next LINE if /^Inter-/; # Skip first line
+
+# face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    if( /\|/ ) {
+      my @headers = split /\|/;
+      shift @headers; # Discard 'face'
+      push @columns, map { "rx$_" } split /\s+/, shift @headers; # Receive
+      push @columns, map { "tx$_" } split /\s+/, shift @headers; # Transmit
+      next LINE;
+    }
+    next LINE unless s/^\s*(\w+):\s*//; # Skip virtual interfaces eth0:1
+
+    # We have a real interface, calculate the bandwidth in and out
+    my $card = $1;
+    my %hash = ( lastUpdate => time() );
+    @hash{@columns} = split /\s+/;
+    if( my $lastValues = delete $heap->{'network'}->{$card} ) {
+      if( my $lastUpdate = $lastValues->{lastUpdate} ) {
+        my $timeDiff = $lastUpdate - $hash{lastUpdate};
+        my $inBytes = $hash{rxbytes} - $lastValues->{rxbytes};
+        $inBytes = 0 if $inBytes < 0;
+        $hash{rxrate} = $inBytes / $timeDiff;
+        my $outBytes = $hash{txbytes} - $lastValues->{txbytes};
+        $outBytes = 0 if $outBytes < 0;
+        $hash{txrate} = $outBytes / $timeDiff;
+      }
+    }
+    $heap->{'network'}->{$card} = \%hash;
+  }
+  close $netdev;
+
+  # Try to aggregate statistics per network
+  open my $netroute, '<', $routefile or die "Can't open $routefile: $!";
+  LINE:
+  while( <$netroute> ) {
+    next LINE if m/^ (?: Iface | $)/xms; # Skip first and empty lines
+    if( my( $card, $dest) = m/^\s*(\w+)\s+(\w+)\s+/xms ) {
+      next LINE if length($dest) != 8;
+      my $classB = scalar reverse substr($dest, 4, 4);
+      my $network = $networkLookups{$classB};
+      next LINE if !defined $network;
+      $heap->{'network'}->{$network}->{rxrate} += $heap->{'network'}->{$card}->{rxrate} || 0;
+      $heap->{'network'}->{$network}->{txrate} += $heap->{'network'}->{$card}->{txrate} || 0;
+    }
+  }
+  close $netroute;
+  $kernel->delay( update_bandwidth => 60 );
+}
+
+sub update_client_id {
+  my ( $self, $kernel, $heap ) = @_[ OBJECT, KERNEL, HEAP ];
+
+  my $text = {
+	      'command' => 'GetID',
+	      'client'  => $self->{Name},
+	     };
+  $self->send( $heap, $text );
+  $kernel->delay( update_client_id => 300 ); # Update ID every 5 minutes
+}
+
+sub get_client_id {
+  my ( $kernel, $heap ) = @_[ KERNEL, HEAP ];
+
+  my $clientID = $heap->{clientID};
+  return $clientID if defined $clientID;
+
+  # No client ID yet, get one and return -1
+  $kernel->delay( 'update_client_id', 30 );
+  return -1;
 }
 
 sub get_work
@@ -533,7 +747,7 @@ sub job_done
   if ( ($heap->{State} eq 'Busy') )
     {
       $heap->{State} = 'Idle';
-      $kernel->yield('get_work');
+      $kernel->yield('should_get_work');
     }
   else
     {
