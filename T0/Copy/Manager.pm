@@ -173,10 +173,14 @@ sub process_file
   }
 
   my $priority = 99;
+  if( exists $self->{HighPrioStream} && $work->{STREAM} =~ /$self->{HighPrioStream}/o ) {
+      $priority = 33;
+  }
+  elsif( exists $self->{NormPrioStream} && $work->{STREAM} =~ /$self->{NormPrioStream}/o ) {
+      $priority = 66;
+  }
 
-  my $hostname=$work->{HOSTNAME};
-
-  delete $work->{HOSTNAME};
+  my $hostname = delete $work->{HOSTNAME};
 
   my $id = $self->HostnameQueue($hostname)->enqueue($priority,$work);;
   $self->Quiet("Job $id added to ", $hostname, " queue\n");
@@ -193,6 +197,10 @@ sub AddClient
   $self->{clientsQueue}->{$client} = POE::Queue::Array->new();
 
   $self->AddHostname($hostname);
+
+  # Add the client to the list of clients serving this hostname, and cache its ID
+  my $clientid = push @{$self->{clientList}->{$hostname}}, $client;
+  $self->{clientIDs}->{$client} = $clientid;
 }
 
 # Create hostname's queue
@@ -213,26 +221,36 @@ sub AddHostname
 sub RemoveClient
 {
   my $self = shift;
-  my $client = shift or Croak "Expected a hostname...\n";
-  my $hostname = $self->{hostnames}->{$client};
+  my $client = shift or Croak "Expected a client...\n";
+  my $hostname = delete $self->{hostnames}->{$client};
 
+  $self->Verbose("Removing $client on $hostname\n");
   delete $self->{clientsQueue}->{$client};
+  delete $self->{clientIDs}->{$client};
 
   # Remove the hostname queue only if there are no more clients using it.
-  my $lastone = 1;
+  my $remainingWorkers = scalar grep { $_ eq $hostname }
+    keys(%{$self->{hostnames}});
 
-  foreach my $client_iter ( keys(%{$self->{hostnames}}) )
+  if( ! $remainingWorkers )
     {
-      if( ($client_iter != $client) && ($self->{hostnames}->{$client_iter} == $hostname))
-	{
-	  $lastone = 0;
-	}
-    }
-
-  if( $lastone == 1 )
-    {
+      delete $self->{clientList}->{$hostname};
       delete $self->{hostnamesQueue}->{$hostname};
     }
+  else {
+
+    # One client disconnected, update the list of IDs
+    my $clientList = $self->{clientList}->{$hostname};
+    $clientList = [ grep { ! /^$client$/xms } @{$clientList} ];
+    for my $clientIndex ( 0 ..  $#{$clientList} ) {
+      my $client = $clientList->[$clientIndex];
+      my $clientID = $clientIndex + 1;
+      $self->{clientIDs} = $clientID;
+      my $id = $self->ClientQueue($client)->enqueue(1, {
+        command => 'SetID', clientID => $clientID }, );
+      $self->Quiet("SetID = $clientID job $id added to $client queue\n");
+    }
+  }
 }
 
 # Return the hostname's private queue
@@ -285,7 +303,7 @@ sub broadcast
   foreach ( keys %{$self->{clientsQueue}} )
   {
     my $id = $self->ClientQueue($_)->enqueue($priority,$work);
-    $self->Quiet("Job $id added to ", $_, " queue\n");
+    $self->Quiet("Broadcast job $id added to $_ queue\n");
   }
 }
 
@@ -352,6 +370,7 @@ sub client_error
 
 sub handle_unfinished
 {
+  my ( $self, $kernel, $heap, $client ) = @_[ OBJECT, KERNEL, HEAP, ARG0 ];
   Print "handle_unfinished: Not written yet...\n";
 }
 
@@ -362,6 +381,7 @@ sub client_disconnected
   my $client = $heap->{client_name};
   $self->Quiet($client,": client_disconnected\n");
   $kernel->yield( 'handle_unfinished', $client );
+  $self->RemoveClient( $client );
 }
 
 sub send_setup
@@ -370,6 +390,8 @@ sub send_setup
   my $client = $heap->{client_name};
 
   $self->Quiet("Send: Setup to $client\n");
+  $heap->{client}->put( { command => 'SetID', clientID =>
+    $self->{clientIDs}->{$client}, } );
   no strict 'refs';
   my $ref = \%{$self->{Partners}->{Worker}};
   my %text = ( 'command' => 'Setup',
@@ -393,7 +415,6 @@ sub send_work
 {
   my ( $self, $kernel, $heap ) = @_[ OBJECT, KERNEL, HEAP ];
   my ($client,$hostname,%text,$size,$target);
-  my ($priority, $id, $work) = ( undef, undef, undef );
 
   $client = $heap->{client_name};
   $hostname = $heap->{hostname};
@@ -405,26 +426,25 @@ sub send_work
   }
 
   # Check client's queue
-  if ( defined $id )
-    {
+  my ($priority, $id, $work) =
+    $self->{clientsQueue}->{$client}->dequeue_next();
+  if ( defined $id ) {
       $self->Debug("Job $id taken from client's queue.\n");
-      $self->Quiet("Send: New config job ",$id," to $client\n");
+      $self->Quiet("Send: New config job $id to $client\n");
 
-      if ( ref($work) eq 'HASH' )
-	{
-	  %text = (
+      if ( ref($work) eq 'HASH' ) {
+	    %text = (
 		   'client'	=> $client,
 		   'priority'	=> $priority,
 		   'interval'	=> $self->{Worker}->{Interval},
 		  );
-	  map { $text{$_} = $work->{$_} } keys %$work;
-	  $heap->{client}->put( \%text );
-	}
-      else
-	{
-	  Croak "Why was $work not a hashref for $client?\n";
-	  $heap->{idle} = 0;
-	}
+	    map { $text{$_} = $work->{$_} } keys %$work;
+	    $heap->{client}->put( \%text );
+	  }
+      else {
+	    Croak "Why was $work not a hashref for $client?\n";
+	    $heap->{idle} = 0;
+	  }
       return;
     }
 
@@ -436,7 +456,7 @@ sub send_work
 	{
 	  if ( defined $id and defined $work )
 	    {
-	      $self->Debug("Job $id for run " . $work->{RUNNUMBER} . " taken from hostname's queue.\n");
+	      $self->Debug("Job $id (prio: $priority) for run $work->{RUNNUMBER} taken from $hostname queue.\n");
 
 	      if ( exists $self->{RunBlacklist} and defined $self->{RunBlacklist} )
 		{
@@ -513,21 +533,27 @@ sub client_input
     }
   }
 
-  if ( $command =~ m%SendWork% )
+  elsif ( $command =~ m%SendWork% )
   {
     $kernel->yield( 'send_work' );
   }
 
-  if ( $command =~ m%JobDone% )
+  elsif ( $command =~ m%JobDone% )
   {
     $kernel->yield('job_done', ($input));
   }
 
-  if ( $command =~ m%Quit% )
+  elsif ( $command =~ m%Quit% )
   {
     Print "Quit: $command\n";
     my %text = ( 'command'   => 'Quit',
                  'client' => $client,
+               );
+    $heap->{client}->put( \%text );
+  }
+  elsif ( $command =~ m/GetID/ ) {
+    my %text = ( command => 'SetID',
+                 clientID => $self->{clientIDs}->{$client},
                );
     $heap->{client}->put( \%text );
   }
