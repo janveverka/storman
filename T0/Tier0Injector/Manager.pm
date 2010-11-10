@@ -106,6 +106,9 @@ sub start_task
   # save reference to myself on heap
   $heap->{Self} = $self;
 
+  # helper variable for queue management
+  $heap->{LastWorkSent} = time();
+
   # initalize some parameters
   $self->{TotalEvents} = 0;
   $self->{TotalVolume} = 0;
@@ -344,37 +347,46 @@ sub send_work
   if ( $self->{State} eq 'Running' )
   {
       my @workList = ();
-      my $count = 0;
       my ($temp1, $temp2) = (undef, undef);
-      while ( ($temp1, $temp2, $work) = $self->{Queue}->dequeue_next() )
+
+      my $maxBulkPayload = 500;
+      my $maxWaitTime = 30;
+      my $count = $self->{Queue}->get_item_count();
+
+      if ( $count >= $maxBulkPayload ||
+	   ( time() - $heap->{LastWorkSent} ) > $maxWaitTime )
       {
-	  $priority = $temp1;
-	  $id = $temp2;
-	  push(@workList, $work);
-	  $count++;
-	  last if ( $count == 500 );
+	  $count = 0;
+	  while ( ($temp1, $temp2, $work) = $self->{Queue}->dequeue_next() )
+	  {
+	      $priority = $temp1;
+	      $id = $temp2;
+	      push(@workList, $work);
+	      $count++;
+	      last if ( $count ==  $maxBulkPayload );
+	  }
+
+	  if ( defined $id )
+	  {
+	      $self->Quiet("Send: Tier0Injector job ",$id," to $client\n");
+	      %text = (
+		       'command'	=> 'DoThis',
+		       'client'	=> $client,
+		       'priority'	=> $priority,
+		       'workList'	=> \@workList,
+		       'id'         => $id,
+		       );
+	      $heap->{client}->put( \%text );
+	      $heap->{LastWorkSent} = time();
+	      return;
+	  }
       }
-
-      if ( defined $id )
-      {
-	  $self->Quiet("Send: Tier0Injector job ",$id," to $client\n");
-	  %text = (
-		   'command'	=> 'DoThis',
-		   'client'	=> $client,
-		   'priority'	=> $priority,
-		   'workList'	=> \@workList,
-		   'id'         => $id,
-		  );
-	  $heap->{client}->put( \%text );
-
-	  return;
-	}
-    }
+  }
 
   %text = ( 'command'	=> 'Sleep',
 	    'client'	=> $client,
 	    'wait'	=> $self->{Backoff} || 10,
-	  );
+	    );
   $heap->{client}->put( \%text );
   return;
 }
