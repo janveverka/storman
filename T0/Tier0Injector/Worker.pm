@@ -146,7 +146,7 @@ sub server_input {
   if ( $command =~ m%Sleep% )
   {
     # ask again in 30 seconds
-    $kernel->delay_set( 'get_work', 30 );
+    $kernel->delay_set( 'get_work', $hash_ref->{wait} );
     return;
   }
 
@@ -1034,7 +1034,7 @@ sub job_done
   $self->send( $heap, $heap->{HashRef} );
 
   if ( ($heap->{State} eq 'Running') ) {
-      $kernel->delay_set( 'get_work', 30 );
+      $kernel->yield('get_work');
   } else {
       Print "Shutting down...\n";
       $kernel->yield('shutdown');
