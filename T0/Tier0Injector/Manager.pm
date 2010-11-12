@@ -349,11 +349,14 @@ sub send_work
       my @workList = ();
       my ($temp1, $temp2) = (undef, undef);
 
-      my $maxBulkPayload = 500;
       my $maxWaitTime = 30;
       my $count = $self->{Queue}->get_item_count();
 
-      if ( $count >= $maxBulkPayload ||
+      #
+      # send work if queue lenght is at least 100 or last work sent too long ago
+      # send a maximum of 900 payloads at once
+      #
+      if ( $count >= 100 ||
 	   ( time() - $heap->{LastWorkSent} ) > $maxWaitTime )
       {
 	  $count = 0;
@@ -363,7 +366,7 @@ sub send_work
 	      $id = $temp2;
 	      push(@workList, $work);
 	      $count++;
-	      last if ( $count ==  $maxBulkPayload );
+	      last if ( $count ==  900 );
 	  }
 
 	  if ( defined $id )
