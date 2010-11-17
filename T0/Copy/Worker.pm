@@ -560,15 +560,15 @@ sub should_get_work {
 
   # Check run status
   my $beamStatus = $kernel->call( $session, 'get_beam_status' );
-  if( $beamStatus =~ /^(?:SQUEEZE | ADJUST | STABLE )$/xms ) {
-    $self->Debug("Not interfill, beam is in $beamStatus. Sleeping $delay seconds");
+  if( $beamStatus =~ /^(?:SQUEEZE | ADJUST | STABLE | UNKNOWN )$/xms ) {
+    $self->Debug("Not interfill, beam is in $beamStatus. Sleeping $delay seconds\n");
 #    $kernel->delay( should_get_work => $delay );
 #    return;
   }
 
   # Check the bandwidth usage
-  my $inData = $kernel->call( $session, 'get_bandwidth', Data => 'rxbytes' );
-  my $outTier0 = $kernel->call( $session, 'get_bandwidth', Tier0 => 'txbytes' );
+  my $inData = $kernel->call( $session, 'get_bandwidth', Data => 'rxrate' );
+  my $outTier0 = $kernel->call( $session, 'get_bandwidth', Tier0 => 'txrate' );
   $self->Debug("We are ID $id on $hostname. Incoming bandwidth is $inData. Out: $outTier0\n");
   if( $inData < 90 ) {
     $self->Debug("Bandwidth is small ($inData), starting $id\n");
@@ -586,44 +586,31 @@ sub get_beam_status {
   return $heap->{beamStatus};
 }
 
-sub parse_csv {
-  my $text = shift;      # record containing comma-separated values
-  my @new  = ();
-  push(@new, $+) while $text =~ m{
-    # the first part groups the phrase inside the quotes.
-    # see explanation of this pattern in MRE
-    "([^\"\\]*(?:\\.[^\"\\]*)*)",?
-    |  ([^,]+),?
-    | ,
-  }gx;
-  push(@new, undef) if substr($text, -1,1) eq ',';
-  return @new;      # list of values that were comma-separated
-}  
-
 sub update_beam_status {
   my ( $self, $heap, $kernel ) = @_[ OBJECT, HEAP, KERNEL ];
 
   my $status = 'UNKNOWN';
-  $self->Debug("Faking beam status to: $status\n");
-  $heap->{beamStatus} = $status;
-  $kernel->delay( update_beam_status => 60 );
-  return;
   my $level0_url =
     'http://srv-c2d04-19.cms:9941/urn:xdaq-application:lid=400/retrieveCollection?fmt=plain&flash=urn:xdaq-flashlist:levelZeroFM_dynamic';
   my $content = get $level0_url;
+  my %level0;
   if( ! defined $content ) {
     $self->Log("Could not get beam status from Level-0. Probably not running.");
   }
   else {
     my ( $headers, $values ) = split /\n/, $content;
-    my %level0;
-    @level0{split/,/, $headers} = split /,/, $values;
+    $values =~ s/\[[^\]]*]//g;
+    @level0{split/,/, $headers} = split /","/, $values;
   }
+  my @lhc_modes = qw( MACHINE_MODE BEAM_MODE CLOCK_STABLE );
+  $heap->{lhc}->{$_} = $level0{'LHC_' . $_} for @lhc_modes;
+  $self->Debug('LHC status: '.join(', ',map{ "$_ => '$heap->{lhc}->{$_}'" } @lhc_modes),"\n");
+  $kernel->delay( update_beam_status => 60 );
 }
 
 # Return the bandwidth usage as already calculated per card or network
 sub get_bandwidth {
-  my ( $self, $heap, $network, $flow ) = @_[ OBJECT, HEAP, ARG1, ARG2 ];
+  my ( $self, $heap, $network, $flow ) = @_[ OBJECT, HEAP, ARG0, ARG1 ];
 
   return 0 if !exists $heap->{'network'}->{$network};
   return $heap->{'network'}->{$network}->{$flow} || 0;
@@ -631,14 +618,14 @@ sub get_bandwidth {
 
 # Updates periodically the bandwidth usage
 sub update_bandwidth {
-  my ( $heap, $kernel ) = @_[ HEAP, KERNEL ];
+  my ( $self, $heap, $kernel ) = @_[ OBJECT, HEAP, KERNEL ];
   
   my $devfile   = '/proc/net/dev';
   my $routefile = '/proc/net/route';
   my %networkLookups = (
     A00B => 'Service',
     A03B => 'Data',
-    A08D => 'Tier0',
+    A08B => 'Tier0',
   );
     
   my @columns;
@@ -665,13 +652,15 @@ sub update_bandwidth {
     @hash{@columns} = split /\s+/;
     if( my $lastValues = delete $heap->{'network'}->{$card} ) {
       if( my $lastUpdate = $lastValues->{lastUpdate} ) {
-        my $timeDiff = $lastUpdate - $hash{lastUpdate};
+        my $timeDiff = $hash{lastUpdate} - $lastUpdate;
+        next LINE unless $timeDiff;
+        my $unitBase = 1024 * 8; # Convert into kb/s
         my $inBytes = $hash{rxbytes} - $lastValues->{rxbytes};
         $inBytes = 0 if $inBytes < 0;
-        $hash{rxrate} = $inBytes / $timeDiff;
+        $hash{rxrate} = $inBytes / $timeDiff / $unitBase;
         my $outBytes = $hash{txbytes} - $lastValues->{txbytes};
         $outBytes = 0 if $outBytes < 0;
-        $hash{txrate} = $outBytes / $timeDiff;
+        $hash{txrate} = $outBytes / $timeDiff / $unitBase;
       }
     }
     $heap->{'network'}->{$card} = \%hash;
