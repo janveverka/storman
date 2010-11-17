@@ -53,6 +53,7 @@ sub _init
 				      client_disconnected	=> 'client_disconnected',
 				      handle_unfinished => 'handle_unfinished',
 				      send_work => 'send_work',
+				      send_client_work => 'send_client_work',
 				      send_setup => 'send_setup',
 				      send_start => 'send_start',
 				      job_done => 'job_done',
@@ -173,11 +174,13 @@ sub process_file
   }
 
   my $priority = 99;
-  if( exists $self->{HighPrioStream} && $work->{STREAM} =~ /$self->{HighPrioStream}/o ) {
+  if( $work->{STREAM} ) {
+    if( exists $self->{HighPrioStream} && $work->{STREAM} =~ /$self->{HighPrioStream}/ ) {
       $priority = 33;
-  }
-  elsif( exists $self->{NormPrioStream} && $work->{STREAM} =~ /$self->{NormPrioStream}/o ) {
+    }
+    elsif( exists $self->{NormPrioStream} && $work->{STREAM} =~ /$self->{NormPrioStream}/ ) {
       $priority = 66;
+    }
   }
 
   my $hostname = delete $work->{HOSTNAME};
@@ -371,7 +374,7 @@ sub client_error
 sub handle_unfinished
 {
   my ( $self, $kernel, $heap, $client ) = @_[ OBJECT, KERNEL, HEAP, ARG0 ];
-  Print "handle_unfinished: Not written yet...\n";
+  Print "handle_unfinished: Not implemented yet...\n";
 }
 
 sub _client_disconnected { reroute_event( (caller(0))[3], @_ ); }
@@ -411,8 +414,7 @@ sub send_start
   $heap->{client}->put( \%text );
 }
 
-sub send_work
-{
+sub send_client_work {
   my ( $self, $kernel, $heap ) = @_[ OBJECT, KERNEL, HEAP ];
   my ($client,$hostname,%text,$size,$target);
 
@@ -421,13 +423,13 @@ sub send_work
 
   if ( !defined($client) || !defined($hostname) )
   {
-    $self->Quiet("send_work: undefined client or hostname!\n");
+    $self->Quiet("send_client_work: undefined client or hostname!\n");
     return;
   }
 
   # Check client's queue
   my ($priority, $id, $work) =
-    $self->{clientsQueue}->{$client}->dequeue_next();
+    $self->ClientQueue($client)->dequeue_next();
   if ( defined $id ) {
       $self->Debug("Job $id taken from client's queue.\n");
       $self->Quiet("Send: New config job $id to $client\n");
@@ -445,10 +447,26 @@ sub send_work
 	    Croak "Why was $work not a hashref for $client?\n";
 	    $heap->{idle} = 0;
 	  }
-      return;
-    }
+  }
+  return $id;
+}
 
-  # Check hostname's queue
+# Check hostname's queue
+sub send_work
+{
+  my ( $self, $kernel, $heap ) = @_[ OBJECT, KERNEL, HEAP ];
+  my ($client,$hostname,%text,$size,$target);
+  my ($priority, $id, $work);
+
+  $client = $heap->{client_name};
+  $hostname = $heap->{hostname};
+
+  if ( !defined($client) || !defined($hostname) )
+  {
+    $self->Quiet("send_work: undefined client or hostname!\n");
+    return;
+  }
+
   if ( $self->{State} eq 'Running' )
     {
       # loop over job and discard the ones for blacklisted runs
@@ -491,10 +509,11 @@ sub send_work
   else
     {
       # put client to sleep
-      $self->Quiet("Send: Sleep to $client\n");
+      my $wait = $self->{Backoff} || 10;
+      $self->Quiet("Send: Sleep $wait to $client\n");
       %text = ( 'command' => 'Sleep',
 		'client'  => $client,
-		'wait'	  => $self->{Backoff} || 10,
+		'wait'	  => $wait,
 	      );
       $heap->{client}->put( \%text );
     }
@@ -535,7 +554,23 @@ sub client_input
 
   elsif ( $command =~ m%SendWork% )
   {
-    $kernel->yield( 'send_work' );
+    if( ! $kernel->call( $session, 'send_client_work' ) ) {
+      $kernel->yield( 'send_work' );
+    }
+  }
+
+  elsif ( $command =~ m%SendClientWork% )
+  {
+    if( ! $kernel->call( $session, 'send_client_work' ) )
+    {
+      # put client to sleep
+      $self->Quiet("Send: Sleep 300 to $client\n");
+      my %text = ( 'command' => 'Sleep',
+		client  => $client,
+		wait    => 300,
+	      );
+      $heap->{client}->put( \%text );
+    }
   }
 
   elsif ( $command =~ m%JobDone% )

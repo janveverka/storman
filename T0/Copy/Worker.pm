@@ -60,6 +60,7 @@ sub new
 				 copy_done => 'copy_done',
 				 job_done => 'job_done',
 				 get_work => 'get_work',
+				 get_client_work => 'get_client_work',
 				 should_get_work => 'should_get_work',
 				 get_client_id => 'get_client_id',
                  get_beam_status => 'get_beam_status',
@@ -67,11 +68,20 @@ sub new
 				 update_client_id => 'update_client_id',
                  update_beam_status => 'update_beam_status',
                  update_bandwidth => 'update_bandwidth',
+                 sig_abort => 'sig_abort',
 				]
 	],
   );
 
   return $self;
+}
+
+# Some terminal signal got received
+sub sig_abort {
+    my ( $kernel, $heap, $signal ) = @_[ KERNEL, HEAP, ARG0 ];
+    $kernel->Log( "Shutting down on signal SIG$signal" );
+    $heap->{State} = 'Stop';
+    $kernel->sig_handled();
 }
 
 sub start_task {
@@ -109,6 +119,11 @@ sub start_task {
   }
   $kernel->yield( 'update_bandwidth' );   # Calculate bandwidth usage every minute
   $kernel->yield( 'update_beam_status' ); # Get beam status every minute
+
+  # Try to shutdown nicely, that is letting copies finish
+  $kernel->sig( INT  => 'sig_abort' );
+  $kernel->sig( TERM => 'sig_abort' );
+  $kernel->sig( QUIT => 'sig_abort' );
 }
 
 sub ReadConfig
@@ -356,8 +371,10 @@ sub server_input {
   $heap->{Self}->Verbose("from server: $command\n");
   if ( $command =~ m%Sleep% )
   {
-    # ask again in 10 seconds
-    $kernel->delay( should_get_work => 10 );
+    # ask again in how many seconds the server said
+    my $wait = $hash_ref->{wait} || 10;
+    $heap->{Self}->Verbose("Sleeping $wait seconds, as ordered\n");
+    $kernel->delay( should_get_work => $wait );
     return;
   }
 
@@ -508,6 +525,11 @@ sub should_get_work {
   my $extraWorkers = $self->{ExtraWorkers} || 0;
   my $id = $kernel->call( $session, 'get_client_id' );
 
+  # Check if we're shutting down
+  if( $heap->{State} eq 'Stop' ) {
+    $kernel->yield('shutdown');
+  }
+
   # Check we got a proper ID, otherwise sleep, hoping we'll get a better one
   if( $id < 1 or $id > 100 ) {
     $self->Verbose("WARNING: Got $id as id, not within 1..100! Retrying in $delay seconds\n");
@@ -533,7 +555,7 @@ sub should_get_work {
     && $id <= $minWorkers + $extraWorkers ) {
     $self->Debug("We are ID $id on $hostname. Would have requested work as $id <= $minWorkers + $extraWorkers\n");
 #    $kernel->yield('get_work');
-    return;
+#    return;
   }
 
   # Check run status
@@ -551,8 +573,9 @@ sub should_get_work {
   if( $inData < 90 ) {
     $self->Debug("Bandwidth is small ($inData), starting $id\n");
 #    $kernel->yield('get_work');
-    return;
+#    return;
   }
+  $kernel->yield('get_client_work');
 }
 
 # Return a cached version of the beam status
@@ -693,6 +716,16 @@ sub get_client_id {
   # No client ID yet, get one and return -1
   $kernel->delay( 'update_client_id', 30 );
   return -1;
+}
+
+sub get_client_work
+{
+  my ( $self, $heap ) = @_[ OBJECT, HEAP ];
+
+  $heap->{WorkRequested} = time;
+
+  $self->send( $heap, { 'command' => 'SendClientWork',
+	      'client' => $self->{Name}, } );
 }
 
 sub get_work
