@@ -668,6 +668,7 @@ sub update_bandwidth {
   close $netdev;
 
   # Try to aggregate statistics per network
+  delete @{ $heap->{'network'} }{ values %networkLookups };
   open my $netroute, '<', $routefile or die "Can't open $routefile: $!";
   LINE:
   while( <$netroute> ) {
