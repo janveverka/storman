@@ -78,17 +78,26 @@ sub new
 
 # Some terminal signal got received
 sub sig_abort {
-    my ( $kernel, $heap, $signal ) = @_[ KERNEL, HEAP, ARG0 ];
-    $heap->{Self}->Quiet( "Shutting down on signal SIG$signal" );
-    $heap->{State} = 'Stop';
+    my ( $self, $kernel, $heap, $signal ) = @_[ OBJECT, KERNEL, HEAP, ARG0 ];
+    $self->Quiet( "Shutting down on signal SIG$signal" );
+    if( $heap->{State} eq 'Busy' ) {
+        $heap->{State} = 'Stop';
+    }
+    else {
+        $kernel->yield( 'shutdown' );
+    }
+
+    # Remove timers
+    for my $timer ( qw( update_bandwidth update_beam_status update_client_id should_get_work ) ) {
+        $kernel->delay( $timer );
+    }
+    $kernel->alarm_remove_all();   # To be 200% sure
+    delete $self->{RetryInterval}; # Do not try to reconnect
     $kernel->sig_handled();
 }
 
 sub start_task {
   my ( $heap, $self, $kernel ) = @_[ HEAP, ARG0, KERNEL ];
-
-  # keep reference to myself
-  $heap->{Self} = $self;
 
   # put some parameters on heap
   $heap->{Node} = $self->{Node};
@@ -113,13 +122,14 @@ sub start_task {
 	   ( $version1 == 2 and $version2 == 1 and $version3 > 8 ) or
 	   ( $version1 == 2 and $version2 == 1 and $version3 == 8 and $subversion >= 12 ) )
       {
-	  $heap->{Self}->Quiet("Castor version check successfull, use preset checksums for rfcp transfers\n");
+	  $self->Quiet("Castor version check successfull, use preset checksums for rfcp transfers\n");
 	  $heap->{UseRfcpChecksum} = 1;
       }
   }
   $kernel->yield( 'update_bandwidth' );   # Calculate bandwidth usage every minute
   $kernel->yield( 'update_beam_status' ); # Get beam status every minute
 
+  # $_[SESSION]->option( trace => 1 ); # XXX tracing
   # Try to shutdown nicely, that is letting copies finish
   $kernel->sig( INT  => 'sig_abort' );
   $kernel->sig( TERM => 'sig_abort' );
@@ -368,12 +378,12 @@ sub server_input {
 
   my $command  = $hash_ref->{command};
 
-  $heap->{Self}->Verbose("from server: $command\n");
+  $self->Verbose("from server: $command\n");
   if ( $command =~ m%Sleep% )
   {
     # ask again in how many seconds the server said
     my $wait = $hash_ref->{wait} || 10;
-    $heap->{Self}->Verbose("Sleeping $wait seconds, as ordered\n");
+    $self->Verbose("Sleeping $wait seconds, as ordered\n");
     $kernel->delay( should_get_work => $wait );
     return;
   }
@@ -411,7 +421,7 @@ sub server_input {
     else
       {
 	# coming from config file (default option)
-	$deletebadfiles = $heap->{Self}->{DeleteBadFiles};
+	$deletebadfiles = $self->{DeleteBadFiles};
       }
 
     my %rfcphash = (
@@ -432,20 +442,20 @@ sub server_input {
 	}
     }
 
-    $heap->{Self}->Debug("Copy " . $hash_ref->{id} . " added " . basename($sourcefile) . "\n");
+    $self->Debug("Copy " . $hash_ref->{id} . " added " . basename($sourcefile) . "\n");
     push(@{ $rfcphash{files} }, { source => $sourcefile, target => $targetfile, checksum => $work->{CHECKSUM} } );
 
     # check source file for existance and file size
     my $filesize = qx{stat -L --format=%s $sourcefile 2> /dev/null};
     if ( ( $? != 0 ) or ( int($work->{FILESIZE}) != int($filesize) ) )
       {
-	$heap->{Self}->Quiet("Source file does not exist or does not match file size in notification\n");
+	$self->Quiet("Source file does not exist or does not match file size in notification\n");
 	$heap->{HashRef}->{status} = -1;
 	$kernel->yield('job_done');
 	return;	
       }
 
-    $heap->{Self}->Debug("Copy " . $hash_ref->{id} . " started\n");
+    $self->Debug("Copy " . $hash_ref->{id} . " started\n");
 
     T0::Castor::Rfcp->new(\%rfcphash, $heap->{UseRfcpChecksum});
 
@@ -454,9 +464,9 @@ sub server_input {
 
   if ( $command =~ m%Setup% )
   {
-    $heap->{Self}->Quiet("Got $command...\n");
+    $self->Quiet("Got $command...\n");
     my $setup = $hash_ref->{setup};
-    $heap->{Self}->{Debug} && dump_ref($setup);
+    $self->{Debug} && dump_ref($setup);
     map { $self->{$_} = $setup->{$_} } keys %$setup;
 
     if ( $heap->{State} eq 'Idle' )
@@ -468,7 +478,7 @@ sub server_input {
 
   if ( $command =~ m%Start% )
   {
-    $heap->{Self}->Quiet("Got $command...\n");
+    $self->Quiet("Got $command...\n");
     if ( $heap->{State} eq 'Created' )
       {
 	$heap->{State} = 'Idle';
@@ -479,14 +489,14 @@ sub server_input {
 
   if ( $command =~ m%Stop% )
   {
-    $heap->{Self}->Quiet("Got $command...\n");
+    $self->Quiet("Got $command...\n");
     $heap->{State} = 'Stop';
     return;
   }
 
   if ( $command =~ m%Quit% )
   {
-    $heap->{Self}->Quiet("Got $command...\n");
+    $self->Quiet("Got $command...\n");
     $heap->{State} = 'Quit';
     $kernel->yield('shutdown');
     return;
@@ -494,7 +504,7 @@ sub server_input {
 
   if ( $command =~ m/SetID/ ) {
     my $clientID = $hash_ref->{clientID};
-    $heap->{Self}->Verbose("Got $command = $clientID\n");
+    $self->Verbose("Got $command = $clientID\n");
     $heap->{clientID} = $clientID;
     $kernel->delay( update_client_id => 300 ); # Update ID every 5 minutes
     return;
@@ -528,6 +538,7 @@ sub should_get_work {
   # Check if we're shutting down
   if( $heap->{State} eq 'Stop' ) {
     $kernel->yield('shutdown');
+    return;
   }
 
   # Check we got a proper ID, otherwise sleep, hoping we'll get a better one
@@ -732,13 +743,13 @@ sub get_work
 }
 
 sub copy_done {
-  my ( $kernel, $heap, $hash_ref ) = @_[ KERNEL, HEAP, ARG0 ];
+  my ( $self, $kernel, $heap, $hash_ref ) = @_[ OBJECT, KERNEL, HEAP, ARG0 ];
 
   foreach my $file ( @{ $hash_ref->{files} } )
     {
       if ( $file->{status} != 0 )
 	{
-	  $heap->{Self}->Debug("rfcp " . $file->{source} . " " . $file->{target} . " returned " . $file->{status} . "\n");
+	  $self->Debug("rfcp " . $file->{source} . " " . $file->{target} . " returned " . $file->{status} . "\n");
 	  $heap->{HashRef}->{status} = $file->{status};
 	  last;
 	}
@@ -753,14 +764,14 @@ sub job_done
 
   if ( $heap->{HashRef}->{status} == 0 )
     {
-      $heap->{Self}->Verbose("Copy " . $heap->{HashRef}->{id} . " succeeded\n");
+      $self->Verbose("Copy " . $heap->{HashRef}->{id} . " succeeded\n");
 
       # record copy time
       $heap->{HashRef}->{time} = time - $heap->{WorkStarted};
     }
   else
     {
-      $heap->{Self}->Verbose("Copy " . $heap->{HashRef}->{id} . " failed\n");
+      $self->Verbose("Copy " . $heap->{HashRef}->{id} . " failed\n");
     }
 
   # send report back to manager
