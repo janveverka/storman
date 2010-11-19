@@ -79,7 +79,7 @@ sub new
 # Some terminal signal got received
 sub sig_abort {
     my ( $kernel, $heap, $signal ) = @_[ KERNEL, HEAP, ARG0 ];
-    $kernel->Log( "Shutting down on signal SIG$signal" );
+    $heap->{Self}->Quiet( "Shutting down on signal SIG$signal" );
     $heap->{State} = 'Stop';
     $kernel->sig_handled();
 }
@@ -132,7 +132,7 @@ sub ReadConfig
   my $file = $self->{Config};
 
   return unless $file;
-  $self->Log("Reading configuration file ",$file);
+  $self->Quiet("Reading configuration file ",$file);
 
   my $n = $self->{Name};
   $n =~ s%Worker.*$%Manager%;
@@ -595,7 +595,7 @@ sub update_beam_status {
   my $content = get $level0_url;
   my %level0;
   if( ! defined $content ) {
-    $self->Log("Could not get beam status from Level-0. Probably not running.");
+    $self->Quiet("Could not get beam status from Level-0. Probably not running.");
   }
   else {
     my ( $headers, $values ) = split /\n/, $content;
