@@ -8,6 +8,7 @@ use POE::Component::Client::TCP;
 use Sys::Hostname;
 use T0::Util;
 use DBI;
+use Data::Dumper;
 
 our (@ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION);
 
@@ -245,6 +246,7 @@ sub server_input {
 					       $heap->{DatabasePassword},
 					       {
 						RaiseError => 1,
+						PrintError => 0,
 						AutoCommit => 0
 					       });
       };
@@ -261,7 +263,7 @@ sub server_input {
 	my $sql = "SELECT COUNT(*) FROM " . $heap->{DatabaseUser} . ".cmssw_version ";
 	$sql .= " WHERE name = ?";
 	if ( ! ( $heap->{StmtFindCMSSWVersion} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
-	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+	  $heap->{Self}->Quiet("failed prepare : ", $DBI::errstr, "\n");
 	  undef $heap->{DatabaseHandle};
 	}
       }
@@ -273,7 +275,7 @@ sub server_input {
 	$sql .= "WHERE NOT EXISTS ";
 	$sql .= "(SELECT * FROM " . $heap->{DatabaseUser} . ".cmssw_version WHERE name = ?)";
 	if ( ! ( $heap->{StmtInsertCMSSWVersion} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
-	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+	  $heap->{Self}->Quiet("failed prepare : ", $DBI::errstr, "\n");
 	  undef $heap->{DatabaseHandle};
 	}
       }
@@ -282,7 +284,7 @@ sub server_input {
 	my $sql = "SELECT COUNT(*) FROM " . $heap->{DatabaseUser} . ".run a ";
 	$sql .= "WHERE a.run_id = ?";
 	if ( ! ( $heap->{StmtFindRun} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
-	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+	  $heap->{Self}->Quiet("failed prepare : ", $DBI::errstr, "\n");
 	  undef $heap->{DatabaseHandle};
 	}
       }
@@ -297,7 +299,7 @@ sub server_input {
 	$sql .= "?,0,";
 	$sql .= "(SELECT ID FROM " . $heap->{DatabaseUser} . ".run_status WHERE STATUS = 'Active'))";
 	if ( ! ( $heap->{StmtInsertRun} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
-	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+	  $heap->{Self}->Quiet("failed prepare : ", $DBI::errstr, "\n");
 	  undef $heap->{DatabaseHandle};
 	}
       }
@@ -310,7 +312,7 @@ sub server_input {
 	$sql .= "(SELECT * FROM " . $heap->{DatabaseUser} . ".lumi_section ";
 	$sql .= "WHERE lumi_id = ? AND run_id = ?)";
 	if ( ! ( $heap->{StmtInsertLumi} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
-	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+	  $heap->{Self}->Quiet("failed prepare : ", $DBI::errstr, "\n");
 	  undef $heap->{DatabaseHandle};
 	}
       }
@@ -319,7 +321,7 @@ sub server_input {
 	my $sql = "SELECT COUNT(*) FROM " . $heap->{DatabaseUser} . ".stream ";
 	$sql .= "where name = ?";
 	if ( ! ( $heap->{StmtFindStream} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
-	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+	  $heap->{Self}->Quiet("failed prepare : ", $DBI::errstr, "\n");
 	  undef $heap->{DatabaseHandle};
 	}
       }
@@ -329,7 +331,7 @@ sub server_input {
 	$sql .= "(ID,NAME) ";
 	$sql .= "VALUES (stream_SEQ.nextval,?)";
 	if ( ! ( $heap->{StmtInsertStream} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
-	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+	  $heap->{Self}->Quiet("failed prepare : ", $DBI::errstr, "\n");
 	  undef $heap->{DatabaseHandle};
 	}
       }
@@ -339,7 +341,7 @@ sub server_input {
 	$sql .= "WHERE run_id = ? ";
 	$sql .= "AND stream_id = ( SELECT id FROM stream WHERE name = ? )";
 	if ( ! ( $heap->{StmtFindRunStreamVersionAssoc} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
-	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+	  $heap->{Self}->Quiet("failed prepare : ", $DBI::errstr, "\n");
 	  undef $heap->{DatabaseHandle};
 	}
       }
@@ -350,26 +352,25 @@ sub server_input {
 	$sql .= "SELECT ?,(SELECT id FROM stream WHERE name = ?),id,id FROM cmssw_version ";
 	$sql .= "WHERE name = ?";
 	if ( ! ( $heap->{StmtInsertRunStreamVersionAssoc} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
-	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+	  $heap->{Self}->Quiet("failed prepare : ", $DBI::errstr, "\n");
 	  undef $heap->{DatabaseHandle};
 	}
       }
 
       if ( $heap->{DatabaseHandle} ) {
-	my $sql = "select COUNT(*) from " . $heap->{DatabaseUser} . ".streamer ";
-	$sql .= "where lfn = ?";
-	if ( ! ( $heap->{StmtFindStreamer} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
-	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
-	  undef $heap->{DatabaseHandle};
-	}
-      }
-
-      if ( $heap->{DatabaseHandle} ) {
-	my $sql = "insert into " . $heap->{DatabaseUser} . ".streamer ";
+	my $sql = "DECLARE ";
+	$sql .= "next_id INT; ";
+	$sql .= "BEGIN ";
+	$sql .= "SELECT wmbs_file_details_SEQ.nextval INTO next_id FROM DUAL; ";
+	$sql .= "INSERT INTO " . $heap->{DatabaseUser} . ".wmbs_file_details ";
+	$sql .= "(ID,LFN,FILESIZE,EVENTS,MERGED) ";
+	$sql .= "VALUES (next_id,?,?,?,'1'); ";
+	$sql .= "INSERT INTO " . $heap->{DatabaseUser} . ".streamer ";
 	$sql .= "(STREAMER_ID,RUN_ID,LUMI_ID,INSERT_TIME,FILESIZE,EVENTS,LFN,STREAM_ID) ";
-	$sql .= "values (streamer_SEQ.nextval,?,?,?,?,?,?,(SELECT id FROM stream WHERE name = ?))";
+	$sql .= "VALUES (next_id,?,?,?,?,?,?,(SELECT id FROM stream WHERE name = ?)); ";
+	$sql .= "END;";
 	if ( ! ( $heap->{StmtInsertStreamer} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
-	  $heap->{Self}->Quiet("failed prepare : $heap->{DatabaseHandle}->errstr\n");
+	  $heap->{Self}->Quiet("failed prepare : ", $DBI::errstr, "\n");
 	  undef $heap->{DatabaseHandle};
 	}
       }
@@ -406,7 +407,7 @@ sub server_input {
 
 		if ( $@ ) {
 		    $heap->{Self}->Quiet("Could not check for CMSSW version $version\n");
-		    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+		    $heap->{Self}->Quiet($DBI::errstr, "\n");
 		    $hash_ref->{status} = 1;
 		    last;
 		}
@@ -437,7 +438,7 @@ sub server_input {
 		    foreach ( @insertVersionList ) {
 			$heap->{Self}->Quiet("Could not insert CMSSW version $_\n");
 		    }
-		    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+		    $heap->{Self}->Quiet($DBI::errstr, "\n");
 		    $hash_ref->{status} = 1;
 		}
 
@@ -479,7 +480,7 @@ sub server_input {
 
 		if ( $@ ) {
 		    $heap->{Self}->Quiet("Could not check for run $run\n");
-		    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+		    $heap->{Self}->Quiet($DBI::errstr, "\n");
 		    $hash_ref->{status} = 1;
 		    last;
 		}
@@ -526,7 +527,7 @@ sub server_input {
 		    foreach ( @insertRunList ) {
 			$heap->{Self}->Quiet("Could not insert run $_\n");
 		    }
-		    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+		    $heap->{Self}->Quiet($DBI::errstr, "\n");
 		    $hash_ref->{status} = 1;
 		}
 
@@ -589,7 +590,7 @@ sub server_input {
 			$heap->{Self}->Quiet("Could not insert lumi section $lumi for run $run\n");
 		    }
 		}
-		$heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+		$heap->{Self}->Quiet($DBI::errstr, "\n");
 		$hash_ref->{status} = 1;
 	    }
 
@@ -631,7 +632,7 @@ sub server_input {
 	    
 		if ( $@ ) {
 		    $heap->{Self}->Quiet("Could not check for stream $stream\n");
-		    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+		    $heap->{Self}->Quiet($DBI::errstr, "\n");
 		    $hash_ref->{status} = 1;
 		    last;
 		}
@@ -660,7 +661,7 @@ sub server_input {
 
 		    # don't accept failure as-is, check if streams are all there
 		    $heap->{Self}->Quiet("Error in bulk stream insertion\n");
-		    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+		    $heap->{Self}->Quiet($DBI::errstr, "\n");
 		    $heap->{Self}->Quiet("Double checking for completion\n");
 
 		    $sth = $heap->{StmtFindStream};
@@ -675,7 +676,7 @@ sub server_input {
 	    
 			if ( $@ ) {
 			    $heap->{Self}->Quiet("Could not check for stream $stream\n");
-			    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+			    $heap->{Self}->Quiet($DBI::errstr, "\n");
 			    $hash_ref->{status} = 1;
 			    last;
 			}
@@ -730,7 +731,7 @@ sub server_input {
 	    
 		    if ( $@ ) {
 			$heap->{Self}->Quiet("Could not check for run_stream_cmssw_assoc for run $run and stream $stream\n");
-			$heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+			$heap->{Self}->Quiet($DBI::errstr, "\n");
 			$hash_ref->{status} = 1;
 		    }
 
@@ -765,7 +766,7 @@ sub server_input {
 
 		    # don't accept failure as-is, check if streams are all there
 		    $heap->{Self}->Quiet("Error in bulk run_stream_cmssw_assoc insertion\n");
-		    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+		    $heap->{Self}->Quiet($DBI::errstr, "\n");
 		    $heap->{Self}->Quiet("Double checking for completion\n");
 
 		    $sth = $heap->{StmtFindRunStreamVersionAssoc};
@@ -782,7 +783,7 @@ sub server_input {
 
 			    if ( $@ ) {
 				$heap->{Self}->Quiet("Could not check for run_stream_cmssw_assoc for run $run and stream $stream\n");
-				$heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
+				$heap->{Self}->Quiet($DBI::errstr, "\n");
 				$hash_ref->{status} = 1;
 				last;
 			    }
@@ -819,8 +820,9 @@ sub server_input {
 	#
 	if ( $hash_ref->{status} ==  0 ) {
 
-	    # start assuming failure here
-	    $hash_ref->{status} ==  1; 
+	    # start assuming failure here, which means rollback
+	    # unless something happens that we have to commit
+	    $hash_ref->{status} =  1; 
 
 	    $sth = $heap->{StmtInsertStreamer};
 
@@ -843,13 +845,16 @@ sub server_input {
 	    my $tuples = undef;
 	    my @tuple_status = undef;
 	    eval {
-		$sth->bind_param_array(1, \@insertRunList);
-		$sth->bind_param_array(2, \@insertLumiList);
-		$sth->bind_param_array(3, time());
-		$sth->bind_param_array(4, \@insertFilesizeList);
-		$sth->bind_param_array(5, \@insertNeventsList);
-		$sth->bind_param_array(6, \@insertLfnList);
-		$sth->bind_param_array(7, \@insertStreamList);
+		$sth->bind_param_array(1, \@insertLfnList);
+		$sth->bind_param_array(2, \@insertFilesizeList);
+		$sth->bind_param_array(3, \@insertNeventsList);
+		$sth->bind_param_array(4, \@insertRunList);
+		$sth->bind_param_array(5, \@insertLumiList);
+		$sth->bind_param_array(6, time());
+		$sth->bind_param_array(7, \@insertFilesizeList);
+		$sth->bind_param_array(8, \@insertNeventsList);
+		$sth->bind_param_array(9, \@insertLfnList);
+		$sth->bind_param_array(10, \@insertStreamList);
 		$tuples = $sth->execute_array({ ArrayTupleStatus => \@tuple_status });
 	    };
 
@@ -860,35 +865,52 @@ sub server_input {
 		    $hash_ref->{status} = 0;
 		}
 	    } else {
-		my @lfnList = keys %$lfn_hash_ref;
-		for my $tuple (0..scalar(@lfnList)-1) {
-		    my $lfn = $lfnList[$tuple];
-		    my $status = $tuple_status[$tuple];
-		    if ( $status and ref $status and $status->[0] ) {
+
+		# bulk insert failed
+		#
+		# Now it gets tricky. As we use a procedure to insert, there is
+		# no useful status information what rows were or weren't inserted
+		#
+		# this is error recovery, so we brute force it
+		# first rollback, then go through the LFN list one by one
+		#
+		$heap->{Self}->Quiet("Error in bulk streamer insertion\n");
+		$heap->{Self}->Quiet($DBI::errstr, "\n");
+		$heap->{Self}->Quiet("Rollback and insert individually\n");
+
+		eval {
+		    $heap->{DatabaseHandle}->rollback();
+		};
+
+		if ( $@ ) {
+		    $heap->{Self}->Quiet("Could not rollback failed bulk streamer insertion\n");
+		    $heap->{Self}->Quiet($DBI::errstr, "\n");
+		    $hash_ref->{status} = 1;
+		}
+
+		foreach my $lfn ( keys %$lfn_hash_ref ) {
+		
+		    eval {
+			$sth->bind_param(1, $lfn);
+			$sth->bind_param(2, $lfn_hash_ref->{$lfn}->{filesize});
+			$sth->bind_param(3, $lfn_hash_ref->{$lfn}->{nevents});
+			$sth->bind_param(4, $lfn_hash_ref->{$lfn}->{run});
+			$sth->bind_param(5, $lfn_hash_ref->{$lfn}->{lumi});
+			$sth->bind_param(6, time());
+			$sth->bind_param(7, $lfn_hash_ref->{$lfn}->{filesize});
+			$sth->bind_param(8, $lfn_hash_ref->{$lfn}->{nevents});
+			$sth->bind_param(9, $lfn);
+			$sth->bind_param(10, $lfn_hash_ref->{$lfn}->{stream});
+			$tuples = $sth->execute();
+		    };
+
+		    if ( $@ ) {
 			$heap->{Self}->Quiet("Could not insert streamer with LFN $lfn\n");
-			$heap->{Self}->Quiet("ERROR : " . $status->[1] . "\n");
+			$heap->{Self}->Quiet($DBI::errstr, "\n");
 		    } else {
-
-			# possibly inserted streamer, double check
-			$sth = $heap->{StmtFindStreamer};
-
-			eval {
-			    $sth->bind_param(1, $lfn);
-			    $sth->execute();
-			    $count = $sth->fetchrow_array();
-			};
-
-			if ( $@ ) {
-			    $heap->{Self}->Quiet("Could not check for streamer with LFN $lfn\n");
-			    $heap->{Self}->Quiet("$heap->{DatabaseHandle}->errstr\n");
-			    last;
-			} elsif ( $count == 0 ) {
-			    $heap->{Self}->Quiet("Could not insert streamer with LFN $lfn\n");
-			} else {
-			    $heap->{Self}->Quiet("Inserted streamer with LFN $lfn\n");
-			    $lfn_hash_ref->{$lfn}->{status} = 0;
-			    $hash_ref->{status} = 0;
-			}
+			$heap->{Self}->Quiet("Inserted streamer with LFN $lfn\n");
+			$lfn_hash_ref->{$lfn}->{status} = 0;
+			$hash_ref->{status} = 0;
 		    }
 		}
 	    }
@@ -938,7 +960,6 @@ sub server_input {
 	    $heap->{Self}->Quiet("Injection for ", $lfn, " failed\n");
 	}
     }
-
     
     # cleanup lfn hash_ref
     delete $lfn_hash_ref->{run};
@@ -1039,7 +1060,7 @@ sub job_done
       Print "Shutting down...\n";
       $kernel->yield('shutdown');
       exit;
-    }
+  }
 }
 
 1;
