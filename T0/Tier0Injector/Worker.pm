@@ -365,9 +365,12 @@ sub server_input {
 	$sql .= "INSERT INTO " . $heap->{DatabaseUser} . ".wmbs_file_details ";
 	$sql .= "(ID,LFN,FILESIZE,EVENTS,MERGED) ";
 	$sql .= "VALUES (next_id,?,?,?,'1'); ";
+	$sql .= "INSERT INTO " . $heap->{DatabaseUser} . ".wmbs_file_runlumi_map ";
+	$sql .= "(FILEID,RUN,LUMI) ";
+	$sql .= "VALUES (next_id,?,?); ";
 	$sql .= "INSERT INTO " . $heap->{DatabaseUser} . ".streamer ";
-	$sql .= "(STREAMER_ID,RUN_ID,LUMI_ID,INSERT_TIME,FILESIZE,EVENTS,LFN,STREAM_ID) ";
-	$sql .= "VALUES (next_id,?,?,?,?,?,?,(SELECT id FROM stream WHERE name = ?)); ";
+	$sql .= "(STREAMER_ID,RUN_ID,LUMI_ID,INSERT_TIME,STREAM_ID) ";
+	$sql .= "VALUES (next_id,?,?,?,(SELECT id FROM stream WHERE name = ?)); ";
 	$sql .= "END;";
 	if ( ! ( $heap->{StmtInsertStreamer} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
 	  $heap->{Self}->Quiet("failed prepare : ", $DBI::errstr, "\n");
@@ -850,11 +853,10 @@ sub server_input {
 		$sth->bind_param_array(3, \@insertNeventsList);
 		$sth->bind_param_array(4, \@insertRunList);
 		$sth->bind_param_array(5, \@insertLumiList);
-		$sth->bind_param_array(6, time());
-		$sth->bind_param_array(7, \@insertFilesizeList);
-		$sth->bind_param_array(8, \@insertNeventsList);
-		$sth->bind_param_array(9, \@insertLfnList);
-		$sth->bind_param_array(10, \@insertStreamList);
+		$sth->bind_param_array(6, \@insertRunList);
+		$sth->bind_param_array(7, \@insertLumiList);
+		$sth->bind_param_array(8, time());
+		$sth->bind_param_array(9, \@insertStreamList);
 		$tuples = $sth->execute_array({ ArrayTupleStatus => \@tuple_status });
 	    };
 
