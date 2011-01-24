@@ -173,6 +173,7 @@ sub server_input {
         # Check database handle, connect if needed
         # Prepare all the selects and inserts
         #
+        # XXX This should be some function, and factorised!
         if ( !$heap->{DatabaseHandle}
             || time() - $heap->{DatabaseHandleCreation} >
             $self->{DatabaseHandleLifetime} )
@@ -343,6 +344,34 @@ sub server_input {
                 }
             }
 
+            # Hashmap
+            if ( $heap->{DatabaseHandle} ) {
+                my %storedProcedure = (
+                    checked  => 'FILES_TRANS_CHECKED_PROC',
+                    new      => 'FILES_TRANS_NEW_PROC',
+                    copied   => 'FILES_TRANS_COPIED_PROC',
+                    repacked => 'FILES_TRANS_REPACKED_PROC',
+                );
+                for my $state ( keys %storedProcedure ) {
+                    my $sql =
+                        "BEGIN "
+                      . $heap->{DatabaseName}
+                      . ".$storedProcedure{$state}( ? ); END;";
+                    if (
+                        !(
+                            $heap->{Trigger}->{$state} =
+                            $heap->{DatabaseHandle}->prepare($sql)
+                        )
+                      )
+                    {
+                        $heap->{Self}->Quiet( "failed prepare : "
+                              . $heap->{DatabaseHandle}->errstr
+                              . "\n" );
+                        undef $heap->{DatabaseHandle};
+                    }
+                }
+            }
+
             if ( $heap->{DatabaseHandle} ) {
                 $heap->{Self}->Quiet("Connected to database\n");
             }
@@ -369,60 +398,117 @@ sub server_input {
             }
 
             if ( defined $sth ) {
-                foreach my $filename (@$fileList) {
 
+                # Check if the state has been migrated already
+                if ( exists $heap->{Trigger}->{$fileStatus} ) {
+                    my $stored_proc  = $heap->{Trigger}->{$fileStatus};
+                    my $tuples       = undef;
+                    my @tuple_status = undef;
+
+                    $heap->{Self}
+                      ->Quiet( "Doing $fileStatus with the BULK version\n" );
                     eval {
-                        $sth->bind_param( 1, $filename );
-                        $sth->bind_param( 2, $filename );
-                        $sth->execute();
+                        $tuples = $sth->execute_array(
+                            { ArrayTupleStatus => \@tuple_status },
+                            $fileList, $fileList );
                     };
+                    if ( !$@ && $tuples ) {
+                        for (@$fileList) {
+                            $heap->{Self}->Verbose( "Updated transfer status "
+                                  . "for $_ to $fileStatus\n" );
+                        }
 
-                    if ($@) {
-                        $heap->{Self}->Quiet(
-"Could not update transfer status for $filename to $fileStatus\n"
-                        );
-                        $heap->{Self}
-                          ->Quiet("$heap->{DatabaseHandle}->errstr\n");
-                        $hash_ref->{status} = 1;
-                        $heap->{DatabaseHandle}->rollback();
+                        # We commit right away so we can call the stored
+                        # procedure without causing deadlocks
+                        $heap->{DatabaseHandle}->commit();
+
+                        # But we still mark it for commit, so that the stored
+                        # procedure calls will get committed. We do not really
+                        # care of the outcome of those anyway
+                        $hash_ref->{commit} = 1;
+                        eval {
+                            $tuples = $stored_proc->execute_array(
+                                { ArrayTupleStatus => \@tuple_status },
+                                $fileList );
+                        };
+                        if ( !$@ && $tuples ) {
+                            $heap->{Self}->Quiet(
+                                "Stored procedure completed successfully\n");
+                        }
+                        else {
+                            $heap->{Self}
+                              ->Verbose("Stored procedure failed: $@\n");
+                            for my $tuple ( 0 .. @$fileList - 1 ) {
+                                my $status = $tuple_status[$tuple];
+                                if ( $status and ref $status and $status->[0] )
+                                {
+                                    $heap->{Self}->Verbose(
+                                        'Could not call stored procedure for '
+                                          . $fileList->[$tuple]
+                                          . " (to $fileStatus)\n" );
+                                    $heap->{Self}->Verbose(
+                                        "ERROR : " . $status->[1] . "\n" );
+                                }
+                                else {
+                                    $heap->{Self}->Verbose(
+"Might have called stored procedure for "
+                                          . $fileList->[$tuple]
+                                          . " to $fileStatus (unconfirmed)\n" );
+                                }
+                            }
+                        }
                     }
                     else {
-                        $heap->{Self}->Quiet(
-"Updated transfer status for $filename to $fileStatus\n"
-                        );
-                        $hash_ref->{commit} = 1;
-                        $heap->{DatabaseHandle}->commit();
+                        for my $tuple ( 0 .. @$fileList - 1 ) {
+                            my $status = $tuple_status[$tuple];
+                            if ( $status and ref $status and $status->[0] ) {
+                                $heap->{Self}->Verbose(
+                                        'Could not update transfer status for '
+                                      . $fileList->[$tuple]
+                                      . " to $fileStatus\n" );
+                                $heap->{Self}
+                                  ->Verbose( "ERROR : " . $status->[1] . "\n" );
+                            }
+                            else {
+                                $heap->{Self}
+                                  ->Verbose( "Updated transfer status for "
+                                      . $fileList->[$tuple]
+                                      . " to $fileStatus (unconfirmed)\n" );
+                                $hash_ref->{commit} = 1;
+                            }
+                        }
+                        $hash_ref->{status} = 1;
                     }
                 }
-
-#	    my $tuples = undef;
-#	    my @tuple_status = undef;
-#	    eval {
-#		$sth->bind_param_array(1,\@$fileList);
-#		$sth->bind_param_array(2,\@$fileList);
-#		$tuples = $sth->execute_array( { ArrayTupleStatus => \@tuple_status } );
-#	    };
-#
-#	    if ( ! $@ and $tuples ) {
-#		foreach ( @$fileList ) {
-#		    $heap->{Self}->Quiet("Updated transfer status for $_ to $fileStatus\n");
-#		}
-#		$hash_ref->{commit} = 1;
-#	    } else {
-#		for my $tuple (0..@$fileList-1) {
-#		    my $status = $tuple_status[$tuple];
-#		    if ( $status and ref $status and $status->[0] ) {
-#			$heap->{Self}->Quiet("Could not update transfer status for " . $fileList->[$tuple] . " to $fileStatus\n");
-#			$heap->{Self}->Quiet("ERROR : " . $status->[1] . "\n");
-#		    } else {
-#			$heap->{Self}->Quiet("Updated transfer status for " . $fileList->[$tuple] ." to $fileStatus (unconfirmed)\n");
-#			$hash_ref->{commit} = 1;
-#		    }
-#		}
-#		$hash_ref->{status} = 1;
-#	    }
+                else {    # Old way: Loop.
+                          # XXX Only insert left, as it does not update Page-1
+                    $heap->{Self}
+                      ->Verbose("Doing $fileStatus with the LOOP version\n");
+                    foreach my $filename (@$fileList) {
+                        eval {
+                            $sth->bind_param( 1, $filename );
+                            $sth->bind_param( 2, $filename );
+                            $sth->execute();
+                        };
+                        if ($@) {
+                            $heap->{Self}
+                              ->Quiet( "Could not update transfer status "
+                                  . "for $filename to $fileStatus\n" );
+                            $heap->{Self}
+                              ->Quiet( $heap->{DatabaseHandle}->errstr . "\n" );
+                            $hash_ref->{status} = 1;
+                            $heap->{DatabaseHandle}->rollback();
+                        }
+                        else {
+                            $heap->{Self}->Quiet( "Updated transfer status "
+                                  . "for $filename to $fileStatus\n" );
+                            $hash_ref->{commit} = 1;
+                            $heap->{DatabaseHandle}->commit();
+                        }
+                    }
+                }    # Loop vs bulk-update
             }
-            else {
+            else {    # No statement handler, so no DB connection
                 foreach (@$fileList) {
                     $heap->{Self}->Quiet(
                         "Could not update $_ to unknown status $fileStatus\n");
