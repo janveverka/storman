@@ -615,7 +615,7 @@ sub update_beam_status {
   }
   my @lhc_modes = qw( MACHINE_MODE BEAM_MODE CLOCK_STABLE );
   $heap->{lhc}->{$_} = $level0{'LHC_' . $_} for @lhc_modes;
-  $self->Debug('LHC status: '.join(', ',map{ "$_ => '$heap->{lhc}->{$_}'" } @lhc_modes),"\n");
+  $self->Debug('LHC status: '.join(', ',map{ "$_ => '" . ( defined $heap->{lhc}->{$_} ? $heap->{lhc}->{$_} : '' ) . "'" } @lhc_modes),"\n");
   $kernel->delay( update_beam_status => 60 );
 }
 
