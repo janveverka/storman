@@ -106,9 +106,6 @@ sub start_task
   # save reference to myself on heap
   $heap->{Self} = $self;
 
-  # helper variable for queue management
-  $heap->{LastWorkSent} = time();
-
   # initalize some parameters
   $self->{TotalEvents} = 0;
   $self->{TotalVolume} = 0;
@@ -347,37 +344,40 @@ sub send_work
   if ( $self->{State} eq 'Running' )
   {
       my @workList = ();
-      my ($temp1, $temp2) = (undef, undef);
-
       my $maxWaitTime = 30;
       my $count = $self->{Queue}->get_item_count();
 
+      # initialize if not defined (after startup)
+      if ( ! defined($heap->{LastWorkSent}) ) {
+	  $heap->{LastWorkSent} = 0;
+      }
+
       #
-      # send work if queue lenght is at least 100 or last work sent too long ago
+      # send work if queue lenght is more than 0 and
+      # at least 100 or last work sent too long ago
       # send a maximum of 900 payloads at once
       #
-      if ( $count >= 100 ||
-	   ( time() - $heap->{LastWorkSent} ) > $maxWaitTime )
-      {
-	  $count = 0;
-	  while ( ($temp1, $temp2, $work) = $self->{Queue}->dequeue_next() )
+      if ( $count > 0 ) {
+	  if ( $count >= 100 ||
+	       ( time() - $heap->{LastWorkSent} ) > $maxWaitTime )
 	  {
-	      $priority = $temp1;
-	      $id = $temp2;
-	      push(@workList, $work);
-	      $count++;
-	      last if ( $count ==  900 );
-	  }
+	      $count = 0;
+	      while ( my ($temp1, $temp2, $work) = $self->{Queue}->dequeue_next() )
+	      {
+		  $priority = $temp1;
+		  $id = $temp2;
+		  push(@workList, $work);
+		  $count++;
+		  last if ( $count ==  900 );
+	      }
 
-	  if ( defined $id )
-	  {
-	      $self->Quiet("Send: Tier0Injector job ",$id," to $client\n");
+	      $self->Quiet("Send: Tier0Injector job ", $id, " to ", $client , "\n");
 	      %text = (
-		       'command'	=> 'DoThis',
-		       'client'	=> $client,
-		       'priority'	=> $priority,
-		       'workList'	=> \@workList,
-		       'id'         => $id,
+		       'command'  => 'DoThis',
+		       'client'	  => $client,
+		       'priority' => $priority,
+		       'workList' => \@workList,
+		       'id'       => $id,
 		       );
 	      $heap->{client}->put( \%text );
 	      $heap->{LastWorkSent} = time();
