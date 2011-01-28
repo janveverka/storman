@@ -908,7 +908,11 @@ sub server_input {
 
 		    if ( $@ ) {
 			$heap->{Self}->Quiet("Could not insert streamer with LFN $lfn\n");
-			$heap->{Self}->Quiet($DBI::errstr, "\n");
+			if ( defined($DBI::errstr) ) {
+			    $heap->{Self}->Quiet($DBI::errstr, "\n");
+			} else {
+			    $heap->{Self}->Quiet("No error message from the DBI layer, sorry !\n");
+			}
 		    } else {
 			$heap->{Self}->Quiet("Inserted streamer with LFN $lfn\n");
 			$lfn_hash_ref->{$lfn}->{status} = 0;
