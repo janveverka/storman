@@ -898,11 +898,10 @@ sub server_input {
 			$sth->bind_param(3, $lfn_hash_ref->{$lfn}->{nevents});
 			$sth->bind_param(4, $lfn_hash_ref->{$lfn}->{run});
 			$sth->bind_param(5, $lfn_hash_ref->{$lfn}->{lumi});
-			$sth->bind_param(6, time());
-			$sth->bind_param(7, $lfn_hash_ref->{$lfn}->{filesize});
-			$sth->bind_param(8, $lfn_hash_ref->{$lfn}->{nevents});
-			$sth->bind_param(9, $lfn);
-			$sth->bind_param(10, $lfn_hash_ref->{$lfn}->{stream});
+			$sth->bind_param(6, $lfn_hash_ref->{$lfn}->{run});
+			$sth->bind_param(7, $lfn_hash_ref->{$lfn}->{lumi});
+			$sth->bind_param(8, time());
+			$sth->bind_param(9, $lfn_hash_ref->{$lfn}->{stream});
 			$tuples = $sth->execute();
 		    };
 
