@@ -347,27 +347,30 @@ sub server_input {
             # Hashmap
             if ( $heap->{DatabaseHandle} ) {
                 my %storedProcedure = (
-                    checked  => 'FILES_TRANS_CHECKED_PROC',
-                    new      => 'FILES_TRANS_NEW_PROC',
-                    copied   => 'FILES_TRANS_COPIED_PROC',
-                    repacked => 'FILES_TRANS_REPACKED_PROC',
+                    checked  => 'TRANS_CHECKED_PROC',
+                    new      => 'TRANS_NEW_PROC',
+                    copied   => 'TRANS_COPIED_PROC',
+                    repacked => 'TRANS_REPACKED_PROC',
                 );
                 for my $state ( keys %storedProcedure ) {
-                    my $sql =
-                        "BEGIN "
-                      . $heap->{DatabaseName}
-                      . ".$storedProcedure{$state}( ? ); END;";
-                    if (
-                        !(
-                            $heap->{Trigger}->{$state} =
-                            $heap->{DatabaseHandle}->prepare($sql)
-                        )
-                      )
-                    {
-                        $heap->{Self}->Quiet( "failed prepare : "
-                              . $heap->{DatabaseHandle}->errstr
-                              . "\n" );
-                        undef $heap->{DatabaseHandle};
+
+                    # Split: One for SM_SUMMARY, one for SM_INSTANCES
+                    for my $table (qw( SUMMARY INSTANCES )) {
+                        my $proc_name = "$storedProcedure{$state}_$table";
+                        my $sql =
+                            "BEGIN "
+                          . $heap->{DatabaseName}
+                          . ".$proc_name( ? ); END;";
+                        if ( my $sth = $heap->{DatabaseHandle}->prepare($sql) )
+                        {
+                            $heap->{StoredProc}->{$state}->{$proc_name} = $sth;
+                        }
+                        else {
+                            $heap->{Self}->Quiet( "failed prepare : "
+                                  . $heap->{DatabaseHandle}->errstr
+                                  . "\n" );
+                            undef $heap->{DatabaseHandle};
+                        }
                     }
                 }
             }
@@ -400,13 +403,14 @@ sub server_input {
             if ( defined $sth ) {
 
                 # Check if the state has been migrated already
-                if ( exists $heap->{Trigger}->{$fileStatus} ) {
-                    my $stored_proc  = $heap->{Trigger}->{$fileStatus};
+                if ( exists $heap->{StoredProc}->{$fileStatus} ) {
+                    my $stored_proc_hashref =
+                      $heap->{StoredProc}->{$fileStatus};
                     my $tuples       = undef;
                     my @tuple_status = undef;
 
                     $heap->{Self}
-                      ->Quiet( "Doing $fileStatus with the BULK version\n" );
+                      ->Quiet("Doing $fileStatus with the BULK version\n");
                     eval {
                         $tuples = $sth->execute_array(
                             { ArrayTupleStatus => \@tuple_status },
@@ -422,46 +426,58 @@ sub server_input {
                         # procedure without causing deadlocks
                         $heap->{DatabaseHandle}->commit();
 
-                        # But we still mark it for commit, so that the stored
-                        # procedure calls will get committed. We do not really
-                        # care of the outcome of those anyway
-                        $hash_ref->{commit} = 1;
-                        eval {
-                            $tuples = $stored_proc->execute_array(
-                                { ArrayTupleStatus => \@tuple_status },
-                                $fileList );
-                        };
-                        if ( !$@ && $tuples ) {
-                            $heap->{Self}->Quiet(
-                                "Stored procedure completed successfully\n");
-                        }
-                        else {
-                            $heap->{Self}
-                              ->Verbose("Stored procedure failed: $@\n");
-                            for my $tuple ( 0 .. @$fileList - 1 ) {
-                                my $status = $tuple_status[$tuple];
-                                if ( $status and ref $status and $status->[0] )
-                                {
-                                    $heap->{Self}->Verbose(
-                                        'Could not call stored procedure for '
-                                          . $fileList->[$tuple]
-                                          . " (to $fileStatus)\n" );
-                                    $heap->{Self}->Verbose(
-                                        "ERROR : " . $status->[1] . "\n" );
-                                }
-                                else {
-                                    $heap->{Self}->Verbose(
-"Might have called stored procedure for "
-                                          . $fileList->[$tuple]
-                                          . " to $fileStatus (unconfirmed)\n" );
+                        while ( my ( $proc_name, $stored_proc ) =
+                            each %$stored_proc_hashref )
+                        {
+                            eval {
+                                $tuples = $stored_proc->execute_array(
+                                    { ArrayTupleStatus => \@tuple_status },
+                                    $fileList );
+                            };
+                            if ( !$@ && $tuples ) {
+                                $heap->{Self}
+                                  ->Quiet( "Stored procedure $proc_name"
+                                      . " completed successfully\n" );
+                            }
+                            else {
+                                $heap->{Self}->Verbose(
+                                    "Stored procedure $proc_name failed: $@\n");
+                                for my $tuple ( 0 .. @$fileList - 1 ) {
+                                    my $status = $tuple_status[$tuple];
+                                    if (   $status
+                                        && ref $status
+                                        && $status->[0] )
+                                    {
+                                        $heap->{Self}
+                                          ->Verbose( "Could not call stored"
+                                              . " procedure $proc_name for "
+                                              . $fileList->[$tuple]
+                                              . " (to $fileStatus)\n" );
+                                        $heap->{Self}->Verbose(
+                                            "ERROR : " . $status->[1] . "\n" );
+                                    }
+                                    else {
+                                        $heap->{Self}
+                                          ->Verbose( "Called stored procedure"
+                                              . " $proc_name for "
+                                              . $fileList->[$tuple]
+                                              . " to $fileStatus (unconfirmed)\n"
+                                          );
+                                    }
                                 }
                             }
+
+                         # We commit anyway, summary tables are only informatory
+                            $heap->{DatabaseHandle}->commit();
                         }
+
+                      # We committed everything already, but it's safer that way
+                        $hash_ref->{commit} = 1;
                     }
                     else {
                         for my $tuple ( 0 .. @$fileList - 1 ) {
                             my $status = $tuple_status[$tuple];
-                            if ( $status and ref $status and $status->[0] ) {
+                            if ( $status && ref $status && $status->[0] ) {
                                 $heap->{Self}->Verbose(
                                         'Could not update transfer status for '
                                       . $fileList->[$tuple]
@@ -475,6 +491,17 @@ sub server_input {
                                       . $fileList->[$tuple]
                                       . " to $fileStatus (unconfirmed)\n" );
                                 $hash_ref->{commit} = 1;
+
+                                # Update summary tables anyway
+                                # Otherwise it gets a lot off for each error
+                                while ( my ( $proc_name, $stored_proc ) =
+                                    each %$stored_proc_hashref )
+                                {
+                                    eval {
+                                          $stored_proc->execute(
+                                            $fileList->[$tuple] );
+                                    };
+                                }
                             }
                         }
                         $hash_ref->{status} = 1;
@@ -485,11 +512,7 @@ sub server_input {
                     $heap->{Self}
                       ->Verbose("Doing $fileStatus with the LOOP version\n");
                     foreach my $filename (@$fileList) {
-                        eval {
-                            $sth->bind_param( 1, $filename );
-                            $sth->bind_param( 2, $filename );
-                            $sth->execute();
-                        };
+                        eval { $sth->execute( $filename, $filename ); };
                         if ($@) {
                             $heap->{Self}
                               ->Quiet( "Could not update transfer status "
