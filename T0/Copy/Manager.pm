@@ -224,7 +224,13 @@ sub AddHostname
 sub RemoveClient
 {
   my $self = shift;
-  my $client = shift or Croak "Expected a client...\n";
+  my $client = shift or do {
+    # No client received, so most certainly nothing to clean
+    # No point in dying there, just log and continue
+    # Otherwise it ight crash when a CopyWorker's machine crashes
+    Carp "Expected a client - Cannot remove nothing!\n";
+    return;
+  };
   my $hostname = delete $self->{hostnames}->{$client};
 
   $self->Verbose("Removing $client on $hostname\n");
