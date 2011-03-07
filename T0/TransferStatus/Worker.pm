@@ -373,6 +373,7 @@ sub server_input {
                         }
                     }
                 }
+                $heap->{StoredProc}->{inserted} = { }; # Insertion has no stored proc
             }
 
             if ( $heap->{DatabaseHandle} ) {
@@ -523,7 +524,7 @@ sub server_input {
                             $heap->{DatabaseHandle}->rollback();
                         }
                         else {
-                            $heap->{Self}->Quiet( "Updated transfer status "
+                            $heap->{Self}->Verbose( "Updated transfer status "
                                   . "for $filename to $fileStatus\n" );
                             $hash_ref->{commit} = 1;
                             $heap->{DatabaseHandle}->commit();
