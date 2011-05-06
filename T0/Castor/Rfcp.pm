@@ -34,6 +34,7 @@ use warnings;
 package T0::Castor::Rfcp;
 use POE qw( Wheel::Run Filter::Line );
 use File::Basename;
+use File::Path qw( mkpath );
 use T0::Castor::RfstatHelper;
 
 our (@ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION);
@@ -121,9 +122,10 @@ sub start_tasks {
       # hash to be passed to wheel
       my %filehash = (
 		      original => $file,
-		      source => $file->{source},
-		      target => $file->{target},
+		      source   => $file->{source},
+		      target   => $file->{target},
 		      checksum => $file->{checksum},
+		      logdir   => $file->{logdir},
 		     );
 
       # configure number of retries
@@ -292,21 +294,19 @@ sub monitor_task {
 
 sub got_task_stdout {
   my ( $kernel, $heap, $stdout, $task_id ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
-#  print "RFCP STDOUT: $stdout\n";
-
-#  push( @{ $heap->{output} }, "RFCP STDOUT: " . $stdout . "\n");
 
   my $file = $heap->{file}->{$task_id};
-  my $test = open(LOGFILE, '>>' . basename($file->{source}) . '.log');
-  print LOGFILE "$stdout\n";
-  close(LOGFILE);
+  my $logdir = $file->{logdir} || '';
+  if( $logdir && ! -d $logdir ) {
+    mkpath $logdir;
+  }
+  open(my $logfile, '>>', $logdir . basename($file->{source}) . '.log');
+  print $logfile "$stdout\n";
+  close($logfile);
 }
 
 sub got_task_stderr {
   my ( $kernel, $heap, $stderr, $task_id ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
-#  print "RFCP STDERR: $stderr\n";
-
-#  push( @{ $heap->{output} }, "RFCP STDERR: " . $stderr);
 
   my $file = $heap->{file}->{$task_id};
   open(LOGFILE, '>>' . basename($file->{source}) . '.log');

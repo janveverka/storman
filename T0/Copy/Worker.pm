@@ -23,6 +23,17 @@ sub Verbose { T0::Util::Verbose( (shift)->{Verbose}, @_ ); }
 sub Debug   { T0::Util::Debug(   (shift)->{Debug},   @_ ); }
 sub Quiet   { T0::Util::Quiet(   (shift)->{Quiet},   @_ ); }
 
+# Format a runnumber into a directory
+# Eg: 1234567 => 001/234/567
+sub format_run {
+  my $format = sprintf( "%09d", shift);
+  for ($format) {
+    s|(\d\d\d)|$1/|g;
+    s|/$||;
+  }
+  return $format;
+}
+
 sub new
 {
   my $class = shift;
@@ -205,170 +216,62 @@ sub prepare_work
   # feed parameters into work hash
   map{ $work->{$_} = $dsparams->{$_} } keys %$dsparams;
 
-  if ( $work->{TargetDir} eq '/dev/null' )
-    {
+  my ($day,$month,$year) = (localtime(time))[3,4,5];
+  $month += 1;
+  $year += 1900;
+  my $rundir = format_run($work->{RUNNUMBER});
+  my $stream = $work->{STREAM} ? "$work->{STREAM}/" : '';
+  my $setuplabel = $work->{SETUPLABEL};
+  my $lfndir = '';
+
+  if ( $work->{TargetDir} eq '/dev/null' ) {
       $work->{PFN} = '/dev/null';
-    }
-  elsif ( defined($work->{SplitMode}) )
-    {
-      my ($day,$month,$year) = (localtime(time))[3,4,5];
-      $month += 1;
-      $year += 1900;
-
+  }
+  elsif ( defined($work->{SplitMode}) ) {
       $work->{InjectIntoTier0} = 0;
-
-      if ( $work->{SplitMode} eq 'tier0StreamerNewPoolsLFN' )
-	{
-	  my $run = $work->{RUNNUMBER};
-
-	  my $lfndir;
-
-	  if ( ( not defined($work->{STREAM}) ) or $work->{STREAM} eq '' )
-	    {
-	      $lfndir = sprintf("/store/t0streamer/%s/%03d/%03d/%03d", $work->{SETUPLABEL},
-				$run/1000000, ($run%1000000)/1000, $run%1000);
-	    }
-	  else
-	    {
-	      $lfndir = sprintf("/store/t0streamer/%s/%s/%03d/%03d/%03d", $work->{SETUPLABEL}, $work->{STREAM},
-				$run/1000000, ($run%1000000)/1000, $run%1000);
-	    }
-
-	  $work->{TargetDir} .= $lfndir;
-
-	  $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
-
-	  $work->{LFN} = $lfndir . "/" . $work->{FILENAME};
-
+      if ( $work->{SplitMode} eq 'tier0StreamerNewPoolsLFN' ) {
+	  $lfndir = "/store/t0streamer/$setuplabel/$stream$rundir";
+	  $work->{LFN} = $lfndir . '/' . $work->{FILENAME};
 	  $work->{InjectIntoTier0} = 1;
-	}
-      elsif ( $work->{SplitMode} eq 'tier0StreamerLFN' )
-	{
-	  my $run = $work->{RUNNUMBER};
-
-	  my $lfndir;
-
-	  if ( ( not defined($work->{STREAM}) ) or $work->{STREAM} eq '' )
-	    {
-	      $lfndir = sprintf("/store/streamer/%s/%03d/%03d/%03d", $work->{SETUPLABEL},
-				$run/1000000, ($run%1000000)/1000, $run%1000);
-	    }
-	  else
-	    {
-	      $lfndir = sprintf("/store/streamer/%s/%s/%03d/%03d/%03d", $work->{SETUPLABEL}, $work->{STREAM},
-				$run/1000000, ($run%1000000)/1000, $run%1000);
-	    }
-
-	  $work->{TargetDir} .= $lfndir;
-
-	  $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
-
-	  $work->{LFN} = $lfndir . "/" . $work->{FILENAME};
-
+      }
+      elsif ( $work->{SplitMode} eq 'tier0StreamerLFN' ) {
+	  $lfndir = "/store/streamer/$setuplabel/$stream$rundir";
+	  $work->{LFN} = $lfndir . '/' . $work->{FILENAME};
 	  $work->{InjectIntoTier0} = 1;
-	}
-      elsif ( $work->{SplitMode} eq 'streamerLFN' )
-	{
-	  my $run = $work->{RUNNUMBER};
-
-	  my $lfndir;
-
-	  if ( ( not defined($work->{STREAM}) ) or $work->{STREAM} eq '' )
-	    {
-	      $lfndir = sprintf("/store/streamer/%s/%03d/%03d/%03d", $work->{SETUPLABEL},
-				$run/1000000, ($run%1000000)/1000, $run%1000);
-	    }
-	  else
-	    {
-	      $lfndir = sprintf("/store/streamer/%s/%s/%03d/%03d/%03d", $work->{SETUPLABEL}, $work->{STREAM},
-				$run/1000000, ($run%1000000)/1000, $run%1000);
-	    }
-
-	  $work->{TargetDir} .= $lfndir;
-
-	  $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
-
-	  $work->{LFN} = $lfndir . "/" . $work->{FILENAME};
-	}
-      elsif ( $work->{SplitMode} eq 'lumiLFN' )
-      {
-	  my $lfndir;
-
+      }
+      elsif ( $work->{SplitMode} eq 'streamerLFN' ) {
+	  $lfndir = "/store/streamer/$setuplabel/$stream$rundir";
+	  $work->{LFN} = $lfndir . '/' . $work->{FILENAME};
+      }
+      elsif ( $work->{SplitMode} eq 'lumiLFN' ) {
 	  if ( $work->{FILENAME} =~ /CMS_LUMI_RAW_([0-9][0-9][0-9][0-9])([0-9][0-9])([0-9][0-9])_([0-9]+)_([^.]+).root/ ) {
-
 	      $lfndir = sprintf("/store/lumi/%04d%02d", $1, $2);
-
 	  } else {
-
 	      $lfndir = sprintf("/store/lumi/%04d%02d", $year, $month);
-
 	  }
-
-	  $work->{TargetDir} .= $lfndir;
-
-	  $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
-
-	  $work->{LFN} = $lfndir . "/" . $work->{FILENAME};
-	}
-      elsif ( $work->{SplitMode} eq 'dqmLFN' )
-	{
-	  my $lfndir = sprintf("/store/temp/dqm/online/%04d%02d", $year, $month);
-
-	  $work->{TargetDir} .= $lfndir;
-
-	  $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
-
-	  $work->{LFN} = $lfndir . "/" . $work->{FILENAME};
-	}
-      elsif ( $work->{SplitMode} eq 'daily' )
-	{
-	  my $temp = sprintf("/%04d%02d%02d", $year, $month, $day);
-
-	  $work->{TargetDir} .= $temp;
-
-	  $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
-	}
-      else
-	{
-	  $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
-	}
-    }
+	  $work->{LFN} = $lfndir . '/' . $work->{FILENAME};
+      }
+      elsif ( $work->{SplitMode} eq 'dqmLFN' ) {
+	  $lfndir = sprintf("/store/temp/dqm/online/%04d%02d", $year, $month);
+	  $work->{LFN} = $lfndir . '/' . $work->{FILENAME};
+      }
+      elsif ( $work->{SplitMode} eq 'daily' ) {
+	  $lfndir = sprintf("/%04d%02d%02d", $year, $month, $day);
+      }
+  }
   #
   # Deprecated, remove all these lines and replace by
   # and else that prints out an error message
   #
-  elsif ( $work->{CreateLFN} )
-    {
-      my $run = $work->{RUNNUMBER};
-
-      my $lfndir = sprintf("/store/data/%s/%s/%03d/%03d/%03d", $work->{SETUPLABEL}, $work->{STREAM},
-			   $run/1000000, ($run%1000000)/1000, $run%1000);
-
-      $work->{TargetDir} .= $lfndir;
-
-      $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
-
+  elsif ( $work->{CreateLFN} ) {
+      $lfndir = "/store/data/$setuplabel/$stream$rundir";
       $work->{LFN} = $lfndir . "/" . $work->{FILENAME};
     }
-  elsif ( $work->{SplitByDay} )
-    {
-      my ($day,$month,$year) = (localtime(time))[3,4,5];
-
-      $day = $day < 10 ? $day = "0".$day : $day;
-
-      $month += 1;
-      $month = $month < 10 ? $month = "0".$month : $month;
-
-      $year += 1900;
-
-      $work->{TargetDir} .= "/" . $year . $month . $day;
-
-      $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
-    }
-  else
-    {
-      $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
-    }
+  elsif ( $work->{SplitByDay} ) {
+      $lfndir = sprintf("/%04d%02d%02d", $year, $month, $day);
+  }
+  $work->{TargetDir} .= $lfndir;
+  $work->{PFN} = $work->{TargetDir} . '/' . $work->{FILENAME};
 };
 
 
@@ -443,11 +346,11 @@ sub server_input {
     }
 
     $self->Debug("Copy " . $hash_ref->{id} . " added " . basename($sourcefile) . "\n");
-    push(@{ $rfcphash{files} }, { source => $sourcefile, target => $targetfile, checksum => $work->{CHECKSUM} } );
+    push @{ $rfcphash{files} }, { source => $sourcefile, target => $targetfile, checksum => $work->{CHECKSUM}, logdir => format_run($work->{RUNNUMBER}), };
 
     # check source file for existance and file size
-    my $filesize = qx{stat -L --format=%s $sourcefile 2> /dev/null};
-    if ( ( $? != 0 ) or ( int($work->{FILESIZE}) != int($filesize) ) )
+    my $filesize = -s $sourcefile;
+    if ( ! -f _ || ( $work->{FILESIZE} != $filesize ) )
       {
 	$self->Quiet("Source file does not exist or does not match file size in notification\n");
 	$heap->{HashRef}->{status} = -1;
