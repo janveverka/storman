@@ -243,8 +243,16 @@ sub RemoveClient
 
   if( ! $remainingWorkers )
     {
-      delete $self->{clientList}->{$hostname};
-      delete $self->{hostnamesQueue}->{$hostname};
+      delete $self->{clientList}->{$hostname}; # Delete ID list
+
+      # Check hostnameQueue content, and delete it if it's empty
+      if( my $count = $self->{hostnamesQueue}->{$hostname}->get_item_count() )
+        {
+          $self->Quiet("Queue for $hostname contains $count items: kept.\n");
+        }
+        else {
+          delete $self->{hostnamesQueue}->{$hostname};
+        }
     }
   else {
 
