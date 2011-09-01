@@ -27,7 +27,9 @@ sub Quiet { T0::Util::Quiet( (shift)->{Quiet}, @_ ); }
 # Format a runnumber into a directory
 # Eg: 1234567 => 001/234/567
 sub format_run {
-    my $format = sprintf( "%09d", shift );
+    my $runnumber = shift;
+    return '' unless $runnumber;
+    my $format = sprintf( "%09d", $runnumber );
     for ($format) {
         s|(\d\d\d)|$1/|g;
         s|/$||;
