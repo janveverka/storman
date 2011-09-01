@@ -364,15 +364,8 @@ sub server_input {
               . " added "
               . basename($sourcefile)
               . "\n" );
-        push @{ $rfcphash{files} },
-          {
-            source   => $sourcefile,
-            target   => $targetfile,
-            checksum => $work->{CHECKSUM},
-            logdir   => format_run( $work->{RUNNUMBER} ),
-          };
 
-        # check source file for existance and file size
+        # check source file for existence and file size
         my $filesize = -s $sourcefile;
         if ( !-f _ || ( $work->{FILESIZE} != $filesize ) ) {
             $self->Quiet(
@@ -384,6 +377,15 @@ sub server_input {
         }
 
         $self->Debug( "Copy " . $hash_ref->{id} . " started\n" );
+
+        push @{ $rfcphash{files} },
+          {
+            source   => $sourcefile,
+            target   => $targetfile,
+            checksum => $work->{CHECKSUM},
+            logdir   => format_run( $work->{RUNNUMBER} ),
+            size     => $filesize,
+          };
 
         T0::Castor::Rfcp->new( \%rfcphash, $heap->{UseRfcpChecksum} );
 

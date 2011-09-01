@@ -123,6 +123,7 @@ sub start_tasks {
             source   => $file->{source},
             target   => $file->{target},
             checksum => $file->{checksum},
+            size     => $file->{size},
             logdir   => $file->{logdir},
         );
 
@@ -186,17 +187,13 @@ sub start_wheel {
     my $task;
     if (    $heap->{use_checksum}
         and $file->{checksum}
-        and $file->{checksum} ne ""
-        and $file->{checksum} ne "0"
         and $file->{target} =~ m/^\/castor/ )
     {
         $heap->{Self}->Quiet("Start copy\n");
         $heap->{Self}->Quiet("Source: $file->{source}\n");
         $heap->{Self}->Quiet("Target: $file->{target}\n");
         $heap->{Self}->Quiet("Adler32 checksum: $file->{checksum}\n");
-
-        # POSIX::_exit(n) => exit status n * 256
-        # bit shift by 8 to the right to compensate
+        $heap->{Self}->Quiet("Size: $file->{size}\n");
 
         $task = POE::Wheel::Run->new(
             Program => sub {
@@ -209,10 +206,57 @@ sub start_wheel {
                         $file->{checksum}, $file->{target}
                     );
                     $exitcode = system(@args);
-                    if ( $exitcode == 0 ) {
-                        @args = ( "rfcp", $file->{source}, $file->{target} );
-                        $exitcode = system(@args);
+                }
+                if ( $exitcode == 0 ) {
+                    @args = ( "rfcp", $file->{source}, $file->{target} );
+                    $exitcode = system(@args);
+                }
+                if ( $exitcode == 0 ) {    # Do some sanity checks
+                    my $check = qx{nsls -l --checksum $file->{target}};
+                    if ( ( $exitcode = $? ) == 0 ) {
+                        chomp $check;
+                        my ( $cSize, $cChecksum ) = $check =~ /^
+                          \S+\s+      # rights
+                          \d+\s+      # refcount
+                          \S+\s+      # owner
+                          \S+\s+      # group
+                          (\d+)\s+    # size ($1)
+                          \S+\s+      # month
+                          \d+\s+      # day of the month
+                          \S+\s+      # time
+                          AD\s+       # Adler32 checksum
+                          (\w+)\s+    # checksum
+                          \S+         # filename
+                          $/x;
+                        if ( defined $cSize && defined $cChecksum ) {
+                            if ( $cSize != $file->{size} ) {
+                                print "size $cSize != $file->{size}!\n";
+                                $exitcode = 123 << 8;
+                            }
+                            elsif ( $cChecksum ne $file->{checksum} ) {
+                                print
+                                  "checksum $cChecksum != $file->{checksum}!\n";
+                                $exitcode = 122 << 8;
+                            }
+                        }
+                        else {
+                            print "$check does not match pattern. Retrying!\n";
+                            $exitcode = 121 << 8;
+                        }
                     }
+                }    # sanity checks
+
+                # First 8 bits of exitcode report startup failures
+                # Next ones report actual return code
+                if ( $exitcode == -1 ) {
+                    print "failed to execute: $!\n";
+                    POSIX::_exit($exitcode);
+                }
+                elsif ( $exitcode & 127 ) {
+                    printf "child died with signal %d, %s coredump\n",
+                      ( $exitcode & 127 ),
+                      ( $exitcode & 128 ) ? 'with' : 'without';
+                    POSIX::_exit($exitcode);
                 }
                 POSIX::_exit( $exitcode >> 8 );
             },
