@@ -329,11 +329,12 @@ sub got_task_stdout {
     my ( $kernel, $heap, $stdout, $task_id ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
 
     my $file = $heap->{file}->{$task_id};
-    my $logdir = $file->{logdir} || '';
+    my $logdir = $file->{logdir} || '.';
     if ( $logdir && !-d $logdir ) {
         mkpath $logdir;
     }
-    open( my $logfile, '>>', $logdir . basename( $file->{source} ) . '.log' );
+    open( my $logfile, '>>',
+        $logdir . '/' . basename( $file->{source} ) . '.log' );
     print $logfile "$stdout\n";
     close($logfile);
 }
