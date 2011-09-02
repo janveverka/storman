@@ -246,7 +246,7 @@ sub RemoveClient
       delete $self->{clientList}->{$hostname}; # Delete ID list
 
       # Check hostnameQueue content, and delete it if it's empty
-      if( my $count = $self->{hostnamesQueue}->{$hostname}->get_item_count() )
+      if( $self->{hostnamesQueue}->{$hostname} && my $count = $self->{hostnamesQueue}->{$hostname}->get_item_count() )
         {
           $self->Quiet("Queue for $hostname contains $count items: kept.\n");
         }
