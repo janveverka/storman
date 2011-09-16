@@ -229,6 +229,9 @@ sub server_input {
 	$heap->{StmtInsertStream} = undef;
 	$heap->{StmtInsertRunStreamVersionAssoc} = undef;
 	$heap->{StmtInsertStreamer} = undef;
+	$heap->{StmtFindLumiSection} = undef;
+	$heap->{StmtFindStream} = undef;
+	$heap->{StmtFindRunStreamVersionAssoc} = undef;
 	eval { $heap->{DatabaseHandle}->disconnect() };
       }
       undef $heap->{DatabaseHandle};
@@ -309,16 +312,6 @@ sub server_input {
       }
 
       if ( $heap->{DatabaseHandle} ) {
-	my $sql = "SELECT COUNT(*) FROM " . $heap->{DatabaseUser} . ".run_stream_cmssw_assoc ";
-	$sql .= "WHERE run_id = ? ";
-	$sql .= "AND stream_id = ( SELECT id FROM stream WHERE name = ? )";
-	if ( ! ( $heap->{StmtFindRunStreamVersionAssoc} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
-	  $heap->{Self}->Quiet("failed prepare : ", $DBI::errstr, "\n");
-	  undef $heap->{DatabaseHandle};
-	}
-      }
-
-      if ( $heap->{DatabaseHandle} ) {
 	my $sql = "INSERT INTO " . $heap->{DatabaseUser} . ".run_stream_cmssw_assoc ";
 	$sql .= "(RUN_ID,STREAM_ID,RUN_VERSION,OVERRIDE_VERSION) ";
 	$sql .= "SELECT ?, (SELECT id FROM stream WHERE name = ?), id, id ";
@@ -351,7 +344,35 @@ sub server_input {
 	  $heap->{Self}->Quiet("failed prepare : ", $DBI::errstr, "\n");
 	  undef $heap->{DatabaseHandle};
 	}
+      }
 
+      if ( $heap->{DatabaseHandle} ) {
+	my $sql = "SELECT COUNT(*) FROM " . $heap->{DatabaseUser} . ".lumi_section ";
+	$sql .= "WHERE lumi_id = ? ";
+	$sql .= "AND run_id = ?";
+	if ( ! ( $heap->{StmtFindLumiSection} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
+	  $heap->{Self}->Quiet("failed prepare : ", $DBI::errstr, "\n");
+	  undef $heap->{DatabaseHandle};
+	}
+      }
+
+      if ( $heap->{DatabaseHandle} ) {
+	my $sql = "SELECT COUNT(*) FROM " . $heap->{DatabaseUser} . ".stream ";
+	$sql .= "WHERE name = ?";
+	if ( ! ( $heap->{StmtFindStream} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
+	  $heap->{Self}->Quiet("failed prepare : ", $DBI::errstr, "\n");
+	  undef $heap->{DatabaseHandle};
+	}
+      }
+
+      if ( $heap->{DatabaseHandle} ) {
+	my $sql = "SELECT COUNT(*) FROM " . $heap->{DatabaseUser} . ".run_stream_cmssw_assoc ";
+	$sql .= "WHERE run_id = ? ";
+	$sql .= "AND stream_id = ( SELECT id FROM stream WHERE name = ? )";
+	if ( ! ( $heap->{StmtFindRunStreamVersionAssoc} = $heap->{DatabaseHandle}->prepare($sql) ) ) {
+	  $heap->{Self}->Quiet("failed prepare : ", $DBI::errstr, "\n");
+	  undef $heap->{DatabaseHandle};
+	}
       }
 
       if ( $heap->{DatabaseHandle} ) {
@@ -506,13 +527,39 @@ sub server_input {
 		    }
 		}
 	    } else {
+
+		# don't accept failure as-is, check if streams are all there
+		$heap->{Self}->Quiet("Error in bulk lumi_section insertion\n");
+		$heap->{Self}->Quiet($DBI::errstr, "\n");
+		$heap->{Self}->Quiet("Double checking for completion\n");
+
+		$sth = $heap->{StmtFindLumiSection};
+
 		foreach my $run ( keys %$run_hash_ref ) {
 		    foreach my $lumi ( keys %{$run_hash_ref->{$run}->{lumis}} ) {
-			$heap->{Self}->Quiet("Could not insert lumi section $lumi for run $run\n");
+
+			eval {
+			    $sth->bind_param(1, $lumi);
+			    $sth->bind_param(2, $run);
+			    $sth->execute();
+			    $count = $sth->fetchrow_array();
+			};
+
+			if ( $@ ) {
+			    $heap->{Self}->Quiet("Could not check lumi section $lumi for run $run\n");
+			    $heap->{Self}->Quiet($DBI::errstr, "\n");
+			    $hash_ref->{status} = 1;
+			    last;
+			}
+
+			if ( $count == 0 ) {
+			    $heap->{Self}->Quiet("Could not insert lumi section $lumi for run $run\n");
+			    $hash_ref->{status} = 1;
+			} else {
+			    $heap->{Self}->Quiet("Inserted lumi section $lumi for run $run\n");
+			}
 		    }
 		}
-		$heap->{Self}->Quiet($DBI::errstr, "\n");
-		$hash_ref->{status} = 1;
 	    }
 
 	    eval {
@@ -551,8 +598,8 @@ sub server_input {
 	    };
 
 	    if ( ! $@ and $tuples ) {
-		foreach ( @insertStreamList ) {
-		    $heap->{Self}->Quiet("Inserted stream $_\n");
+		foreach my $stream ( @insertStreamList ) {
+		    $heap->{Self}->Quiet("Inserted stream $stream\n");
 		}
 	    } else {
 
@@ -629,7 +676,7 @@ sub server_input {
 	    if ( ! $@ and $tuples ) {
 		foreach my $run ( @insertRunList) {
 		    foreach my $stream ( keys %{$run_hash_ref->{$run}->{streams}} ) {
-			$heap->{Self}->Quiet("Inserted run_stream_cmssw_assoc for run $run and stream $stream\n");
+			$heap->{Self}->Quiet("Inserted cmssw assoc for run $run and stream $stream\n");
 		    }
 		}
 	    } else {
@@ -652,17 +699,17 @@ sub server_input {
 			};
 
 			if ( $@ ) {
-			    $heap->{Self}->Quiet("Could not check for run_stream_cmssw_assoc for run $run and stream $stream\n");
+			    $heap->{Self}->Quiet("Could not check cmssw assoc for run $run and stream $stream\n");
 			    $heap->{Self}->Quiet($DBI::errstr, "\n");
 			    $hash_ref->{status} = 1;
 			    last;
 			}
 
 			if ( $count == 0 ) {
-			    $heap->{Self}->Quiet("Could not insert run_stream_cmssw_assoc for run $run and stream $stream\n");
+			    $heap->{Self}->Quiet("Could not insert cmssw assoc for run $run and stream $stream\n");
 			    $hash_ref->{status} = 1;
 			} else {
-			    $heap->{Self}->Quiet("Inserted run_stream_cmssw_assoc for run $run and stream $stream\n");
+			    $heap->{Self}->Quiet("Inserted cmssw assoc for run $run and stream $stream\n");
 			}
 		    }
 		}
