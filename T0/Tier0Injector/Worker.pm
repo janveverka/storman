@@ -654,13 +654,23 @@ sub server_input {
 	#
 	# insert version for run/stream into T0AST if needed
 	#
-	if ( $hash_ref->{status} ==  0 ) {
+	# FIXME, skip because version still defined by run, not run/stream
+	#
+	if ( $hash_ref->{status} ==  10 ) {
 
 	    $sth = $heap->{StmtInsertRunStreamVersionAssoc};
 
 	    my @insertRunList = ();
 	    my @insertStreamList = ();
 	    my @insertVersionList = ();
+
+	    foreach my $run ( keys %$run_hash_ref ) {
+		foreach my $stream ( keys %{$run_hash_ref->{$run}->{streams}} ) {
+		    push(@insertRunList, $run);
+		    push(@insertStreamList, $stream);
+		    push(@insertVersionList, $run_hash_ref->{$run}->{version});
+		}
+	    }
 
 	    my $tuples = undef;
 	    my @tuple_status = undef;
