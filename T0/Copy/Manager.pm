@@ -9,6 +9,7 @@ use POE::Queue::Array;
 use T0::Util;
 use T0::FileWatcher;
 use File::Basename;
+use Socket;
 
 our ( @ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION );
 
@@ -44,6 +45,7 @@ sub _init {
         ClientInput        => \&_client_input,
         ClientDisconnected => \&_client_disconnected,
         ClientError        => \&_client_error,
+        ClientPreConnect   => \&_client_pre_connect,
         Started            => \&start_task,
         ObjectStates       => [
             $self => [
@@ -234,7 +236,7 @@ sub RemoveClient {
 
     # Remove the hostname queue only if there are no more clients using it.
     my $remainingWorkers = scalar grep { $_ eq $hostname }
-      keys( %{ $self->{hostnames} } );
+      values( %{ $self->{hostnames} } );
 
     if ( !$remainingWorkers ) {
         delete $self->{clientList}->{$hostname};    # Delete ID list
@@ -386,6 +388,16 @@ sub client_disconnected {
     $self->Quiet( $client, ": client_disconnected\n" );
     $kernel->yield( 'handle_unfinished', $client );
     $self->RemoveClient($client);
+}
+
+# Make client socket keepalive, so OS will detect dead peers automatically
+# see net.ipv4.tcp_keepalive_* for details
+sub _client_pre_connect {
+    my $socket = $_[ARG0];
+
+    setsockopt( $socket, SOL_SOCKET, SO_KEEPALIVE, 1 )
+      or die "Cannot set socket keepalive for client: $!";
+    return $socket;
 }
 
 sub send_setup {

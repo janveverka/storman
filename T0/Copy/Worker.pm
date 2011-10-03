@@ -10,6 +10,7 @@ use File::Basename;
 use T0::Util;
 use T0::Castor::Rfcp;
 use LWP::Simple;
+use Socket;
 
 our ( @ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION );
 
@@ -64,6 +65,7 @@ sub new {
         ConnectError   => \&_connection_error_handler,
         Disconnected   => \&_connection_error_handler,
         Connected      => \&_connected,
+        PreConnect     => \&_pre_connect,
         ServerInput    => \&_server_input,
         Started        => \&start_task,
         Args           => [$self],
@@ -451,6 +453,16 @@ sub connected {
         'hostname' => $self->{Host},
     );
     $self->send( $heap, \%text );
+}
+
+# Make client socket keepalive, so OS will detect dead peers automatically
+# see net.ipv4.tcp_keepalive_* for details
+sub _pre_connect {
+    my $socket = $_[ARG0];
+
+    setsockopt( $socket, SOL_SOCKET, SO_KEEPALIVE, 1 )
+      or die "Cannot set socket keepalive: $!";
+    return $socket;
 }
 
 sub should_get_work {
