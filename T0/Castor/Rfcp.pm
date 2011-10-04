@@ -343,9 +343,14 @@ sub got_task_stderr {
     my ( $kernel, $heap, $stderr, $task_id ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
 
     my $file = $heap->{file}->{$task_id};
-    open( LOGFILE, '>>' . basename( $file->{source} ) . '.log' );
-    print LOGFILE "$stderr\n";
-    close(LOGFILE);
+    my $logdir = $file->{logdir} || '.';
+    if ( $logdir && !-d $logdir ) {
+        mkpath $logdir;
+    }
+    open( my $logfile, '>>',
+        $logdir . '/' . basename( $file->{source} ) . '.log' );
+    print $logfile "$stderr\n";
+    close($logfile);
 }
 
 sub got_sigchld {
