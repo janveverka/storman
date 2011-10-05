@@ -262,7 +262,7 @@ sub RemoveClient {
         for my $clientIndex ( 0 .. $#{$clientList} ) {
             my $client   = $clientList->[$clientIndex];
             my $clientID = $clientIndex + 1;
-            $self->{clientIDs} = $clientID;
+            $self->{clientIDs}->{$client} = $clientid;
             my $id =
               $self->ClientQueue($client)
               ->enqueue( 1, { command => 'SetID', clientID => $clientID }, );
