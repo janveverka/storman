@@ -1,4 +1,5 @@
 use strict;
+use warnings;
 
 package T0::Copy::Manager;
 use Sys::Hostname;
@@ -13,7 +14,7 @@ use Socket;
 
 our ( @ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION );
 
-use Carp;
+use Carp qw( croak carp confess cluck );
 $VERSION    = 1.00;
 @ISA        = qw/ Exporter /;
 $Copy::Name = 'Copy::Manager';
@@ -21,8 +22,8 @@ $Copy::Name = 'Copy::Manager';
 our ( @queue, %q );
 
 our $hdr = __PACKAGE__ . ':: ';
-sub Croak { croak $hdr, @_; }
-sub Carp  { carp $hdr,  @_; }
+sub Croak { confess $hdr, @_; }
+sub Carp  { cluck $hdr,   @_; }
 sub Verbose { T0::Util::Verbose( (shift)->{Verbose}, @_ ); }
 sub Debug { T0::Util::Debug( (shift)->{Debug}, @_ ); }
 sub Quiet { T0::Util::Quiet( (shift)->{Quiet}, @_ ); }
@@ -235,8 +236,8 @@ sub RemoveClient {
     delete $self->{clientIDs}->{$client};
 
     # Remove the hostname queue only if there are no more clients using it.
-    my $remainingWorkers = scalar grep { $_ eq $hostname }
-      values( %{ $self->{hostnames} } );
+    my $remainingWorkers =
+      scalar grep { $_ eq $hostname } values( %{ $self->{hostnames} } );
 
     if ( !$remainingWorkers ) {
         delete $self->{clientList}->{$hostname};    # Delete ID list
@@ -262,10 +263,13 @@ sub RemoveClient {
         for my $clientIndex ( 0 .. $#{$clientList} ) {
             my $client   = $clientList->[$clientIndex];
             my $clientID = $clientIndex + 1;
-            $self->{clientIDs}->{$client} = $clientid;
+            $self->{clientIDs}->{$client} = $clientID;
+            my $clientQueue = $self->{clientsQueue}->{$client};
+            next unless defined $clientQueue;
             my $id =
-              $self->ClientQueue($client)
-              ->enqueue( 1, { command => 'SetID', clientID => $clientID }, );
+              $clientQueue->enqueue( 1,
+                { command => 'SetID', clientID => $clientID },
+              );
             $self->Quiet("SetID = $clientID job $id added to $client queue\n");
         }
     }
