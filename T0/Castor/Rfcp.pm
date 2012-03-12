@@ -36,6 +36,7 @@ use POE qw( Wheel::Run Filter::Line );
 use File::Basename;
 use File::Path qw( mkpath );
 use T0::Castor::RfstatHelper;
+use POSIX qw( strftime );
 
 our ( @ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION );
 
@@ -335,7 +336,8 @@ sub got_task_stdout {
     }
     open( my $logfile, '>>',
         $logdir . '/' . basename( $file->{source} ) . '.log' );
-    print $logfile "$stdout\n";
+    print $logfile strftime( "%Y-%m-%d %H:%M:%S", localtime time )
+      . " OUTPUT: $stdout\n";
     close($logfile);
 }
 
@@ -349,7 +351,8 @@ sub got_task_stderr {
     }
     open( my $logfile, '>>',
         $logdir . '/' . basename( $file->{source} ) . '.log' );
-    print $logfile "$stderr\n";
+    print $logfile strftime( "%Y-%m-%d %H:%M:%S", localtime time )
+      . "  ERROR: $stderr\n";
     close($logfile);
 }
 
