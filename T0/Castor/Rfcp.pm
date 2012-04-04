@@ -51,8 +51,34 @@ sub Verbose { T0::Util::Verbose( (shift)->{Verbose}, ( "RFCP:\t", @_ ) ); }
 sub Debug   { T0::Util::Debug(   (shift)->{Debug},   ( "RFCP:\t", @_ ) ); }
 sub Quiet   { T0::Util::Quiet(   (shift)->{Quiet},   ( "RFCP:\t", @_ ) ); }
 
+#
+# check if rfcp version supports checksum
+# (default is off)
+#
+my $use_checksum = 0;
+
+my $output = qx{castor -v 2>/dev/null};
+
+# This could be simplified using version.pm, but still in 5.8.8, so...
+if ($output) {
+    my ( $version, $subversion ) = split( '-', $output );
+    my ( $version1, $version2, $version3 ) = split( '\.', $version );
+    if (
+           ( $version1 > 2 )
+        or ( $version1 == 2 and $version2 > 1 )
+        or ( $version1 == 2 and $version2 == 1 and $version3 > 8 )
+        or (    $version1 == 2
+            and $version2 == 1
+            and $version3 == 8
+            and $subversion >= 12 )
+      )
+    {
+        $use_checksum = 1;
+    }
+}
+
 sub new {
-    my ( $class, $hash_ref, $use_checksum ) = @_;
+    my ( $class, $hash_ref ) = @_;
     my $self = {};
     bless( $self, $class );
 
@@ -69,21 +95,17 @@ sub new {
             got_task_stderr     => \&got_task_stderr,
             got_sigchld         => \&got_sigchld,
         },
-        args => [ $hash_ref, $use_checksum, $self ],
+        args => [ $hash_ref, $self ],
     );
 
     return $self;
 }
 
 sub start_tasks {
-    my ( $kernel, $heap, $hash_ref, $use_checksum, $self ) =
-      @_[ KERNEL, HEAP, ARG0, ARG1, ARG2 ];
+    my ( $kernel, $heap, $hash_ref, $self ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
 
     # remember hash reference
     $heap->{inputhash} = $hash_ref;
-
-    # remember use of checksum
-    $heap->{use_checksum} = $use_checksum;
 
     # remember reference to myself
     $heap->{Self} = $self;
@@ -186,7 +208,7 @@ sub start_wheel {
 
     # see if with or without checksum check
     my $task;
-    if (    $heap->{use_checksum}
+    if (    $use_checksum
         and $file->{checksum}
         and $file->{target} =~ m/^\/castor/ )
     {

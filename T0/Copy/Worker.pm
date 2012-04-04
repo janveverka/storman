@@ -125,33 +125,6 @@ sub start_task {
     #initialize some parameters
     $heap->{State} = 'Created';
 
-    #
-    # check if rfcp version supports checksum
-    # (default is off)
-    #
-    $heap->{UseRfcpChecksum} = 0;
-
-    my $output = qx{castor -v 2>/dev/null};
-
-    if ($output) {
-        my ( $version, $subversion ) = split( '-', $output );
-        my ( $version1, $version2, $version3 ) = split( '\.', $version );
-        if (
-               ( $version1 > 2 )
-            or ( $version1 == 2 and $version2 > 1 )
-            or ( $version1 == 2 and $version2 == 1 and $version3 > 8 )
-            or (    $version1 == 2
-                and $version2 == 1
-                and $version3 == 8
-                and $subversion >= 12 )
-          )
-        {
-            $self->Quiet(
-"Castor version check successfull, use preset checksums for rfcp transfers\n"
-            );
-            $heap->{UseRfcpChecksum} = 1;
-        }
-    }
     $kernel->yield('update_bandwidth'); # Calculate bandwidth usage every minute
     $kernel->yield('update_beam_status');    # Get beam status every minute
 
@@ -347,6 +320,7 @@ sub server_input {
         }
 
         my %rfcphash = (
+            id               => $hash_ref->{id},
             svcclass         => $work->{SvcClass},
             session          => $session,
             callback         => 'copy_done',
@@ -391,7 +365,7 @@ sub server_input {
             size     => $filesize,
           };
 
-        T0::Castor::Rfcp->new( \%rfcphash, $heap->{UseRfcpChecksum} );
+        T0::Castor::Rfcp->new( \%rfcphash );
 
         return;
     }
@@ -573,7 +547,7 @@ sub update_beam_status {
         'LHC status: ' . join(
             ', ',
             map {
-                "$_ => '"
+                    "$_ => '"
                   . ( defined $heap->{lhc}->{$_} ? $heap->{lhc}->{$_} : '' )
                   . "'"
               } @lhc_modes
@@ -753,6 +727,8 @@ sub job_done {
         $kernel->yield('should_get_work');
     }
     else {
+
+        # This needs revising, as it will not wait for all Wheels to finish
         Print "Shutting down...\n";
         $kernel->yield('shutdown');
         exit;
