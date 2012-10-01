@@ -166,12 +166,6 @@ sub start_wheel {
         && $arg->{checksum}
         && $arg->{target} =~ m/^\/castor/ )
     {
-        $heap->{Self}->Quiet("Start copy\n");
-        $heap->{Self}->Quiet("Source: $arg->{source}\n");
-        $heap->{Self}->Quiet("Target: $arg->{target}\n");
-        $heap->{Self}->Quiet("Adler32 checksum: $arg->{checksum}\n");
-        $heap->{Self}->Quiet("Size: $arg->{size}\n");
-
         $arg->{Program} = sub {
             my $exitcode = -1;
             my @args = ( "nstouch", $arg->{target} );
@@ -238,10 +232,6 @@ sub start_wheel {
         $arg->{ProgramArgs} = [];
     }
     else {
-        $heap->{Self}->Quiet("Start copy\n");
-        $heap->{Self}->Quiet("Source: $arg->{source}\n");
-        $heap->{Self}->Quiet("Target: $arg->{target}\n");
-
         $arg->{Program} = "rfcp";
         $arg->{ProgramArgs} = [ $arg->{source}, $arg->{target} ];
     }
@@ -258,6 +248,8 @@ sub next_task {
         my $arg = shift @{ $heap->{task_list} };
         last unless defined $arg;
 
+        $heap->{Self}->Quiet("Start copy $arg->{id}\n");
+
         #$ENV{STAGER_TRACE} = 3;
         #$ENV{RFIO_TRACE} = 3;
         my $task = POE::Wheel::Run->new(
@@ -268,10 +260,20 @@ sub next_task {
             StdoutEvent  => 'got_task_stdout',
             StderrEvent  => 'got_task_stderr',
         );
-        $heap->{task}->{ $task->ID } = $task;
-        $heap->{arg}->{ $task->ID }  = $arg;
+        my $id = $task->ID;
+        $arg->{taskNum}              = keys( %{ $heap->{task} } );
+        $arg->{header}               = $id . '-' . $arg->{taskNum};
+        $heap->{task}->{$id}         = $task;
+        $heap->{arg}->{$id}          = $arg;
         $heap->{pid}->{ $task->PID } = $task;
         $kernel->sig_child( $task->PID, "got_sigchld" );
+
+        $heap->{Self}->Quiet("[$arg->{header}] Source: $arg->{source}\n");
+        $heap->{Self}->Quiet("[$arg->{header}] Target: $arg->{target}\n");
+        $heap->{Self}->Quiet("[$arg->{header}] Size: $arg->{size}\n");
+        $heap->{Self}
+          ->Quiet("[$arg->{header}] Adler32 checksum: $arg->{checksum}\n")
+          if $arg->{checksum};
 
         # spawn monitoring thread
         if ( $arg->{timeout} ) {
@@ -336,7 +338,7 @@ sub got_task_output {
     open( my $logfile, '>>', $logfilename )
       or die "Cannot open logfile $logfilename: $!";
     print $logfile strftime( "%Y-%m-%d %H:%M:%S", localtime time )
-      . " [$task_id] $kind: $line\n";
+      . " [$arg->{header}] $kind: $line\n";
     close($logfile);
 }
 
@@ -510,14 +512,22 @@ sub rfcp_retry_handler {
           ->Quiet( "Retry count at " . $arg->{retries} . " , retrying\n" );
         $arg->{retries}--;
 
+        my $backoff_time = 0;
         if ( exists $arg->{retry_backoff} ) {
-            $kernel->delay_set( 'start_wheel', $arg->{retry_backoff}, $arg );
+            if ( !ref( $arg->{retry_backoff} ) ) {    # Constant
+                $backoff_time = $arg->{retry_backoff};
+            }
+            elsif ( ref( $arg->{retry_backoff} ) eq 'ARRAY' ) {    # Fibonacci
+                $backoff_time = shift @{ $arg->{retry_backoff} };
+            }
+            else {    # Bogus value, logging error
+                $heap->{Self}->Quiet( "No idea what RetryBackoff is:"
+                      . " $arg->{retry_backoff}, ignoring\n" );
+            }
         }
-        else {
-            $kernel->yield( 'start_wheel', $arg );
-        }
+        $kernel->delay_set( 'start_wheel' => $backoff_time, $arg );
     }
-    else {                             # No more retries
+    else {            # No more retries
         $heap->{Self}
           ->Quiet( "Retry count at " . $arg->{retries} . " , abandoning\n" );
     }
