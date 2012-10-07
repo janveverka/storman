@@ -28,10 +28,10 @@
 #
 ########################################################################################################
 
+package T0::Castor::Rfcp;
 use strict;
 use warnings;
 
-package T0::Castor::Rfcp;
 use POE qw( Wheel::Run Filter::Line );
 use File::Basename;
 use File::Path qw( mkpath );

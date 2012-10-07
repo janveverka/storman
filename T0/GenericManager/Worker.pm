@@ -172,7 +172,7 @@ sub got_sigchld
 sub _server_input { reroute_event( (caller(0))[3], @_ ); }
 sub server_input {
   my ( $self, $kernel, $heap, $input ) = @_[ OBJECT, KERNEL, HEAP, ARG0 ];
-  my ( $command, $client, $setup, $work, $priority );
+  my ( $command, $client, $work, $priority );
 
   $command  = $input->{command};
   $client   = $input->{client};
@@ -209,9 +209,9 @@ sub server_input {
   if ( $command =~ m%Setup% )
   {
     $self->Quiet("Got $command...\n");
-    $setup = $input->{setup};
-    $self->{Debug} && dump_ref($setup);
-    map { $self->{$_} = $setup->{$_} } keys %$setup;
+    my $setup = $input->{setup};
+    $self->Debug("Setup: ".strhash($setup)."\n");
+    @$self{keys %$setup} = values %$setup;
     return;
   }
 

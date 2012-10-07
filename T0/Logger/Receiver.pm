@@ -306,7 +306,7 @@ sub client_input
         {
           $self->Debug(" Value matches\n");
           if (defined $input && defined ($self->{Filter}{$k}{$i}{Logger})) {
-	    $self->{Filter}{$k}{$i}{Logger}->Send($input);
+	    $kernel->post( $self->{Filter}{$k}{$i}{Logger}->{Name}, send => $input);
 	  } else {
 	    $self->Debug("Input is not defined for $i\n");
 	  };

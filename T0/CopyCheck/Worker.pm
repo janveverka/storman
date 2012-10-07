@@ -141,7 +141,7 @@ sub server_input {
 
   my $command  = $hash_ref->{command};
 
-  $heap->{Self}->Verbose("from server: $command\n");
+  $self->Verbose("from server: $command\n");
   if ( $command =~ m%Sleep% )
   {
     # ask again in 10 seconds
@@ -184,10 +184,10 @@ sub server_input {
 
   if ( $command =~ m%Setup% )
   {
-    $heap->{Self}->Quiet("Got $command...\n");
+    $self->Quiet("Got $command...\n");
     my $setup = $hash_ref->{setup};
-    $heap->{Self}->{Debug} && dump_ref($setup);
-    map { $self->{$_} = $setup->{$_} } keys %$setup;
+    $self->Debug("Setup: ".strhash($setup)."\n");
+    @$self{keys %$setup} = values %$setup;
 
     if ( $heap->{State} eq 'Running' )
       {
@@ -198,7 +198,7 @@ sub server_input {
 
   if ( $command =~ m%Start% )
   {
-    $heap->{Self}->Quiet("Got $command...\n");
+    $self->Quiet("Got $command...\n");
     if ( $heap->{State} eq 'Created' )
       {
 	$heap->{State} = 'Running';
@@ -209,14 +209,14 @@ sub server_input {
 
   if ( $command =~ m%Stop% )
   {
-    $heap->{Self}->Quiet("Got $command...\n");
+    $self->Quiet("Got $command...\n");
     $heap->{State} = 'Stop';
     return;
   }
 
   if ( $command =~ m%Quit% )
   {
-    $heap->{Self}->Quiet("Got $command...\n");
+    $self->Quiet("Got $command...\n");
     $heap->{State} = 'Quit';
     $kernel->yield('shutdown');
     return;

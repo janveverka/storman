@@ -1,5 +1,4 @@
 package T0::Castor;
-
 use strict;
 use warnings;
 
@@ -38,16 +37,18 @@ use POE qw( Wheel::Run Filter::Line );
 use File::Basename;
 use File::Path qw( mkpath );
 use T0::Castor::RfstatHelper;
+use T0::Util;
 use POSIX qw( strftime );
 use Carp;
+use Exporter qw( import );
 
-our ( @ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION );
+our @EXPORT_OK = qw($castor_alias);
+our @EXPORT    = @EXPORT_OK;
 
-my $maxworkers = 3;           # Number of parallel workers
-my $alias      = 'Castor';    # Session name
+our $castor_alias = 'Castor';    # Session name
 
-$VERSION = 1.00;
-@ISA     = qw/ Exporter /;
+our $VERSION = 1.00;
+our @ISA     = qw/ Exporter /;
 
 our $hdr = __PACKAGE__ . ':: ';
 sub Croak { croak $hdr, @_; }
@@ -66,7 +67,7 @@ my $output = qx{castor -v 2>/dev/null};
 
 # This could be simplified using version.pm, but still in 5.8.8, so...
 if ($output) {
-    my ( $major, $minor, $revision, $qualifier ) = split( /[.-]/, $version );
+    my ( $major, $minor, $revision, $qualifier ) = split( /[.-]/, $output );
     if (   ( $major > 2 )
         || ( $major == 2 && $minor > 1 )
         || ( $major == 2 && $minor == 1 && $revision > 8 )
@@ -80,24 +81,31 @@ if ($output) {
 sub new {
     my ( $class, $hash_ref ) = @_;
 
-    my $kernel = $poe_kernel;    # Global from POE::Kernel
-    if ( $poe_kernel->alias_get($alias) ) {    # Session already exists
-        $kernel->post( $alias => 'add_task' => $hash_ref );
+    if ( $poe_kernel->alias_resolve($castor_alias) ) {  # Session already exists
+        $poe_kernel->post( $castor_alias => 'add_copy' => $hash_ref );
     }
-    else {                                     # Create session
+    else {                                              # Create session
         my $self = bless( {}, $class );
         POE::Session->create(
             inline_states => {
                 _start              => \&start,
+                add_copy            => \&add_copy,
                 add_task            => \&add_task,
+                next_task           => \&next_task,
                 start_wheel         => \&start_wheel,
                 monitor_task        => \&monitor_task,
+                cleanup_task        => \&cleanup_task,
                 exit_handler        => \&exit_handler,
                 check_target_exists => \&check_target_exists,
                 retry_handler       => \&retry_handler,
                 got_task_stdout     => \&got_task_stdout,
                 got_task_stderr     => \&got_task_stderr,
+                got_task_output     => \&got_task_output,
                 got_sigchld         => \&got_sigchld,
+                rfcp_exit_handler   => \&rfcp_exit_handler,
+                rfcp_retry_handler  => \&rfcp_retry_handler,
+                _stop               => sub { },
+                _default            => \&handle_default,
             },
             args => [ $hash_ref, $self ],
         );
@@ -108,44 +116,33 @@ sub new {
 
 sub start {
     my ( $kernel, $heap, $hash_ref, $self ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
-    $kernel->alias_set($alias);
+    $kernel->alias_set($castor_alias);
 
     # remember reference to myself
     $heap->{Self} = $self;
 
-    $kernel->yield( 'add_task' => $hash_ref );
-}
-
-sub add_task {
-    my ( $kernel, $heap, $hash_ref ) = @_[ KERNEL, HEAP, ARG0 ];
-
-    my %arg = %$hash_ref;    # Create our own local heap
-    $arg{inputhash} = $hash_ref;    # remember hash reference
-
     # before spawning wheels, register signal handler
     $kernel->sig( CHLD => "got_sigchld" );
 
-    # XXX This is not Wheel-safe, but shouldn't matter
-    if ( defined $arg{svcclass} ) {
-        $ENV{STAGE_SVCCLASS} = $arg{svcclass};
-    }
-    else {
-        $heap->{Self}->Quiet("SvcClass not set, use t0input!\n");
-        $ENV{STAGE_SVCCLASS} = 't0input';
-    }
+    $kernel->yield( 'add_copy' => $hash_ref );
+}
 
-    # spawn wheels
+# Splits input copies into individual tasks, one per file
+sub add_copy {
+    my ( $kernel, $heap, $hash_ref ) = @_[ KERNEL, HEAP, ARG0 ];
+
+    # Update the maximum number of workers
+    $heap->{MaxWorkers} = $hash_ref->{max_workers}
+      if exists $hash_ref->{max_workers};
     foreach my $file ( @{ $hash_ref->{files} } ) {
-
-        # hash to be passed to wheel
-        my %filehash = (
-            original       => $file,
+        my %filehash = (    # hash to be passed to wheel
+            inputhash      => $hash_ref,    # remember hash reference
             checked_source => 0,
             %$file,
         );
 
         # ensure default values for some parameters
-        for my $param (qw( retries retry_backoff timeout )) {
+        for my $param (qw( id retries retry_backoff timeout )) {
             $filehash{$param} =
               exists $hash_ref->{$param}
               ? $hash_ref->{$param}
@@ -153,12 +150,15 @@ sub add_task {
               unless defined $filehash{$param};
         }
 
-        $kernel->yield( 'start_wheel' => \%filehash );
+        # To print out a unified header
+        $filehash{header} = "[$filehash{id}] ";
+
+        $kernel->yield( 'add_task' => \%filehash );
     }
 }
 
 # Pushes what needs to be done on a queue
-sub start_wheel {
+sub add_task {
     my ( $kernel, $heap, $arg ) = @_[ KERNEL, HEAP, ARG0 ];
 
     # see if with or without checksum check
@@ -166,70 +166,8 @@ sub start_wheel {
         && $arg->{checksum}
         && $arg->{target} =~ m/^\/castor/ )
     {
-        $arg->{Program} = sub {
-            my $exitcode = -1;
-            my @args = ( "nstouch", $arg->{target} );
-            $exitcode = system(@args);
-            if ( $exitcode == 0 ) {
-                @args = (
-                    "nssetchecksum", "-n", "adler32", "-k", $arg->{checksum},
-                    $arg->{target}
-                );
-                $exitcode = system(@args);
-            }
-            if ( $exitcode == 0 ) {
-                @args = ( "rfcp", $arg->{source}, $arg->{target} );
-                $exitcode = system(@args);
-            }
-            if ( $exitcode == 0 ) {    # Do some sanity checks
-                my $check = qx{nsls -l --checksum $arg->{target}};
-                if ( ( $exitcode = $? ) == 0 ) {
-                    chomp $check;
-                    my ( $cSize, $cChecksum ) = $check =~ /^
-                          \S+\s+      # rights
-                          \d+\s+      # refcount
-                          \S+\s+      # owner
-                          \S+\s+      # group
-                          (\d+)\s+    # size ($1)
-                          \S+\s+      # month
-                          \d+\s+      # day of the month
-                          \S+\s+      # time
-                          AD\s+       # Adler32 checksum
-                          (\w+)\s+    # checksum
-                          \S+         # filename
-                          $/x;
-                    if ( defined $cSize && defined $cChecksum ) {
-                        if ( $cSize != $arg->{size} ) {
-                            print "size $cSize != $arg->{size}!\n";
-                            $exitcode = 123 << 8;
-                        }
-                        elsif ( $cChecksum ne $arg->{checksum} ) {
-                            print "checksum $cChecksum != $arg->{checksum}!\n";
-                            $exitcode = 122 << 8;
-                        }
-                    }
-                    else {
-                        print "$check does not match pattern. Retrying!\n";
-                        $exitcode = 121 << 8;
-                    }
-                }
-            }    # sanity checks
-
-            # First 8 bits of exitcode report startup failures
-            # Next ones report actual return code
-            if ( $exitcode == -1 ) {
-                print "failed to execute: $!\n";
-                POSIX::_exit($exitcode);
-            }
-            elsif ( $exitcode & 127 ) {
-                printf "child died with signal %d, %s coredump\n",
-                  ( $exitcode & 127 ),
-                  ( $exitcode & 128 ) ? 'with' : 'without';
-                POSIX::_exit($exitcode);
-            }
-            POSIX::_exit( $exitcode >> 8 );
-        };
-        $arg->{ProgramArgs} = [];
+        $arg->{Program}     = \&rfcp_copy_with_checksum_and_check;
+        $arg->{ProgramArgs} = [$arg];
     }
     else {
         $arg->{Program} = "rfcp";
@@ -238,51 +176,66 @@ sub start_wheel {
 
     push @{ $heap->{task_list} }, $arg;
     $kernel->yield('next_task');
-
 }
 
 # Creates a new wheel to start the copy
 sub next_task {
     my ( $kernel, $heap ) = @_[ KERNEL, HEAP ];
-    while ( keys( %{ $heap->{task} } ) < $maxworkers ) {
+    my $maxworkers = $heap->{MaxWorkers} || 3;
+    if ( keys( %{ $heap->{task} } ) < $maxworkers ) {
         my $arg = shift @{ $heap->{task_list} };
-        last unless defined $arg;
-
-        $heap->{Self}->Quiet("Start copy $arg->{id}\n");
-
-        #$ENV{STAGER_TRACE} = 3;
-        #$ENV{RFIO_TRACE} = 3;
-        my $task = POE::Wheel::Run->new(
-            Program      => $arg->{Program},
-            ProgramArgs  => $arg->{ProgramArgs},
-            StdoutFilter => POE::Filter::Line->new(),
-            StderrFilter => POE::Filter::Line->new(),
-            StdoutEvent  => 'got_task_stdout',
-            StderrEvent  => 'got_task_stderr',
-        );
-        my $id = $task->ID;
-        $arg->{taskNum}              = keys( %{ $heap->{task} } );
-        $arg->{header}               = $id . '-' . $arg->{taskNum};
-        $heap->{task}->{$id}         = $task;
-        $heap->{arg}->{$id}          = $arg;
-        $heap->{pid}->{ $task->PID } = $task;
-        $kernel->sig_child( $task->PID, "got_sigchld" );
-
-        $heap->{Self}->Quiet("[$arg->{header}] Source: $arg->{source}\n");
-        $heap->{Self}->Quiet("[$arg->{header}] Target: $arg->{target}\n");
-        $heap->{Self}->Quiet("[$arg->{header}] Size: $arg->{size}\n");
-        $heap->{Self}
-          ->Quiet("[$arg->{header}] Adler32 checksum: $arg->{checksum}\n")
-          if $arg->{checksum};
-
-        # spawn monitoring thread
-        if ( $arg->{timeout} ) {
-            $arg->{alarm_id} = $kernel->delay_set(
-                'monitor_task' => $arg->{timeout},
-                $task->ID, 0
-            );
-        }
+        return unless defined $arg;    # Nothing to do
+        $kernel->yield( 'start_wheel' => $arg );
     }
+}
+
+# Actually do the work by forking a wheel
+sub start_wheel {
+    my ( $kernel, $heap, $arg, $task_id ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
+
+    delete $heap->{task}->{$task_id} if $task_id;    # Remove old ID upon retry
+
+    my $task = POE::Wheel::Run->new(
+        Program      => $arg->{Program},
+        ProgramArgs  => $arg->{ProgramArgs},
+        StdoutFilter => POE::Filter::Line->new(),
+        StderrFilter => POE::Filter::Line->new(),
+        StdoutEvent  => 'got_task_stdout',
+        StderrEvent  => 'got_task_stderr',
+    );
+    $kernel->sig_child( $task->PID, "got_sigchld" );
+    $heap->{arg}->{ $task->ID }  = $arg;
+    $heap->{pid}->{ $task->PID } = $task->ID;
+    $heap->{task}->{ $task->ID } = $task;
+    my $oldheader = $arg->{header};
+
+    my $header =
+      '[' . $arg->{id} . '-' .
+      keys( %{ $heap->{task} } ) . '-' . $task->ID . '-' . $task->PID . ']';
+    $arg->{header} = $header;
+    if ($task_id) {
+        $heap->{Self}
+          ->Quiet("$header Restarted copy $arg->{id} (was: $oldheader)\n");
+    }
+    else {
+        $heap->{Self}->Quiet("$header Started copy $arg->{id}\n");
+    }
+    $heap->{Self}->Quiet("$header Source: $arg->{source}\n");
+    $heap->{Self}->Quiet("$header Target: $arg->{target}\n");
+    $heap->{Self}->Quiet("$header Size: $arg->{size}\n");
+    $heap->{Self}->Quiet("$header Adler32 checksum: $arg->{checksum}\n")
+      if $arg->{checksum};
+
+    # spawn monitoring thread
+    if ( $arg->{timeout} ) {
+        $arg->{alarm_id} = $kernel->delay_set(
+            'monitor_task' => $arg->{timeout},
+            $task->ID, 0
+        );
+    }
+
+    # See if there is something more to be processed
+    $kernel->yield('next_task');
 }
 
 # Ensure that after the timeout expires, task is finished, otherwise kill it
@@ -290,8 +243,9 @@ sub monitor_task {
     my ( $kernel, $heap, $task_id, $force_kill ) =
       @_[ KERNEL, HEAP, ARG0, ARG1 ];
 
-    if ( my $task = exists $heap->{task}->{$task_id} ) {
-        my $arg = $heap->{arg}->{$task_id};
+    if ( exists $heap->{task}->{$task_id} ) {
+        my $task = $heap->{task}->{$task_id};
+        my $arg  = $heap->{arg}->{$task_id};
 
         delete $arg->{alarm_id};
 
@@ -314,14 +268,16 @@ sub monitor_task {
 
 # Copy emitted a line on STDOUT
 sub got_task_stdout {
-    my ( $kernel, $heap, $stdout, $task_id ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
-    $kernel->call( got_task_output => $stdout, $task_id, 'STDOUT' );
+    my ( $kernel, $session, $stdout, $task_id ) =
+      @_[ KERNEL, SESSION, ARG0, ARG1 ];
+    $kernel->call( $session, got_task_output => $stdout, $task_id, 'STDOUT' );
 }
 
 # Copy emitted a line on STDERR
 sub got_task_stderr {
-    my ( $kernel, $heap, $stderr, $task_id ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
-    $kernel->call( got_task_output => $stderr, $task_id, 'ERROR' );
+    my ( $kernel, $session, $stderr, $task_id ) =
+      @_[ KERNEL, SESSION, ARG0, ARG1 ];
+    $kernel->call( $session, got_task_output => $stderr, $task_id, 'ERROR' );
 }
 
 # Write lines emitted by the copy to a logfile
@@ -338,7 +294,7 @@ sub got_task_output {
     open( my $logfile, '>>', $logfilename )
       or die "Cannot open logfile $logfilename: $!";
     print $logfile strftime( "%Y-%m-%d %H:%M:%S", localtime time )
-      . " [$arg->{header}] $kind: $line\n";
+      . " $arg->{header} $kind: $line\n";
     close($logfile);
 }
 
@@ -350,6 +306,7 @@ sub got_sigchld {
         if ( exists $heap->{task}->{$task_id} ) {
             $kernel->yield( 'rfcp_exit_handler', $task_id, $status );
         }
+        $kernel->sig_handled;
     }
     else {
         $heap->{Self}->Verbose("Got signal SIGCHLD for unknown PID $child_pid");
@@ -362,26 +319,21 @@ sub rfcp_exit_handler {
     my ( $kernel, $heap, $session, $task_id, $status ) =
       @_[ KERNEL, HEAP, SESSION, ARG0, ARG1 ];
 
-    my $task = delete $heap->{task}->{$task_id};
-    return unless $task;    # Shouldn't happen
-
-    my $arg = $heap->{arg}->{$task_id};
+    my $arg    = $heap->{arg}->{$task_id};
+    my $header = $arg->{header};
 
     if ( exists $arg->{alarm_id} ) {
         $kernel->alarm_remove( delete $arg->{alarm_id} );
     }
 
-    # update status in caller hash
-    $arg->{original}->{status} = $status;
-
     if ( $status != 0 ) {    # Something went wrong
         $heap->{Self}->Quiet(
-            "Rfcp of " . $arg->{source} . " failed with status $status\n" );
+            "$header Rfcp of $arg->{source} failed with status $status\n");
 
         # Check if the source file exists just the first time.
         if ( !$arg->{checked_source} ) {
             $heap->{Self}
-              ->Quiet( "Checking if file " . $arg->{source} . " exists\n" );
+              ->Quiet("$header Checking if file $arg->{source} exists\n");
             my $file_status =
               T0::Castor::RfstatHelper::checkFileExists( $arg->{source} );
 
@@ -391,14 +343,14 @@ sub rfcp_exit_handler {
             # If the source file doesn't exist we have nothing else to do.
             if ( $file_status != 0 ) {
                 $heap->{Self}->Quiet(
-                    "Source file " . $arg->{source} . " does not exist\n" );
+                    "$header Source file $arg->{source} does not exist\n");
             }
 
             # Source exists
             # If it exists continue with the cleanup.
             else {
                 $heap->{Self}
-                  ->Quiet( "Source file " . $arg->{source} . " exists\n" );
+                  ->Quiet("$header Source file $arg->{source} exists\n");
                 $kernel->yield( 'check_target_exists', $task_id, $status );
             }
         }
@@ -406,13 +358,113 @@ sub rfcp_exit_handler {
             $kernel->yield( 'check_target_exists', $task_id, $status );
         }
     }
-    else {    # rfcp succeeded, just do some cleanup
-        $heap->{Self}->Quiet("$arg->{source} successfully copied\n");
-        delete $heap->{arg}->{$task_id};
+    else {    # rfcp succeeded, cleanup and call back the main session
+        $heap->{Self}->Quiet("$header $arg->{source} successfully copied\n");
+        $kernel->yield( 'cleanup_task' => $task_id );
     }
+}
+
+# When a task is done (success or failure), cleanup and notify the Worker
+sub cleanup_task {
+    my ( $kernel, $heap, $session, $task_id, $status ) =
+      @_[ KERNEL, HEAP, SESSION, ARG0, ARG1 ];
+
+    # Cleanup references to the task which just finished
+    my $arg = delete $heap->{arg}->{$task_id};
+    delete $heap->{task}->{$task_id};
+
+    # update status in caller hash
+    $arg->{inputhash}->{status} = $status;
+
+    # Notify the Worker of the result
+    $kernel->post(
+        $arg->{inputhash}->{session},
+        $arg->{inputhash}->{callback},
+        $arg->{inputhash}
+    );
 
     # See if there is something more to be processed
     $kernel->yield('next_task');
+}
+
+sub rfcp_copy_with_checksum_and_check {
+    my $arg = shift;
+    my ( $source, $target, $checksum, $size ) =
+      @$arg{qw(source target checksum size)};
+    if ( exists $arg->{inputhash}->{svcclass} ) {
+        $ENV{STAGE_SVCCLASS} = $arg->{inputhash}->{svcclass};
+    }
+    else {
+        print STDERR "SvcClass not set, use t0input!\n";
+        $ENV{STAGE_SVCCLASS} = 't0input';
+    }
+    exit_if_error( system => nstouch => $target );
+    exit_if_error(
+        system => nssetchecksum => -n => adler32 => -k => $checksum =>
+          $target );
+    exit_if_error( system => rfcp => $source => $target );
+    my $check = exit_if_error( qx => nsls => -l => '--checksum' => $target );
+    my ( $cSize, $cChecksum ) = $check =~ /^
+                          \S+\s+      # rights
+                          \d+\s+      # refcount
+                          \S+\s+      # owner
+                          \S+\s+      # group
+                          (\d+)\s+    # size ($1)
+                          \S+\s+      # month
+                          \d+\s+      # day of the month
+                          \S+\s+      # time
+                          AD\s+       # Adler32 checksum
+                          (\w+)\s+    # checksum
+                          \S+         # filename
+                          $/x;
+
+    if ( defined $cSize && defined $cChecksum ) {
+        if ( $cSize != $size ) {
+            die "size $cSize != $size!";
+        }
+        elsif ( $cChecksum ne $checksum ) {
+            die "checksum $cChecksum != $checksum!";
+        }
+    }
+    else {
+        die "$check does not match pattern. Retrying!";
+    }
+    exit;
+}
+
+sub exit_if_error {
+    return unless @_;
+    my $command  = shift;
+    my $exitcode = -1;
+    my $output   = '';
+    if ( $command eq 'system' ) {
+        $exitcode = system(@_);
+    }
+    elsif ( $command eq 'qx' ) {
+        chomp( $output = qx{@_} );
+        $exitcode = $?;
+    }
+    else {
+        die "No idea what to do with '$command' @_\n";
+    }
+    return $output unless $exitcode;
+
+    print STDERR "@_ died with exit status $exitcode\n";
+
+    # First 8 bits of exitcode report startup failures
+    # Next ones report actual return code
+    if ( $exitcode == -1 ) {
+        print STDERR "failed to execute: $!\n";
+        POSIX::_exit($exitcode);
+    }
+    elsif ( $exitcode & 127 ) {
+        printf STDERR "child died with signal %d, %s coredump\n",
+          ( $exitcode & 127 ),
+          ( $exitcode & 128 ) ? 'with' : 'without';
+        POSIX::_exit($exitcode);
+    }
+    POSIX::_exit( $exitcode >> 8 );
+    return $output;
 }
 
 # Check for existence of directory (if status is 256 or 512)
@@ -420,7 +472,8 @@ sub check_target_exists {
     my ( $kernel, $heap, $session, $task_id, $status ) =
       @_[ KERNEL, HEAP, SESSION, ARG0, ARG1 ];
 
-    my $arg = $heap->{arg}->{$task_id};
+    my $arg    = $heap->{arg}->{$task_id};
+    my $header = $arg->{header};
 
     if ( ( $status == 256 || $status == 512 ) ) {
         my $targetdir = dirname( $arg->{target} );
@@ -432,13 +485,14 @@ sub check_target_exists {
             $kernel->yield( 'rfcp_retry_handler', $task_id, $status, 1, 1 );
         }
         else {
-            $heap->{Self}->Quiet("Checking if directory $targetdir exists\n");
+            $heap->{Self}
+              ->Quiet("$header Checking if directory $targetdir exists\n");
             my $dir_status =
               T0::Castor::RfstatHelper::checkDirExists($targetdir);
 
             # The target doesn't exists. Create the directory
             if ( $dir_status == 1 ) {
-                $heap->{Self}->Quiet("Creating directory $targetdir\n");
+                $heap->{Self}->Quiet("$header Creating directory $targetdir\n");
                 my @args;
                 if ( $targetdir =~ m/^\/castor/ ) {
                     @args = ( "nsmkdir", "-m", "775", "-p", $targetdir );
@@ -455,8 +509,8 @@ sub check_target_exists {
 
                     # something went wrong in directory creation
                     # normal retry, hope works better next round
-                    $heap->{Self}
-                      ->Quiet("Could not create directory $targetdir\n");
+                    $heap->{Self}->Quiet(
+                        "$header Could not create directory $targetdir\n");
                     $kernel->yield( 'rfcp_retry_handler', $task_id, $status, 0,
                         0 );
                 }
@@ -464,14 +518,13 @@ sub check_target_exists {
             elsif ( $dir_status == 2 ) {
 
                 # The targetdir is not a dir. Stop the iteration
-                $heap->{Self}->Quiet("$targetdir is not a directory\n");
+                $heap->{Self}->Quiet("$header $targetdir is not a directory\n");
             }
 
             # Target exists and it is a directory
             elsif ( $dir_status == 0 ) {
-                $heap->{Self}->Quiet("Directory $targetdir exists\n");
-                $kernel->yield( 'rfcp_retry_handler',
-                    ( $task_id, $status, 0, 1 ) );
+                $heap->{Self}->Quiet("$header Directory $targetdir exists\n");
+                $kernel->yield( 'rfcp_retry_handler', $task_id, $status, 0, 1 );
             }
         }
     }
@@ -487,31 +540,30 @@ sub check_target_exists {
 sub rfcp_retry_handler {
     my ( $kernel, $heap, $session, $task_id, $status, $createdTargetDir,
         $deleteTargetFile )
-      = @_[ KERNEL, HEAP, SESSION, ARG0, ARG1, ARG2, ARG3 ];
+      = @_[ KERNEL, HEAP, SESSION, ARG0 .. ARG3 ];
 
-    my $arg = $heap->{arg}->{$task_id};
+    my $arg    = $heap->{arg}->{$task_id};
+    my $header = $arg->{header};
 
-    if ( $heap->{delete_bad_files} && $deleteTargetFile == 1 ) {
-        $heap->{Self}->Quiet("Deleting file before retrying\n");
+    if ( $arg->{inputhash}->{delete_bad_files} && $deleteTargetFile == 1 ) {
+        $heap->{Self}->Quiet("$header Deleting file before retrying\n");
 
         if ( $arg->{target} =~ m/^\/castor/ ) {
-            qx {stager_rm -M $arg->{target} 2> /dev/null};
-            qx {nsrm -f $arg->{target} 2> /dev/null};
+            qx{stager_rm -M $arg->{target} 2>/dev/null};
+            qx{nsrm -f $arg->{target} 2>/dev/null};
         }
         else {
-            qx {rfrm $arg->{target} 2> /dev/null};
+            qx{rfrm $arg->{target} 2>/dev/null};
         }
     }
 
 # After creating the dir we retry without waiting and without decreasing retries
     if ( $createdTargetDir == 1 ) {
-        $kernel->yield( 'start_wheel', $arg );
+        $heap->{Self}->Quiet( "$header Created dir: (was $task_id) " .
+              keys( %{ $heap->{task} } ) . " => $arg->{id}?\n" );
+        $kernel->yield( 'start_wheel' => $arg, $task_id );
     }
     elsif ( $arg->{retries} > 0 ) {    # Retrying
-        $heap->{Self}
-          ->Quiet( "Retry count at " . $arg->{retries} . " , retrying\n" );
-        $arg->{retries}--;
-
         my $backoff_time = 0;
         if ( exists $arg->{retry_backoff} ) {
             if ( !ref( $arg->{retry_backoff} ) ) {    # Constant
@@ -521,16 +573,36 @@ sub rfcp_retry_handler {
                 $backoff_time = shift @{ $arg->{retry_backoff} };
             }
             else {    # Bogus value, logging error
-                $heap->{Self}->Quiet( "No idea what RetryBackoff is:"
+                $heap->{Self}->Quiet( "$header No idea what RetryBackoff is:"
                       . " $arg->{retry_backoff}, ignoring\n" );
             }
         }
-        $kernel->delay_set( 'start_wheel' => $backoff_time, $arg );
+        $heap->{Self}->Quiet(
+            "$header Retry count at $arg->{retries}, retrying",
+            (
+                $backoff_time
+                ? " in $backoff_time seconds"
+                : ' immediately'
+            ),
+            "\n"
+        );
+        $arg->{retries}--;
+
+        $kernel->delay_set( 'start_wheel' => $backoff_time, $arg, $task_id );
     }
-    else {            # No more retries
+    else {    # No more retries
         $heap->{Self}
-          ->Quiet( "Retry count at " . $arg->{retries} . " , abandoning\n" );
+          ->Quiet("$header Retry count at $arg->{retries}, giving up!\n");
+        $kernel->yield( 'cleanup_task' => $task_id, $status );
     }
+}
+
+# Do something with all POE events which are not caught
+sub handle_default {
+    my ( $kernel, $event, $args ) = @_[ KERNEL, ARG0, ARG1 ];
+    print STDERR "WARNING: Session "
+      . $_[SESSION]->ID
+      . " caught unhandled event $event with (@$args).";
 }
 
 1;

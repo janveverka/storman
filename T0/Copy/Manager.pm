@@ -1,7 +1,7 @@
+package T0::Copy::Manager;
 use strict;
 use warnings;
 
-package T0::Copy::Manager;
 use Sys::Hostname;
 use POE;
 use POE::Filter::Reference;
@@ -85,21 +85,6 @@ sub Options {
     map { $self->{$_} = $h{$_}; } keys %h;
 }
 
-#our @attrs = ( qw/ Name Host Port / );
-#our %ok_field;
-#for my $attr ( @attrs ) { $ok_field{$attr}++; }
-
-#sub AUTOLOAD {
-#  my $self = shift;
-#  my $attr = our $AUTOLOAD;
-#  $attr =~ s/.*:://;
-#  return unless $attr =~ /[^A-Z]/;  # skip DESTROY and all-cap methods
-#  Croak "AUTOLOAD: Invalid attribute method: ->$attr()" unless $ok_field{$attr};
-#  if ( @_ ) { Croak "Setting attributes not yet supported!\n"; }
-# $self->{$attr} = shift if @_;
-#  return $self->{$attr};
-#}
-
 sub start_task {
     my ( $kernel, $heap, $session, $self ) = @_[ KERNEL, HEAP, SESSION, ARG0 ];
     my %param;
@@ -112,7 +97,8 @@ sub start_task {
     $self->{TotalVolume} = 0;
 
     $self->Debug( $self->{Name}, " has started...\n" );
-    $self->Log( $self->{Name}, " has started...\n" );
+
+    # XXX $self->Log( $self->{Name}, " has started...\n" );
     $self->{Session} = $session->ID;
 
     $kernel->state( 'send_setup',   $self );
@@ -147,7 +133,7 @@ sub process_file {
     if ( exists $self->{RunBlacklist} and defined $self->{RunBlacklist} ) {
         foreach my $run ( @{ $self->{RunBlacklist} } ) {
             if ( $run == int( $work->{RUNNUMBER} ) ) {
-                $self->Quiet( "Received job for blacklisted run " 
+                $self->Quiet( "Received job for blacklisted run "
                       . $run
                       . ", discarding it\n" );
                 return;
@@ -185,9 +171,15 @@ sub process_file {
     }
 
     my $hostname = delete $work->{HOSTNAME};
+    if ( !$hostname ) {
+        $self->Quiet( "Got a work order without a hostname! "
+              . T0::Util::strhash($work)
+              . "\n" );
+        return;
+    }
 
     my $id = $self->HostnameQueue($hostname)->enqueue( $priority, $work );
-    $self->Quiet( "Job $id added to ", $hostname, " queue\n" );
+    $self->Quiet("Job $id added to $hostname queue\n");
 }
 
 # Create 2 private queues (for the hostname and client)
@@ -212,7 +204,7 @@ sub AddHostname {
     my $self = shift;
     my $hostname = shift or Croak "Expected a hostname...\n";
 
-    if ( !defined( $self->{hostnamesQueue}->{$hostname} ) ) {
+    if ( !exists( $self->{hostnamesQueue}->{$hostname} ) ) {
         $self->{hostnamesQueue}->{$hostname} = POE::Queue::Array->new();
     }
 }
@@ -225,7 +217,7 @@ sub RemoveClient {
 
         # No client received, so most certainly nothing to clean
         # No point in dying there, just log and continue
-        # Otherwise it ight crash when a CopyWorker's machine crashes
+        # Otherwise it might crash when a CopyWorker's machine crashes
         Carp "Expected a client - Cannot remove nothing!\n";
         return;
     };
@@ -282,7 +274,7 @@ sub HostnameQueue {
     my $hostname = shift;
 
     return undef unless defined($hostname);
-    if ( !defined( $self->{hostnamesQueue}->{$hostname} ) ) {
+    if ( !exists( $self->{hostnamesQueue}->{$hostname} ) ) {
         $self->AddHostname($hostname);
     }
     return $self->{hostnamesQueue}->{$hostname};
@@ -301,12 +293,6 @@ sub ClientQueue {
     return $self->{clientsQueue}->{$client};
 }
 
-sub Log {
-    my $self   = shift;
-    my $logger = $self->{Logger};
-    defined $logger && $logger->Send(@_);
-}
-
 # Send a work to every client (to their private queues)
 # Arg1: [$work,$priority]
 sub broadcast {
@@ -315,7 +301,7 @@ sub broadcast {
     $work = $args->[0];
     $priority = $args->[1] || 0;
 
-    $self->Quiet( "Broadcasting... ", $work, "\n" );
+    $self->Quiet( "Broadcasting... ", dump_ref($work), "\n" );
     foreach ( keys %{ $self->{clientsQueue} } ) {
         my $id = $self->ClientQueue($_)->enqueue( $priority, $work );
         $self->Quiet("Broadcast job $id added to $_ queue\n");
@@ -341,7 +327,7 @@ sub ReadConfig {
     my $file = $self->{Config};
     return unless $file;
 
-    $self->Log( "Reading configuration file ", $file );
+    # XXX $self->Log( "Reading configuration file ", $file );
 
     my $n = $self->{Name};
     $n =~ s%Manager%Worker%;
@@ -510,7 +496,7 @@ sub send_work {
                     }
                 }
 
-                # leave loop, have valid work unit or there is no work unit
+                # leave loop, have valid work unit
                 last;
             }
         }
@@ -519,7 +505,7 @@ sub send_work {
     if ( defined $id and defined $work ) {
 
         # send copy job to client
-        $self->Quiet( "Send: Copy job ", $id, " to $client\n" );
+        $self->Quiet("Send: Copy job $id to $client\n");
         %text = (
             'command'  => 'DoThis',
             'client'   => $client,
@@ -548,10 +534,7 @@ sub _client_input { reroute_event( ( caller(0) )[3], @_ ); }
 sub client_input {
     my ( $self, $kernel, $heap, $session, $input ) =
       @_[ OBJECT, KERNEL, HEAP, SESSION, ARG0 ];
-    my ( $command, $client );
-
-    $command = $input->{command};
-    $client  = $input->{client};
+    my ( $command, $client ) = @$input{qw(command client)};
     $self->Debug("Got $command from $client\n");
 
     if ( $command =~ m%HelloFrom% ) {
@@ -619,64 +602,44 @@ sub job_done {
     my ( $self, $kernel, $heap, $session, $input ) =
       @_[ OBJECT, KERNEL, HEAP, SESSION, ARG0 ];
 
-    #  while ( my ($key, $value) = each(%$input) ) {
-    #        print "Inside JobDone: $key => $value\n";
-    #    }
-
     if ( $input->{status} == 0 ) {
         $self->Quiet("JobDone: Copy id = $input->{id} succeeded\n");
 
         if ( $input->{work}->{PFN} ne '/dev/null' ) {
-            my %loghash1 = (
+            my %loghash = (
                 TransferStatus   => '1',
                 STATUS           => 'copied',
                 FILENAME         => basename( $input->{work}->{PFN} ),
                 STOP_TIME        => $input->{work}->{STOP_TIME},
                 T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},
             );
-            if ( exists $input->{work}->{Resent} ) {
-                $loghash1{Resent} = $input->{work}->{Resent};
-            }
+            $loghash{Resent} = $input->{work}->{Resent}
+              if exists $input->{work}->{Resent};
 
-            $self->Log( \%loghash1 );
+            $kernel->post( $self->{Logger}->{Name}, send => \%loghash );
 
-            my %loghash2 = (
-                OnlineFile       => 't0input.available',
-                RUNNUMBER        => $input->{work}->{RUNNUMBER},
-                LUMISECTION      => $input->{work}->{LUMISECTION},
-                PFN              => $input->{work}->{PFN},
-                NEVENTS          => $input->{work}->{NEVENTS},
-                START_TIME       => $input->{work}->{START_TIME},
-                STOP_TIME        => $input->{work}->{STOP_TIME},
-                SETUPLABEL       => $input->{work}->{SETUPLABEL},
-                STREAM           => $input->{work}->{STREAM},
-                FILESIZE         => $input->{work}->{FILESIZE},
-                CHECKSUM         => $input->{work}->{CHECKSUM},
-                TYPE             => $input->{work}->{TYPE},
-                APP_NAME         => $input->{work}->{APP_NAME},
-                APP_VERSION      => $input->{work}->{APP_VERSION},
-                HLTKEY           => $input->{work}->{HLTKEY},
-                DeleteAfterCheck => $input->{work}->{DeleteAfterCheck},
-                SvcClass         => $input->{work}->{SvcClass},
-                T0FirstKnownTime => $input->{work}->{T0FirstKnownTime},
-                InjectIntoTier0  => $input->{work}->{InjectIntoTier0},
+            $kernel->post(
+                $self->{Logger}->{Name},
+                send => {
+                    OnlineFile => 't0input.available',
+                    map {
+                        exists $input->{work}->{$_}
+                          ? ( $_ => $input->{work}->{$_} )
+                          : ()
+                      } qw(
+                      RUNNUMBER LUMISECTION PFN NEVENTS START_TIME STOP_TIME
+                      SETUPLABEL STREAM FILESIZE CHECKSUM TYPE APP_NAME
+                      APP_VERSION HLTKEY DeleteAfterCheck SvcClass
+                      T0FirstKnownTime InjectIntoTier0 LFN Resent
+                      )
+                }
             );
 
-            if ( exists $input->{work}->{LFN} ) {
-                $loghash2{LFN} = $input->{work}->{LFN};
-            }
-
-            if ( exists $input->{work}->{Resent} ) {
-                $loghash2{Resent} = $input->{work}->{Resent};
-            }
-
-            $self->Log( \%loghash2 );
         }
     }
     else {
-        $self->Quiet(
-"JobDone: Copy id = $input->{id} failed, status = $input->{status}\n"
-        );
+        $self->Quiet( "JobDone: Copy id = $input->{id} failed,"
+              . " status = $input->{status}\n" );
     }
 }
 

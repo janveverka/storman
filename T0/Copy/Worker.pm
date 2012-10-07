@@ -1,22 +1,19 @@
+package T0::Copy::Worker;
 use strict;
 use warnings;
 
-package T0::Copy::Worker;
-use POE;
-use POE::Filter::Reference;
-use POE::Component::Client::TCP;
+use POE qw( Filter::Reference Component::Client::TCP );
 use Sys::Hostname;
 use File::Basename;
 use T0::Util;
-use T0::Castor::Rfcp;
+use T0::Castor;
 use LWP::Simple;
 use Socket;
-
-our ( @ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION );
+use JSON qw( to_json );
 
 use Carp;
-$VERSION = 1.00;
-@ISA     = qw/ Exporter /;
+our $VERSION = 1.00;
+our @ISA     = qw/ Exporter /;
 
 our $hdr = __PACKAGE__ . ':: ';
 sub Croak { croak $hdr, @_; }
@@ -44,16 +41,12 @@ sub new {
     bless( $self, $class );
 
     my %h = @_;
-    map { $self->{$_} = $h{$_} } keys %h;
+    @$self{ keys %h } = values %h;
 
     $self->ReadConfig();
 
     $self->{Host} = hostname();
     $self->{Name} .= '-' . $self->{Host} . '-' . $$;
-
-    if ( defined( $self->{Logger} ) ) {
-        $self->{Logger}->Name( $self->{Name} );
-    }
 
     POE::Component::Client::TCP->new(
         RemotePort     => $self->{Manager}->{Port},
@@ -70,7 +63,7 @@ sub new {
         Started        => \&start_task,
         Args           => [$self],
         ObjectStates   => [
-            $self => [
+            $self => {
                 server_input             => 'server_input',
                 connected                => 'connected',
                 connection_error_handler => 'connection_error_handler',
@@ -86,33 +79,63 @@ sub new {
                 update_beam_status       => 'update_beam_status',
                 update_bandwidth         => 'update_bandwidth',
                 sig_abort                => 'sig_abort',
-            ]
+                terminate                => 'terminate',
+                _stop                    => 'terminate',
+                send                     => 'send',
+                _default                 => 'handle_default',
+            },
         ],
     );
 
     return $self;
 }
 
-# Some terminal signal got received
-sub sig_abort {
-    my ( $self, $kernel, $heap, $signal ) = @_[ OBJECT, KERNEL, HEAP, ARG0 ];
-    $self->Quiet("Shutting down on signal SIG$signal");
-    if ( $heap->{State} eq 'Busy' ) {
-        $heap->{State} = 'Stop';
+# Cleanly shutdown
+sub terminate {
+    my ( $self, $kernel, $heap ) = @_[ OBJECT, KERNEL, HEAP ];
+
+    # Remove timers
+    my @removed_alarms = $kernel->alarm_remove_all();
+    foreach my $alarm (@removed_alarms) {
+        my ( $name, $time, $param ) = @$alarm;
+        $self->Verbose("Remove alarm $name\n");
+    }
+    delete $self->{RetryInterval};    # Do not try to reconnect
+
+    my $queue_size = keys %{ $heap->{HashRef} };
+    if ($queue_size) {
+        $self->Verbose("Trying to salvage $queue_size events\n");
+        for my $id (
+            sort {
+                $heap->{HashRef}->{$a}->{id} <=> $heap->{HashRef}->{$b}->{id}
+            }
+            keys %{ $heap->{HashRef} }
+          )
+        {
+            $self->Verbose(
+                "Trying to salvage event $heap->{HashRef}->{$id}->{id}\n");
+
+            # XXX should send it back to the server, that is the easiest
+        }
+        $kernel->delay( 'shutdown' => 10 );
     }
     else {
         $kernel->yield('shutdown');
     }
-
-    # Remove timers
-    for my $timer (
-        qw( update_bandwidth update_beam_status update_client_id should_get_work )
-      )
-    {
-        $kernel->delay($timer);
+    if ( $self->{Logger} ) {
+        $kernel->post( $self->{Logger}->{Name}, 'forceShutdown' );
     }
-    $kernel->alarm_remove_all();      # To be 200% sure
-    delete $self->{RetryInterval};    # Do not try to reconnect
+    if ( $kernel->alias_resolve($castor_alias) ) {
+        $kernel->alias_remove($castor_alias);
+    }
+}
+
+# Some terminal signal got received
+sub sig_abort {
+    my ( $self, $kernel, $heap, $signal ) = @_[ OBJECT, KERNEL, HEAP, ARG0 ];
+
+    $self->Verbose("Shutting down on signal SIG$signal.\n");
+    $kernel->yield('terminate');
     $kernel->sig_handled();
 }
 
@@ -120,10 +143,8 @@ sub start_task {
     my ( $heap, $self, $kernel ) = @_[ HEAP, ARG0, KERNEL ];
 
     # put some parameters on heap
-    $heap->{Node} = $self->{Node};
-
-    #initialize some parameters
-    $heap->{State} = 'Created';
+    $heap->{Node}  = $self->{Node};
+    $heap->{State} = 'Start';
 
     $kernel->yield('update_bandwidth'); # Calculate bandwidth usage every minute
     $kernel->yield('update_beam_status');    # Get beam status every minute
@@ -140,7 +161,7 @@ sub ReadConfig {
     my $file = $self->{Config};
 
     return unless $file;
-    $self->Quiet( "Reading configuration file ", $file );
+    $self->Quiet("Reading configuration file $file\n");
 
     my $n = $self->{Name};
     $n =~ s%Worker.*$%Manager%;
@@ -149,7 +170,7 @@ sub ReadConfig {
     $n =~ s%-.*$%%;
     T0::Util::ReadConfig( $self,, $n );
 
-    map { $self->{Channels}->{$_} = 1; } @{ $T0::System{Channels} };
+    $self->{Channels}->{$_} = 1 for @{ $T0::System{Channels} };
 }
 
 sub server_error { Print $hdr, " Server error\n"; }
@@ -159,10 +180,8 @@ sub _connection_error_handler { reroute_event( ( caller(0) )[3], @_ ); }
 sub connection_error_handler {
     my ( $self, $kernel ) = @_[ OBJECT, KERNEL ];
 
-    # return if $self->{OnError}(@_);
-
     my $retry = $self->{RetryInterval};
-    defined($retry) && $retry > 0 || return;
+    return unless $retry;
 
     if ( !$self->{Retries}++ ) {
         Print $hdr, " Connection retry every $retry seconds\n";
@@ -171,17 +190,12 @@ sub connection_error_handler {
 }
 
 sub send {
-    my ( $self, $heap, $ref ) = @_;
-    if ( !ref($ref) ) { $ref = \$ref; }
+    my ( $self, $kernel, $heap, $session, $hash_ref ) =
+      @_[ OBJECT, KERNEL, HEAP, SESSION, ARG0 ];
+    $hash_ref = \$hash_ref unless ref($hash_ref);
     if ( $heap->{connected} && $heap->{server} ) {
-        $heap->{server}->put($ref);
+        $heap->{server}->put($hash_ref);
     }
-}
-
-sub Log {
-    my $self   = shift;
-    my $logger = $self->{Logger};
-    $logger->Send(@_) if defined $logger;
 }
 
 sub prepare_work {
@@ -200,7 +214,7 @@ sub prepare_work {
     }
 
     # feed parameters into work hash
-    map { $work->{$_} = $dsparams->{$_} } keys %$dsparams;
+    @$work{ keys %$dsparams } = values %$dsparams;
 
     my ( $day, $month, $year ) = ( localtime(time) )[ 3, 4, 5 ];
     $month += 1;
@@ -274,20 +288,18 @@ sub server_input {
 
     my $command = $hash_ref->{command};
 
-    $self->Verbose("from server: $command\n");
+    $self->Quiet("from server: $command\n");
     if ( $command =~ m%Sleep% ) {
 
-        # ask again in how many seconds the server said
+        # ask again in as many seconds as the server said
         my $wait = $hash_ref->{wait} || 10;
-        $self->Verbose("Sleeping $wait seconds, as ordered\n");
+        $self->Quiet("Sleeping $wait seconds, as ordered\n");
         $kernel->delay( should_get_work => $wait );
         return;
     }
 
     if ( $command =~ m%DoThis% ) {
         $heap->{State} = 'Busy';
-
-        $heap->{HashRef} = $hash_ref;
 
         my $work = $hash_ref->{work};
 
@@ -298,32 +310,27 @@ sub server_input {
         my $sourcefile = $work->{PATHNAME} . '/' . $work->{FILENAME};
 
         # configuring target dir, pfn and lfn
-        prepare_work( $self, $work );
+        $self->prepare_work($work);
 
         # target file
         my $targetfile = $work->{PFN};
 
-        # mark start time
-        $heap->{WorkStarted} = time;
+        # Save things for completion, and remember start time
+        $heap->{HashRef}->{ $hash_ref->{id} } = $hash_ref;
+        $work->{WorkStarted} = time;
 
         # set DeleteBadFiles option
-        my $deletebadfiles;
-        if ( defined( $work->{DeleteBadFiles} ) ) {
-
-            # coming from work hash
-            $deletebadfiles = $work->{DeleteBadFiles};
-        }
-        else {
-
-            # coming from config file (default option)
-            $deletebadfiles = $self->{DeleteBadFiles};
-        }
+        my $deletebadfiles =
+          defined( $work->{DeleteBadFiles} )
+          ? $work->{DeleteBadFiles}
+          : $self->{DeleteBadFiles};
 
         my %rfcphash = (
             id               => $hash_ref->{id},
             svcclass         => $work->{SvcClass},
-            session          => $session,
+            session          => $self->{Name},
             callback         => 'copy_done',
+            max_workers      => $self->{MaxWorkers},
             timeout          => $work->{TimeOut},
             retries          => $work->{Retry},
             retry_backoff    => $work->{RetryBackoff},
@@ -331,17 +338,8 @@ sub server_input {
             files            => [],
         );
 
-        while ( my ( $key, $value ) = each( %{$work} ) ) {
-            if ( defined $value ) {
-                $self->Debug("$key => $value\n");
-            }
-        }
-
-        $self->Debug( "Copy "
-              . $hash_ref->{id}
-              . " added "
-              . basename($sourcefile)
-              . "\n" );
+        $self->Debug(
+            "Copy $hash_ref->{id} added " . to_json( \%rfcphash ) . "\n" );
 
         # check source file for existence and file size
         my $filesize = -s $sourcefile;
@@ -349,12 +347,12 @@ sub server_input {
             $self->Quiet(
 "Source file does not exist or does not match file size in notification\n"
             );
-            $heap->{HashRef}->{status} = -1;
+            $hash_ref->{status} = -1;
             $kernel->yield('job_done');
             return;
         }
 
-        $self->Debug( "Copy " . $hash_ref->{id} . " started\n" );
+        $self->Verbose("Copy $hash_ref->{id} queued\n");
 
         push @{ $rfcphash{files} },
           {
@@ -365,68 +363,62 @@ sub server_input {
             size     => $filesize,
           };
 
-        T0::Castor::Rfcp->new( \%rfcphash );
-
+        T0::Castor->new( \%rfcphash );
+        $kernel->yield('should_get_work');
         return;
     }
 
     if ( $command =~ m%Setup% ) {
-        $self->Quiet("Got $command...\n");
         my $setup = $hash_ref->{setup};
-        $self->{Debug} && dump_ref($setup);
-        map { $self->{$_} = $setup->{$_} } keys %$setup;
-
-        if ( $heap->{State} eq 'Idle' ) {
-            $kernel->yield('should_get_work');
-        }
+        $self->Verbose( "Setup: " . strhash($setup) . "\n" );
+        @$self{ keys %$setup } = values %$setup;
+        T0::Castor->new( { max_workers => $self->{MaxWorkers} } );
+        $kernel->yield('should_get_work');
         return;
     }
 
     if ( $command =~ m%Start% ) {
-        $self->Quiet("Got $command...\n");
-        if ( $heap->{State} eq 'Created' ) {
-            $heap->{State} = 'Idle';
-            $kernel->yield('should_get_work');
-        }
+        $kernel->yield('should_get_work');
         return;
     }
 
     if ( $command =~ m%Stop% ) {
-        $self->Quiet("Got $command...\n");
         $heap->{State} = 'Stop';
+        $kernel->yield('sig_abort');
         return;
     }
 
     if ( $command =~ m%Quit% ) {
-        $self->Quiet("Got $command...\n");
-        $heap->{State} = 'Quit';
-        $kernel->yield('shutdown');
+        $heap->{State} = 'Stop';
+        $kernel->yield('should_get_work');
         return;
     }
 
-    if ( $command =~ m/SetID/ ) {
+    if ( $command =~ m%SetID% ) {
         my $clientID = $hash_ref->{clientID};
-        $self->Verbose("Got $command = $clientID\n");
+        $self->Debug("Got $command = $clientID\n");
         $heap->{clientID} = $clientID;
         $kernel->delay( update_client_id => 300 );   # Update ID every 5 minutes
         return;
     }
 
     Print "Error: unrecognised input from server! \"$command\"\n";
-    $kernel->yield('shutdown');
+    $kernel->yield('sig_abort');
 }
 
 sub _connected { reroute_event( ( caller(0) )[3], @_ ); }
 
 sub connected {
     my ( $self, $heap, $kernel, $hash_ref ) = @_[ OBJECT, HEAP, KERNEL, ARG0 ];
-    $self->Debug("handle_connect: from server: $hash_ref\n");
-    my %text = (
-        'command'  => 'HelloFrom',
-        'client'   => $self->{Name},
-        'hostname' => $self->{Host},
+    use Data::Dumper;
+    $self->Debug( "handle_connect: from server: " . Dumper($hash_ref) . "\n" );
+    $kernel->yield(
+        send => {
+            'command'  => 'HelloFrom',
+            'client'   => $self->{Name},
+            'hostname' => $self->{Host},
+        }
     );
-    $self->send( $heap, \%text );
 }
 
 # Make client socket keepalive, so OS will detect dead peers automatically
@@ -443,23 +435,22 @@ sub should_get_work {
     my ( $self, $kernel, $session, $heap, $hash_ref ) =
       @_[ OBJECT, KERNEL, SESSION, HEAP, ARG0 ];
 
+    # Check if we're shutting down
+    if ( $heap->{State} eq 'Stop' ) {
+        $kernel->yield('sig_abort');
+        return;
+    }
+
     my $delay        = 60;
     my $minWorkers   = $self->{MinWorkers} || 3;
     my $maxWorkers   = $self->{MaxWorkers} || 99;
     my $extraWorkers = $self->{ExtraWorkers} || 0;
     my $id           = $kernel->call( $session, 'get_client_id' );
 
-    # Check if we're shutting down
-    if ( $heap->{State} eq 'Stop' ) {
-        $kernel->yield('shutdown');
-        return;
-    }
-
     # Check we got a proper ID, otherwise sleep, hoping we'll get a better one
     if ( $id < 1 or $id > 100 ) {
         $self->Verbose(
-"WARNING: Got $id as id, not within 1..100! Retrying in $delay seconds\n"
-        );
+            "WARNING: Got bad $id as id! Retrying in $delay seconds\n");
         $kernel->delay( should_get_work => $delay );
         return;
     }
@@ -550,7 +541,7 @@ sub update_beam_status {
                     "$_ => '"
                   . ( defined $heap->{lhc}->{$_} ? $heap->{lhc}->{$_} : '' )
                   . "'"
-              } @lhc_modes
+            } @lhc_modes
         ),
         "\n"
     );
@@ -641,11 +632,12 @@ sub update_bandwidth {
 sub update_client_id {
     my ( $self, $kernel, $heap ) = @_[ OBJECT, KERNEL, HEAP ];
 
-    my $text = {
-        'command' => 'GetID',
-        'client'  => $self->{Name},
-    };
-    $self->send( $heap, $text );
+    $kernel->yield(
+        send => {
+            'command' => 'GetID',
+            'client'  => $self->{Name},
+        }
+    );
     $kernel->delay( update_client_id => 300 );    # Update ID every 5 minutes
 }
 
@@ -661,78 +653,80 @@ sub get_client_id {
 }
 
 sub get_client_work {
-    my ( $self, $heap ) = @_[ OBJECT, HEAP ];
+    my ( $self, $heap, $kernel ) = @_[ OBJECT, HEAP, KERNEL ];
 
     $heap->{WorkRequested} = time;
 
-    $self->send(
-        $heap,
-        {
-            'command' => 'SendClientWork',
-            'client'  => $self->{Name},
+    $kernel->yield(
+        send => {
+            command => 'SendClientWork',
+            client  => $self->{Name},
         }
     );
 }
 
 sub get_work {
-    my ( $self, $heap ) = @_[ OBJECT, HEAP ];
+    my ( $self, $heap, $kernel ) = @_[ OBJECT, HEAP, KERNEL ];
 
     $heap->{WorkRequested} = time;
 
-    my %text = (
-        'command' => 'SendWork',
-        'client'  => $self->{Name},
+    $kernel->yield(
+        send => {
+            command => 'SendWork',
+            client  => $self->{Name},
+        }
     );
-    $self->send( $heap, \%text );
 }
 
 sub copy_done {
     my ( $self, $kernel, $heap, $hash_ref ) = @_[ OBJECT, KERNEL, HEAP, ARG0 ];
 
-    foreach my $file ( @{ $hash_ref->{files} } ) {
-        if ( $file->{status} != 0 ) {
+    $self->Verbose("Copy $hash_ref->{id} finished\n");
+    if ( $hash_ref->{status} ) {
+        for my $file ( @{ $hash_ref->{files} } ) {
             $self->Debug( "rfcp "
                   . $file->{source} . " "
                   . $file->{target}
                   . " returned "
-                  . $file->{status}
+                  . $hash_ref->{status}
                   . "\n" );
-            $heap->{HashRef}->{status} = $file->{status};
-            last;
         }
     }
 
-    $kernel->yield('job_done');
+    $kernel->yield( 'job_done' => $hash_ref->{id} );
 }
 
 sub job_done {
-    my ( $self, $heap, $kernel ) = @_[ OBJECT, HEAP, KERNEL ];
+    my ( $self, $heap, $kernel, $id ) = @_[ OBJECT, HEAP, KERNEL, ARG0 ];
 
-    if ( $heap->{HashRef}->{status} == 0 ) {
-        $self->Verbose( "Copy " . $heap->{HashRef}->{id} . " succeeded\n" );
+    my $hash_ref = delete $heap->{HashRef}->{$id};
+    return unless $hash_ref;
+
+    my $queue_size  = keys %{ $heap->{HashRef} };
+    my $queue_state = $queue_size ? ", still $queue_size to do" : '';
+    my $status      = 'failed';
+    if ( $hash_ref->{status} == 0 ) {
+        $status = 'succeeded';
 
         # record copy time
-        $heap->{HashRef}->{time} = time - $heap->{WorkStarted};
+        $hash_ref->{time} = time - $hash_ref->{work}->{WorkStarted};
     }
-    else {
-        $self->Verbose( "Copy " . $heap->{HashRef}->{id} . " failed\n" );
-    }
+    $self->Verbose("Copy $id $status$queue_state\n");
 
     # send report back to manager
-    $heap->{HashRef}->{command} = 'JobDone';
-    $self->send( $heap, $heap->{HashRef} );
+    $hash_ref->{client}  = $self->{Name};
+    $hash_ref->{command} = 'JobDone';
+    $kernel->yield( send => $hash_ref );
 
-    if ( ( $heap->{State} eq 'Busy' ) ) {
-        $heap->{State} = 'Idle';
-        $kernel->yield('should_get_work');
-    }
-    else {
+    # And request more work
+    $kernel->yield('should_get_work');
+}
 
-        # This needs revising, as it will not wait for all Wheels to finish
-        Print "Shutting down...\n";
-        $kernel->yield('shutdown');
-        exit;
-    }
+sub handle_default {
+    my ( $self, $kernel, $event, $args ) = @_[ OBJECT, KERNEL, ARG0, ARG1 ];
+    $self->Verbose( "WARNING: Session "
+          . $_[SESSION]->ID
+          . " caught unhandled event $event with (@$args).\n" );
 }
 
 1;

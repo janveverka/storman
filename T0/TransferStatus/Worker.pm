@@ -1,7 +1,7 @@
+package T0::TransferStatus::Worker;
 use strict;
 use warnings;
 
-package T0::TransferStatus::Worker;
 use POE;
 use POE::Filter::Reference;
 use POE::Component::Client::TCP;
@@ -373,7 +373,8 @@ sub server_input {
                         }
                     }
                 }
-                $heap->{StoredProc}->{inserted} = { }; # Insertion has no stored proc
+                $heap->{StoredProc}->{inserted} =
+                  {};    # Insertion has no stored proc
             }
 
             if ( $heap->{DatabaseHandle} ) {
@@ -499,7 +500,7 @@ sub server_input {
                                     each %$stored_proc_hashref )
                                 {
                                     eval {
-                                          $stored_proc->execute(
+                                        $stored_proc->execute(
                                             $fileList->[$tuple] );
                                     };
                                 }
@@ -579,10 +580,10 @@ sub server_input {
     }
 
     if ( $command =~ m%Setup% ) {
-        $heap->{Self}->Quiet("Got $command...\n");
+        $self->Quiet("Got $command...\n");
         my $setup = $hash_ref->{setup};
-        $heap->{Self}->{Debug} && dump_ref($setup);
-        map { $self->{$_} = $setup->{$_} } keys %$setup;
+        $self->Debug( "Setup: " . strhash($setup) . "\n" );
+        @$self{ keys %$setup } = values %$setup;
 
         if ( $heap->{State} eq 'Running' ) {
             $kernel->yield('get_work');
