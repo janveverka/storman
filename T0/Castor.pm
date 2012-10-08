@@ -144,8 +144,14 @@ sub add_copy {
         # ensure default values for some parameters
         for my $param (qw( id retries retry_backoff timeout )) {
             $filehash{$param} =
-              exists $hash_ref->{$param}
-              ? $hash_ref->{$param}
+                exists $hash_ref->{$param}
+              ? ref( $hash_ref->{$param} )
+                  ? ref( $hash_ref->{$param} ) eq 'ARRAY'
+                      ? [ @{ $hash_ref->{$param} } ]
+                      : ref( $hash_ref->{$param} ) eq 'HASH'
+                      ? { %{ $hash_ref->{$param} } }
+                      : $hash_ref->{$param}
+                  : $hash_ref->{$param}
               : 0
               unless defined $filehash{$param};
         }
@@ -588,7 +594,15 @@ sub rfcp_retry_handler {
         );
         $arg->{retries}--;
 
-        $kernel->delay_set( 'start_wheel' => $backoff_time, $arg, $task_id );
+        if ($backoff_time) {
+            $kernel->delay_set(
+                'start_wheel' => $backoff_time,
+                $arg, $task_id
+            );
+        }
+        else {
+            $kernel->yield( 'start_wheel' => $arg, $task_id );
+        }
     }
     else {    # No more retries
         $heap->{Self}

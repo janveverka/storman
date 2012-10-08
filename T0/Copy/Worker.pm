@@ -9,9 +9,8 @@ use T0::Util;
 use T0::Castor;
 use LWP::Simple;
 use Socket;
-use JSON qw( to_json );
-
 use Carp;
+
 our $VERSION = 1.00;
 our @ISA     = qw/ Exporter /;
 
@@ -315,9 +314,26 @@ sub server_input {
         # target file
         my $targetfile = $work->{PFN};
 
+        # Remove previous queued copies of the same file + same destination
+        if (   exists $heap->{FileList}->{$sourcefile}
+            && exists $heap->{FileList}->{$sourcefile}->{$targetfile} )
+        {
+            my $id = $heap->{FileList}->{$sourcefile}->{$targetfile};
+            if ( $kernel->alias_resolve($castor_alias) ) {
+                if ( $kernel->call( $castor_alias, 'remove_task' => $id ) ) {
+
+                    # Task was successfully removed from the Castor list
+                    delete $heap->{HashRef}->{$id};
+                }
+
+            }
+
+        }
+
         # Save things for completion, and remember start time
-        $heap->{HashRef}->{ $hash_ref->{id} } = $hash_ref;
-        $work->{WorkStarted} = time;
+        $heap->{HashRef}->{ $hash_ref->{id} }           = $hash_ref;
+        $heap->{FileList}->{$sourcefile}->{$targetfile} = $hash_ref->{id};
+        $work->{WorkStarted}                            = time;
 
         # set DeleteBadFiles option
         my $deletebadfiles =
@@ -338,8 +354,7 @@ sub server_input {
             files            => [],
         );
 
-        $self->Debug(
-            "Copy $hash_ref->{id} added " . to_json( \%rfcphash ) . "\n" );
+        $self->Debug("Copy $hash_ref->{id} added for $sourcefile\n");
 
         # check source file for existence and file size
         my $filesize = -s $sourcefile;
@@ -352,7 +367,7 @@ sub server_input {
             return;
         }
 
-        $self->Verbose("Copy $hash_ref->{id} queued\n");
+        $self->Verbose("Copy $hash_ref->{id} queued ($sourcefile)\n");
 
         push @{ $rfcphash{files} },
           {
