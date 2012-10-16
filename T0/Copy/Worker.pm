@@ -93,6 +93,9 @@ sub new {
 sub terminate {
     my ( $self, $kernel, $heap ) = @_[ OBJECT, KERNEL, HEAP ];
 
+    # Do not start anything new
+    $heap->{State} = 'Stop';
+
     # Remove timers
     my @removed_alarms = $kernel->alarm_remove_all();
     foreach my $alarm (@removed_alarms) {
@@ -125,7 +128,9 @@ sub terminate {
         $kernel->post( $self->{Logger}->{Name}, 'forceShutdown' );
     }
     if ( $kernel->alias_resolve($castor_alias) ) {
-        $kernel->alias_remove($castor_alias);
+        $kernel->post( $castor_alias, 'terminate' );
+
+        #$kernel->alias_remove($castor_alias);
     }
 }
 
@@ -470,6 +475,17 @@ sub should_get_work {
         return;
     }
 
+    my $queue_size = keys %{ $heap->{HashRef} };
+    my $max_queue_size = $self->{MaxQueueSize} || 100;
+
+    if ( $queue_size >= $max_queue_size ) {
+        my $backoff = $self->{MaxQueueBackOff} || 300;
+        $self->Verbose( "Queue is too big ($queue_size >= $max_queue_size),"
+              . " sleeping $backoff\n" );
+        $kernel->delay( should_get_work => $backoff );
+        return;
+    }
+
     # If our ID is less than the minimum number of workers, request work
     if ( $id <= $minWorkers ) {
         $kernel->yield('get_work');
@@ -697,14 +713,17 @@ sub copy_done {
     my ( $self, $kernel, $heap, $hash_ref ) = @_[ OBJECT, KERNEL, HEAP, ARG0 ];
 
     $self->Verbose("Copy $hash_ref->{id} finished\n");
-    if ( $hash_ref->{status} ) {
-        for my $file ( @{ $hash_ref->{files} } ) {
+    for my $file ( @{ $hash_ref->{files} } ) {
+        delete $heap->{FileList}->{ $file->{source} }->{ $file->{target} };
+        if ( $hash_ref->{status} ) {
             $self->Debug( "rfcp "
                   . $file->{source} . " "
                   . $file->{target}
                   . " returned "
                   . $hash_ref->{status}
                   . "\n" );
+            $heap->{HashRef}->{ $hash_ref->{id} }->{status} =
+              $hash_ref->{status};
         }
     }
 
@@ -739,9 +758,9 @@ sub job_done {
 
 sub handle_default {
     my ( $self, $kernel, $event, $args ) = @_[ OBJECT, KERNEL, ARG0, ARG1 ];
-    $self->Verbose( "WARNING: Session "
+    Croak(  "WARNING: Session "
           . $_[SESSION]->ID
-          . " caught unhandled event $event with (@$args).\n" );
+          . " caught unhandled event $event with (@$args)." );
 }
 
 1;

@@ -95,6 +95,7 @@ sub new {
                 start_wheel         => \&start_wheel,
                 monitor_task        => \&monitor_task,
                 cleanup_task        => \&cleanup_task,
+                remove_task         => \&remove_task,
                 exit_handler        => \&exit_handler,
                 check_target_exists => \&check_target_exists,
                 retry_handler       => \&retry_handler,
@@ -104,7 +105,8 @@ sub new {
                 got_sigchld         => \&got_sigchld,
                 rfcp_exit_handler   => \&rfcp_exit_handler,
                 rfcp_retry_handler  => \&rfcp_retry_handler,
-                _stop               => sub { },
+                terminate           => \&terminate,
+                _stop               => \&terminate,
                 _default            => \&handle_default,
             },
             args => [ $hash_ref, $self ],
@@ -125,6 +127,12 @@ sub start {
     $kernel->sig( CHLD => "got_sigchld" );
 
     $kernel->yield( 'add_copy' => $hash_ref );
+}
+
+# Do a clean shutdown, so stop starting wheels
+sub terminate {
+    my ( $kernel, $heap ) = @_[ KERNEL, HEAP ];
+    $heap->{Shutdown} = 1;
 }
 
 # Splits input copies into individual tasks, one per file
@@ -184,6 +192,12 @@ sub add_task {
     $kernel->yield('next_task');
 }
 
+# Remove a task, when the file has already been queued
+sub remove_task {
+    my ( $kernel, $heap, $id ) = @_[ KERNEL, HEAP, ARG0 ];
+    $heap->{task_list} = [ grep { $_->{id} != $id } @{ $heap->{task_list} } ];
+}
+
 # Creates a new wheel to start the copy
 sub next_task {
     my ( $kernel, $heap ) = @_[ KERNEL, HEAP ];
@@ -199,6 +213,17 @@ sub next_task {
 sub start_wheel {
     my ( $kernel, $heap, $arg, $task_id ) = @_[ KERNEL, HEAP, ARG0, ARG1 ];
 
+    if ( $heap->{Shutdown} ) {
+        if ( my $count = keys %{ $heap->{task} } ) {
+            $heap->{Self}->Quiet(
+                "Shutting down, but still $count
+            task" . ( $count > 1 ? 's' : '' ) . " left.\n"
+            );
+        }
+        else {
+            $kernel->yield("shutdown");
+        }
+    }
     delete $heap->{task}->{$task_id} if $task_id;    # Remove old ID upon retry
 
     my $task = POE::Wheel::Run->new(
@@ -250,18 +275,23 @@ sub monitor_task {
       @_[ KERNEL, HEAP, ARG0, ARG1 ];
 
     if ( exists $heap->{task}->{$task_id} ) {
-        my $task = $heap->{task}->{$task_id};
-        my $arg  = $heap->{arg}->{$task_id};
+        my $task   = $heap->{task}->{$task_id};
+        my $arg    = $heap->{arg}->{$task_id};
+        my $header = $arg->{header};
 
         delete $arg->{alarm_id};
 
         if ($force_kill) {
+            $heap->{Self}->Quiet(
+                "$header Rfcp of $arg->{source} timed out: force killing!\n");
             $task->kill(9);
 
             # cleanup task if it doesn't exit after another 10 seconds
             $kernel->delay_set( 'rfcp_exit_handler' => 10, $task_id, -1 );
         }
         else {
+            $heap->{Self}
+              ->Quiet("$header Rfcp of $arg->{source} timed out: killing!\n");
             $task->kill();
 
             # 10 seconds should be enough for task to exit
@@ -415,12 +445,12 @@ sub rfcp_copy_with_checksum_and_check {
                           \d+\s+      # refcount
                           \S+\s+      # owner
                           \S+\s+      # group
-                          (\d+)\s+    # size ($1)
+                          (\d+)\s+    # size     (captured)
                           \S+\s+      # month
                           \d+\s+      # day of the month
                           \S+\s+      # time
                           AD\s+       # Adler32 checksum
-                          (\w+)\s+    # checksum
+                          (\w+)\s+    # checksum (captured)
                           \S+         # filename
                           $/x;
 
@@ -455,7 +485,8 @@ sub exit_if_error {
     }
     return $output unless $exitcode;
 
-    print STDERR "@_ died with exit status $exitcode\n";
+    print STDERR @_,
+      "died with exit status $exitcode (" . ( $exitcode >> 8 ) . ")\n";
 
     # First 8 bits of exitcode report startup failures
     # Next ones report actual return code
@@ -614,9 +645,9 @@ sub rfcp_retry_handler {
 # Do something with all POE events which are not caught
 sub handle_default {
     my ( $kernel, $event, $args ) = @_[ KERNEL, ARG0, ARG1 ];
-    print STDERR "WARNING: Session "
-      . $_[SESSION]->ID
-      . " caught unhandled event $event with (@$args).";
+    Croak(  "WARNING: Session "
+          . $_[SESSION]->ID
+          . " caught unhandled event $event with (@$args)." );
 }
 
 1;
