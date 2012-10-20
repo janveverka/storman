@@ -416,7 +416,10 @@ sub server_input {
 
     if ( $command =~ m%SetID% ) {
         my $clientID = $hash_ref->{clientID};
-        $self->Debug("Got $command = $clientID\n");
+        my $tasks    = keys %{ $heap->{FileList} };
+        my $message =
+          $tasks ? ", $tasks task" . ( $tasks > 1 ? 's' : '' ) . ' known' : '';
+        $self->Debug("Got $command = $clientID$message\n");
         $heap->{clientID} = $clientID;
         $kernel->delay( update_client_id => 300 );   # Update ID every 5 minutes
         return;
@@ -715,6 +718,8 @@ sub copy_done {
     $self->Verbose("Copy $hash_ref->{id} finished\n");
     for my $file ( @{ $hash_ref->{files} } ) {
         delete $heap->{FileList}->{ $file->{source} }->{ $file->{target} };
+        delete $heap->{FileList}->{ $file->{source} }
+          if !keys %{ $heap->{FileList}->{ $file->{source} } };
         if ( $hash_ref->{status} ) {
             $self->Debug( "rfcp "
                   . $file->{source} . " "
