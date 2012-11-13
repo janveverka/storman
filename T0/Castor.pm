@@ -215,10 +215,9 @@ sub start_wheel {
 
     if ( $heap->{Shutdown} ) {
         if ( my $count = keys %{ $heap->{task} } ) {
-            $heap->{Self}->Quiet(
-                "Shutting down, but still $count
-            task" . ( $count > 1 ? 's' : '' ) . " left.\n"
-            );
+            $heap->{Self}->Quiet( "Shutting down, but still $count task"
+                  . ( $count > 1 ? 's' : '' )
+                  . " left.\n" );
         }
         else {
             $kernel->yield("shutdown");
@@ -340,7 +339,7 @@ sub got_sigchld {
 
     if ( my $task_id = delete $heap->{pid}->{$child_pid} ) {
         if ( exists $heap->{task}->{$task_id} ) {
-            $kernel->yield( 'rfcp_exit_handler', $task_id, $status );
+            $kernel->yield( 'rfcp_exit_handler', $task_id, $status >> 8 );
         }
         $kernel->sig_handled;
     }
