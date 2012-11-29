@@ -10,6 +10,8 @@ use T0::Castor;
 use LWP::Simple;
 use Socket;
 use Carp;
+use Devel::Size qw( total_size  );
+$Devel::Size::warn = 0;
 
 our $VERSION = 1.00;
 our @ISA     = qw/ Exporter /;
@@ -138,7 +140,8 @@ sub terminate {
 sub sig_abort {
     my ( $self, $kernel, $heap, $signal ) = @_[ OBJECT, KERNEL, HEAP, ARG0 ];
 
-    $self->Verbose("Shutting down on signal SIG$signal.\n");
+    $self->Verbose(
+        "Shutting down" . ( $signal ? " on signal SIG$signal" : '' ) . ".\n " );
     $kernel->yield('terminate');
     $kernel->sig_handled();
 }
@@ -364,11 +367,11 @@ sub server_input {
         # check source file for existence and file size
         my $filesize = -s $sourcefile;
         if ( !-f _ || ( $work->{FILESIZE} != $filesize ) ) {
-            $self->Quiet(
+            $self->Verbose(
 "Source file does not exist or does not match file size in notification\n"
             );
             $hash_ref->{status} = -1;
-            $kernel->yield('job_done');
+            $kernel->yield( 'job_done' => $hash_ref->{id} );
             return;
         }
 
@@ -483,7 +486,7 @@ sub should_get_work {
 
     if ( $queue_size >= $max_queue_size ) {
         my $backoff = $self->{MaxQueueBackOff} || 300;
-        $self->Verbose( "Queue is too big ($queue_size >= $max_queue_size),"
+        $self->Quiet( "Queue is too big ($queue_size >= $max_queue_size),"
               . " sleeping $backoff\n" );
         $kernel->delay( should_get_work => $backoff );
         return;
@@ -558,7 +561,7 @@ sub update_beam_status {
     my $content = get $level0_url;
     my %level0;
     if ( !defined $content ) {
-        $self->Quiet(
+        $self->Verbose(
             "Could not get beam status from Level-0. Probably not running.");
     }
     else {
@@ -568,7 +571,9 @@ sub update_beam_status {
     }
     my @lhc_modes = qw( MACHINE_MODE BEAM_MODE CLOCK_STABLE );
     $heap->{lhc}->{$_} = $level0{ 'LHC_' . $_ } for @lhc_modes;
-    $self->Debug(
+    my @displaySize = grep { !/^\// } ( main => keys %INC );
+    @displaySize = map { s/\.pm$//; s#/#::#g; $_ } @displaySize;
+    $self->Verbose(
         'LHC status: ' . join(
             ', ',
             map {
@@ -577,6 +582,16 @@ sub update_beam_status {
                   . "'"
             } @lhc_modes
         ),
+        "\n"
+    );
+    $self->Verbose(
+        'Sizes: '
+          . join( ", ",
+            map( { "$_: " . total_size( eval "\*${_}::" ) } @displaySize ),
+            "heap: " . total_size($heap),
+            "self: " . total_size($self),
+            "kernel: " . total_size($kernel),
+          ),
         "\n"
     );
     $kernel->delay( update_beam_status => 60 );
