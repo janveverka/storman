@@ -484,8 +484,8 @@ sub exit_if_error {
     }
     return $output unless $exitcode;
 
-    print STDERR @_,
-      "died with exit status $exitcode (" . ( $exitcode >> 8 ) . ")\n";
+    print STDERR join( ' ',
+        @_, "died with exit status $exitcode (" . ( $exitcode >> 8 ) . ")\n" );
 
     # First 8 bits of exitcode report startup failures
     # Next ones report actual return code
