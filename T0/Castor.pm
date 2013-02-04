@@ -379,6 +379,7 @@ sub rfcp_exit_handler {
             if ( $file_status != 0 ) {
                 $heap->{Self}->Quiet(
                     "$header Source file $arg->{source} does not exist\n");
+                $kernel->yield( 'cleanup_task' => $task_id );
             }
 
             # Source exists
