@@ -2,11 +2,12 @@
 The CMS Storage Manager Transfer System.
 
 ## History
-These Perl modules were imported from the retired CVS
+The Perl modules in perl_lib were imported from the retired CVS
 repository [1] on 18 March 2014.  Originally, they used to live at [2]
 and were archived at [3].
 
-They were imported using the cvs2git bundled with CMSSW_6_2_7_patch1:
+They were imported using cvs2git bundled with CMSSW_6_2_7_patch1 using these
+commands:
 
     MY_GITHUB_USER=`git config --get user.github`
     MY_REMOTE=git@github.com:$MY_GITHUB_USER/storman.git
