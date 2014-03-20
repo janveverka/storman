@@ -24,7 +24,7 @@ I exclude the following RPMs, which seem to be all more admin-related:
     cms_sm_storagemanager
 
 ## cms_sm_copymanager
-Goes to /opt/copymanger.
+Goes to /opt/copymanger, COMP/T0 gets stripped.
 
     cvs.web.cern.ch/cvs/cgi-bin/viewcvs.cgi/
       COMP/T0/perl_lib/T0/Copy/Manager.pm
