@@ -2,6 +2,7 @@
 
 This list is extracted from /nfshome0/gdarlea/CMSSYSADMIN/storman/trunk.  This
 area is used to build the RPMs of the Transfer System.  These RPMs are:
+
     cms_sm_copymanager
     cms_sm_copyworker
     cms_sm_injectworker
@@ -16,6 +17,7 @@ is the list of these locations, seperately for each RPM.  It was extracted
 from the corresponding mkrpm.sh files.
 
 I exclude the following RPMs, which seem to be all more admin-related:
+
     cms_sm_multipath_conf
     cms_sm_nagios_plugins
     cms_sm_net_conf
@@ -26,14 +28,14 @@ Goes to /opt/copymanger.
 
    * cvs.web.cern.ch/cvs/cgi-bin/viewcvs.cgi/
    
-      COMP/T0/perl_lib/T0/Copy/Manager.pm
-      COMP/T0/perl_lib/T0/Logger/
-      COMP/T0/perl_lib/T0/Util.pm
-      COMP/T0/perl_lib/T0/TransferStatus
-      COMP/T0/perl_lib/T0/FileWatcher.pm
-      COMP/T0/src/Logger
-      COMP/T0/src/CopyManager/CopyManager.pl
-      COMP/T0/src/TransferStatusManager
+    COMP/T0/perl_lib/T0/Copy/Manager.pm
+    COMP/T0/perl_lib/T0/Logger/
+    COMP/T0/perl_lib/T0/Util.pm
+    COMP/T0/perl_lib/T0/TransferStatus
+    COMP/T0/perl_lib/T0/FileWatcher.pm
+    COMP/T0/src/Logger
+    COMP/T0/src/CopyManager/CopyManager.pl
+    COMP/T0/src/TransferStatusManager
       
    * /nfshome0/cmsprod/TransferTest/
    
