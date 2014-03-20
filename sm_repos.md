@@ -26,28 +26,23 @@ I exclude the following RPMs, which seem to be all more admin-related:
 ## cms_sm_copymanager
 Goes to /opt/copymanger.
 
-   * cvs.web.cern.ch/cvs/cgi-bin/viewcvs.cgi/
-   
-    COMP/T0/perl_lib/T0/Copy/Manager.pm
-    COMP/T0/perl_lib/T0/Logger/
-    COMP/T0/perl_lib/T0/Util.pm
-    COMP/T0/perl_lib/T0/TransferStatus
-    COMP/T0/perl_lib/T0/FileWatcher.pm
-    COMP/T0/src/Logger
-    COMP/T0/src/CopyManager/CopyManager.pl
-    COMP/T0/src/TransferStatusManager
-      
-   * /nfshome0/cmsprod/TransferTest/
-   
+    cvs.web.cern.ch/cvs/cgi-bin/viewcvs.cgi/
+      COMP/T0/perl_lib/T0/Copy/Manager.pm
+      COMP/T0/perl_lib/T0/Logger/
+      COMP/T0/perl_lib/T0/Util.pm
+      COMP/T0/perl_lib/T0/TransferStatus
+      COMP/T0/perl_lib/T0/FileWatcher.pm
+      COMP/T0/src/Logger
+      COMP/T0/src/CopyManager/CopyManager.pl
+      COMP/T0/src/TransferStatusManager
+    /nfshome0/cmsprod/TransferTest/
       ApMon_perl-2.2.6/ApMon/ApMon.pm
       ApMon_perl-2.2.6/ApMon/ApMon/
       perl/HiRes.pm
       perl/POE.pm
       perl/POE/
       perl/XML/
-      
-   * https://git.cern.ch/web/CMS-SMTransfer.git/ (?)
-   
+    https://git.cern.ch/web/CMS-SMTransfer.git/ (?)
       storman/cms_sm_copymanager/Curses.pm
 
 ## cms_sm_copyworker
