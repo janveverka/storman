@@ -9,7 +9,7 @@ use strict;
 use warnings;
 package T0::Castor::RfstatHelper;
 use T0::Util;
-use T0::Castor::RfstatLite;
+use T0::Castor::XrdStatLite;
 
 our (@ISA, @EXPORT, @EXPORT_OK, %EXPORT_TAGS, $VERSION);
 
@@ -60,22 +60,22 @@ sub checkDirExists {
   my ( $status, $stats_number, $stats_fields, $stats_data ) = 
     T0::Castor::RfstatLite->new( $pfn, 5, 2 );
 
-  # The target doesn't exists.
+  # Target does not exist
   if ( $status != 0 )
     {
       return 1;
     }
   else
     {
-      # The targetdir is not a dir. Stop the iteration
-      if($stats_data->{'Protection'} =~ /^[^d]/ )
-	{
-	  return 2;
-	}
       # Target exists and it is a directory
-      else
+      if ( $stats_data->{'Flags'} =~ /.*IsDir.*/ )
 	{
 	  return 0;
+	}
+      # Target exists and it is not a directory
+      else
+	{
+	  return 2;
 	}
     }
 }
@@ -92,22 +92,22 @@ sub getFileSize {
 
   if ( !defined($retries)){
     ( $status, $stats_number, $stats_fields, $stats_data ) = 
-      T0::Castor::RfstatLite->new( $pfn, 5 );
+      T0::Castor::XrdStatLite->new( $pfn, 5 );
   }
   elsif ( !defined($retries_backoff)){
     ( $status, $stats_number, $stats_fields, $stats_data ) = 
-      T0::Castor::RfstatLite->new( $pfn, $retries );
+      T0::Castor::XrdStatLite->new( $pfn, $retries );
   }
   else {
     ( $status, $stats_number, $stats_fields, $stats_data ) = 
-      T0::Castor::RfstatLite->new( $pfn, $retries, $retries_backoff );
+      T0::Castor::XrdStatLite->new( $pfn, $retries, $retries_backoff );
   }
 
   if ( $status != 0 ) {
     return -1;
   }
   else{
-    return $stats_data->{'Size (bytes)'};
+    return $stats_data->{'Size'};
   }
 }
 
