@@ -1,0 +1,67 @@
+# -*-Shell-script-*-
+#
+# functions-storagemanager	This file contains functions to be used
+#				by all storage manager shell scripts in
+#				the /etc/init.d directory.
+
+# Source function library.
+if [ -f /etc/init.d/functions ]; then
+    . /etc/init.d/functions
+elif [ -f /etc/rc.d/init.d/functions ] ; then
+    . /etc/rc.d/init.d/functions
+else
+    exit 0
+fi
+
+# Find out the setup_sm.sh script which does the job
+sets=~smpro/scripts/setup_sm.sh
+if [ ! -x $sets ]; then
+    sets=/opt/smops/setup_sm.sh
+fi
+if [ ! -x $sets ]; then
+    failure $"$prog: No suitable setup_sm.sh script found. Aborting."
+fi
+
+storagemanager_start () {
+    if [ -f /var/lock/subsys/$prog ]; then
+	failure $"$prog is already running"
+	return 1
+    fi
+    if action $"Starting $prog:" $sets "start$1"; then
+        touch /var/lock/subsys/$prog
+	return 0
+    fi
+    return 1
+}
+
+storagemanager_stop () {
+    action $"Stopping $prog:" $sets "stop$1"
+    rm -f /var/lock/subsys/$prog
+}
+
+storagemanager_status () {
+    if [ "$1" = "-q" ]; then
+        $sets "status$2" >/dev/null
+    elif [ "$1" = "-n" ]; then
+        if $sets "status$2" >/dev/null; then
+            return 1
+        fi
+        return 0
+    else
+        $sets "status$1"
+    fi
+}
+
+storagemanager_check () {
+    if [ -f /var/lock/subsys/$prog ]; then
+        if ! action "$(date '+%Y-%m-%d %H:%M:%S '$prog' running')" storagemanager_status -q $1; then
+            date "+%Y-%m-%d %H:%M:%S $1 should be running, restarting"
+            restart
+        fi
+    else
+        if ! action "$(date '+%Y-%m-%d %H:%M:%S '$prog' stopped')" storagemanager_status -n $1; then
+            date "+%Y-%m-%d %H:%M:%S $1 should be stopped, stopping"
+            stop
+        fi
+    fi
+}
